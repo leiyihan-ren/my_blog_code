@@ -51,6 +51,9 @@
       --warning-text: #92400e;
       --radius-pill: 999px;
       --primary-disabled: #a5b4fc;
+
+      --ease: cubic-bezier(0.4, 0, 0.2, 1);
+      --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
     }
     body.dark {
       --bg: #0f0f1a;
@@ -80,7 +83,7 @@
       background: var(--bg);
       color: var(--text);
       line-height: 1.8;
-      transition: background 0.3s, color 0.3s;
+      transition: background 0.3s var(--ease), color 0.3s var(--ease);
       padding-bottom: 70px; overflow-wrap: break-word;}
     /* 阅读进度条 */
     .progress-bar {
@@ -91,7 +94,7 @@
       background: linear-gradient(90deg, var(--brand-from), var(--brand-to));
       z-index: 200;
       width: 0%;
-      transition: width 0.1s;
+      transition: width 0.1s var(--ease);
     }
     /* 导航 */
     .navbar {
@@ -100,7 +103,7 @@
       top: 3px;
       z-index: 100;
       border-bottom: 1px solid transparent;
-      transition: all 0.3s ease;
+      transition: all 0.3s var(--ease);
     }
     .navbar.scrolled {
       backdrop-filter: blur(12px);
@@ -113,7 +116,7 @@
     /* 自定义滚动条 */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; transition: background 0.2s var(--ease); }
     ::-webkit-scrollbar-thumb:hover { background: rgba(var(--primary-rgb),0.5); }
     body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
     body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
@@ -141,14 +144,16 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
+      transition: opacity 0.2s var(--ease);
     }
+    .logo:hover { opacity: 0.85; }
     .nav-right { display: flex; align-items: center; gap: 16px; }
     .nav-links { display: flex; gap: 24px; list-style: none; }
     .nav-links a {
       color: var(--text-light);
       text-decoration: none;
       font-size: 14px;
-      transition: color 0.2s;
+      transition: color 0.2s var(--ease);
     }
     .nav-links a:hover { color: var(--primary); }
     .theme-btn {
@@ -160,7 +165,7 @@
       color: var(--text);
       cursor: pointer;
       font-size: 15px;
-      transition: all 0.2s;
+      transition: all 0.2s var(--ease);
       box-shadow: var(--card-shadow);
     }
     .theme-btn:hover { transform: scale(1.1); }
@@ -178,7 +183,7 @@
       text-decoration: none;
       margin-bottom: 24px;
       font-size: 14px;
-      transition: gap 0.2s;
+      transition: gap 0.2s var(--ease);
     }
     .back-link:hover { gap: 10px; }
 
@@ -188,7 +193,7 @@
       padding: 48px;
       box-shadow: var(--card-shadow);
       border: 1px solid var(--border);
-      animation: fadeUp 0.6s ease;
+      animation: fadeUp 0.6s var(--ease);
     }
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(20px); }
@@ -248,7 +253,7 @@
       color: var(--primary);
       text-decoration: none;
       border-bottom: 1px solid transparent;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s var(--ease);
     }
     .article-content a:hover {
       border-bottom-color: var(--primary);
@@ -311,7 +316,7 @@
       cursor: pointer;
       font-size: 14px;
       font-weight: 500;
-      transition: all 0.2s;
+      transition: all 0.2s var(--ease);
       font-family: inherit;
     }
     .action-btn:hover {
@@ -342,7 +347,7 @@
       border-radius: 14px;
       text-decoration: none;
       color: var(--text-light);
-      transition: all 0.2s;
+      transition: all 0.2s var(--ease);
       display: block;
     }
     .post-nav-card:hover {
@@ -396,7 +401,7 @@
       font-size: 14px;
       opacity: 0;
       pointer-events: none;
-      transition: all 0.3s;
+      transition: all 0.3s var(--ease);
       z-index: 999;
     }
     .share-toast.show {
@@ -444,7 +449,7 @@
       font-size: 14px;
       font-family: inherit;
       outline: none;
-      transition: border 0.2s;
+      transition: border 0.2s var(--ease);
       background: var(--card-bg);
       color: var(--text);
     }
@@ -462,7 +467,7 @@
       outline: none;
       resize: vertical;
       min-height: 80px;
-      transition: border 0.2s;
+      transition: border 0.2s var(--ease);
       background: var(--card-bg);
       color: var(--text);
       margin-bottom: 12px;
@@ -489,7 +494,7 @@
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.2s var(--ease);
       font-family: inherit;
     }
     .comment-submit-btn:hover {
@@ -516,7 +521,7 @@
     .comment-item {
       padding: 16px 0;
       border-bottom: 1px solid var(--border);
-      animation: commentIn 0.3s ease;
+      animation: commentIn 0.3s var(--ease);
     }
     .comment-item:last-child { border-bottom: none; }
     @keyframes commentIn {
@@ -571,7 +576,7 @@
       box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4);
       opacity: 0;
       transform: translateY(20px);
-      transition: all 0.3s;
+      transition: all 0.3s var(--ease);
       z-index: 99;
     }
     .back-top.show {
@@ -599,7 +604,7 @@
       z-index: 50;
       opacity: 0;
       transform: translateX(10px);
-      transition: all 0.3s;
+      transition: all 0.3s var(--ease);
       pointer-events: none;
     }
     .toc-sidebar.show {
@@ -629,7 +634,7 @@
       color: var(--text-light);
       text-decoration: none;
       border-radius: 8px;
-      transition: all 0.15s;
+      transition: all 0.15s var(--ease);
       line-height: 1.4;
       border-left: 2px solid transparent;
       margin-left: -2px;
@@ -685,7 +690,7 @@
         top: 120px;
         width: 240px;
         z-index: 90;
-        animation: tocSlideIn 0.2s ease;
+        animation: tocSlideIn 0.2s var(--ease);
       }
       @keyframes tocSlideIn {
         from { opacity: 0; transform: translateX(20px); }
@@ -697,14 +702,14 @@
     }
 
     .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
-    .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+    .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s var(--ease); }
     .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
     .nav-toggle.active span:nth-child(2) { opacity: 0; }
     .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-    .mobile-menu { display: none; position: fixed; top: 60px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; animation: slideDown 0.25s ease; }
+    .mobile-menu { display: none; position: fixed; top: 60px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; animation: slideDown 0.25s var(--ease); }
     @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     .mobile-menu.active { display: block; }
-    .mobile-menu a { display: block; padding: 14px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s; }
+    .mobile-menu a { display: block; padding: 14px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s var(--ease); }
     .mobile-menu a:hover { color: var(--primary); background: var(--item-bg, rgba(var(--primary-rgb),0.06)); }
     @media (max-width: 900px) {
       .article { padding: 28px 24px; }
@@ -730,7 +735,11 @@
         scroll-behavior: auto !important;
       }
     }
-</style>
+    /* 交互反馈：按下态（opacity 方案，避免与组件既有 transform 冲突） */
+    a:active, button:active, [role="button"]:active,
+    .game-card:active, .post-card:active, .link-card:active, .timeline-item:active,
+    .rank-tab:active, .tab:active, .opt-btn:active { opacity: 0.85; }
+  </style>
 </head>
 <body>
 <script>

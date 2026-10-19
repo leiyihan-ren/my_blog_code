@@ -46,6 +46,9 @@
       --radius-pill: 999px;
       --primary-disabled: #a5b4fc;
       --grad-cdn: linear-gradient(135deg, #f59e0b, #ef4444);
+
+      --ease: cubic-bezier(0.4, 0, 0.2, 1);
+      --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
     }
     body.dark {
       --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
@@ -68,13 +71,13 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
       background: var(--bg); color: var(--text); line-height: 1.6;
-      transition: background 0.3s, color 0.3s;
+      transition: background 0.3s var(--ease), color 0.3s var(--ease);
       padding-bottom: 70px; overflow-wrap: break-word;}
     .navbar {
       background: var(--nav-bg);
       position: sticky; top: 0; z-index: 100;
       border-bottom: 1px solid transparent;
-      transition: all 0.3s ease;
+      transition: all 0.3s var(--ease);
     }
     .navbar.scrolled {
       backdrop-filter: blur(12px);
@@ -87,7 +90,7 @@
     /* 自定义滚动条 */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; transition: background 0.2s var(--ease); }
     ::-webkit-scrollbar-thumb:hover { background: rgba(var(--primary-rgb),0.5); }
     body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
     body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
@@ -105,12 +108,14 @@
       font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none;
       background: var(--grad-brand);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      transition: opacity 0.2s var(--ease);
     }
+    .logo:hover { opacity: 0.85; }
     .nav-right { display: flex; align-items: center; gap: 16px; }
     .nav-links { display: flex; gap: 28px; list-style: none; }
     .nav-links a {
       color: var(--text-light); text-decoration: none; font-size: 15px;
-      transition: color 0.2s; position: relative;
+      transition: color 0.2s var(--ease); position: relative;
     }
     .nav-links a:hover, .nav-links a.active { color: var(--primary); }
     .nav-links a.active::after {
@@ -120,7 +125,7 @@
     .theme-btn {
       width: 36px; height: 36px; border-radius: 50%; border: none;
       background: var(--card-bg); color: var(--text); cursor: pointer;
-      font-size: 16px; transition: all 0.2s; box-shadow: var(--card-shadow);
+      font-size: 16px; transition: all 0.2s var(--ease); box-shadow: var(--card-shadow);
     }
     .theme-btn:hover { transform: scale(1.1); }
     .theme-btn:active { transform: scale(0.97); }
@@ -164,7 +169,7 @@
       cursor: pointer;
       background: var(--card-bg);
       box-shadow: var(--card-shadow);
-      transition: all 0.3s;
+      transition: all 0.3s var(--ease);
       border: 1px solid var(--border);
     }
     .photo-item:hover {
@@ -174,7 +179,7 @@
     .photo-item img {
       width: 100%;
       display: block;
-      transition: transform 0.3s;
+      transition: transform 0.3s var(--ease);
     }
     .photo-item:hover img {
       transform: scale(1.05);
@@ -197,7 +202,7 @@
       height: 100%;
       object-fit: cover;
       opacity: 0;
-      transition: opacity 0.4s ease;
+      transition: opacity 0.4s var(--ease);
     }
     .lazy-img.loaded {
       opacity: 1;
@@ -238,7 +243,7 @@
       max-height: 85vh;
       border-radius: 12px;
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-      animation: lightboxZoom 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      animation: lightboxZoom 0.3s var(--ease);
     }
     @keyframes lightboxZoom {
       from { opacity: 0; transform: scale(0.9); }
@@ -254,7 +259,7 @@
       color: var(--on-accent);
       font-size: 24px;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s var(--ease);
     }
     .lightbox-close:hover { background: rgba(255,255,255,0.2); }
     .lightbox-prev, .lightbox-next {
@@ -268,7 +273,7 @@
       color: var(--on-accent);
       font-size: 22px;
       cursor: pointer;
-      transition: background 0.2s;
+      transition: background 0.2s var(--ease);
     }
     .lightbox-prev:hover, .lightbox-next:hover { background: rgba(255,255,255,0.2); }
     .lightbox-prev { left: 30px; }
@@ -336,7 +341,7 @@
       box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4);
       opacity: 0;
       transform: translateY(20px);
-      transition: all 0.3s;
+      transition: all 0.3s var(--ease);
       z-index: 99;
     }
     .back-top.show {
@@ -351,14 +356,14 @@
     @media (max-width: 1024px) { .masonry { column-count: 3; } }
     @media (max-width: 768px) { .masonry { column-count: 2; } }
     .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
-    .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+    .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s var(--ease); }
     .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
     .nav-toggle.active span:nth-child(2) { opacity: 0; }
     .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
-    .mobile-menu { display: none; position: fixed; top: 64px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; animation: slideDown 0.25s ease; }
+    .mobile-menu { display: none; position: fixed; top: 64px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; animation: slideDown 0.25s var(--ease); }
     @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     .mobile-menu.active { display: block; }
-    .mobile-menu a { display: block; padding: 14px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s; }
+    .mobile-menu a { display: block; padding: 14px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s var(--ease); }
     .mobile-menu a:hover, .mobile-menu a.active { color: var(--primary); background: var(--item-bg, rgba(var(--primary-rgb),0.06)); }
     @media (max-width: 900px) {
       .nav-links { display: none; }
@@ -385,7 +390,13 @@
         scroll-behavior: auto !important;
       }
     }
-</style>
+    /* 交互反馈：按下态（opacity 方案，避免与组件既有 transform 冲突） */
+    a:active, button:active, [role="button"]:active,
+    .game-card:active, .post-card:active, .link-card:active, .timeline-item:active,
+    .rank-tab:active, .tab:active, .opt-btn:active { opacity: 0.85; }
+    .album-retry:hover { filter: brightness(1.12); }
+    .album-retry:active { filter: brightness(0.94); }
+  </style>
 </head>
 <body>
 <script>
@@ -684,7 +695,7 @@
               return;
             }
             document.getElementById("album-content").innerHTML =
-              `<div class="empty">❌ 相册加载失败<br><br>${escapeHtml(err.message || "未知错误")}<br><br>请检查 GitHub 仓库配置，或稍后重试<br><br><button style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary,var(--primary));color: var(--on-accent);cursor:pointer;font-size:14px" onclick="init()">🔄 重试</button></div>`;
+              `<div class="empty">❌ 相册加载失败<br><br>${escapeHtml(err.message || "未知错误")}<br><br>请检查 GitHub 仓库配置，或稍后重试<br><br><button class="album-retry" style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary);color:var(--on-accent);cursor:pointer;font-size:14px;transition:filter 0.2s var(--ease)" onclick="init()">🔄 重试</button></div>`;
             return;
           }
         }
@@ -693,7 +704,7 @@
       // 站点接口失败（网络/服务故障）：明确提示，避免误导成"未配置"
       if (siteReqFailed) {
         document.getElementById("album-content").innerHTML =
-          `<div class="empty">⚠️ 暂时无法连接服务器<br><br>请检查网络后重试<br><br><button style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary,var(--primary));color: var(--on-accent);cursor:pointer;font-size:14px" onclick="init()">🔄 重试</button></div>`;
+          `<div class="empty">⚠️ 暂时无法连接服务器<br><br>请检查网络后重试<br><br><button class="album-retry" style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary);color:var(--on-accent);cursor:pointer;font-size:14px;transition:filter 0.2s var(--ease)" onclick="init()">🔄 重试</button></div>`;
         return;
       }
 

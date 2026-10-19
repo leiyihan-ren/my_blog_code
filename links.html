@@ -46,6 +46,9 @@
     --warning-text: #92400e;
     --radius-pill: 999px;
     --primary-disabled: #a5b4fc;
+
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
   }
   body.dark {
     --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
@@ -69,10 +72,10 @@
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
     background: var(--bg); color: var(--text); line-height: 1.6;
-    transition: background 0.3s, color 0.3s; padding-bottom: 70px; overflow-wrap: break-word;}
+    transition: background 0.3s var(--ease), color 0.3s var(--ease); padding-bottom: 70px; overflow-wrap: break-word;}
   .navbar {
     background: var(--nav-bg); position: sticky; top: 0; z-index: 100;
-    border-bottom: 1px solid transparent; transition: all 0.3s ease;
+    border-bottom: 1px solid transparent; transition: all 0.3s var(--ease);
   }
   .navbar.scrolled {
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -93,12 +96,14 @@
     background: var(--grad-brand);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     white-space: nowrap;
+    transition: opacity 0.2s var(--ease);
   }
+    .logo:hover { opacity: 0.85; }
   .nav-right { display: flex; align-items: center; gap: 12px; }
   .nav-links { display: flex; gap: 20px; list-style: none; }
   .nav-links a {
     color: var(--text-light); text-decoration: none; font-size: 15px;
-    transition: color 0.2s; position: relative; white-space: nowrap;
+    transition: color 0.2s var(--ease); position: relative; white-space: nowrap;
   }
   .nav-links a:hover, .nav-links a.active { color: var(--primary); }
   .nav-links a.active::after {
@@ -108,17 +113,17 @@
   .theme-btn {
     width: 36px; height: 36px; border-radius: 50%; border: none; flex-shrink: 0;
     background: var(--card-bg); color: var(--text); cursor: pointer;
-    font-size: 16px; transition: all 0.2s; box-shadow: var(--card-shadow);
+    font-size: 16px; transition: all 0.2s var(--ease); box-shadow: var(--card-shadow);
   }
   .theme-btn:hover { transform: scale(1.1); }
   .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
-  .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+  .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s var(--ease); }
   .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
   .nav-toggle.active span:nth-child(2) { opacity: 0; }
   .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
   .mobile-menu { display: none; position: fixed; top: 64px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; }
   .mobile-menu.active { display: block; }
-  .mobile-menu a { display: block; padding: 13px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; }
+  .mobile-menu a { display: block; padding: 13px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s var(--ease); }
   .mobile-menu a:hover, .mobile-menu a.active { color: var(--primary); background: var(--item-bg); }
 
   .container { max-width: 1080px; margin: 0 auto; padding: 44px 24px; }
@@ -130,7 +135,7 @@
   .link-card {
     display: flex; gap: 14px; align-items: flex-start; text-decoration: none;
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 18px;
-    padding: 20px; transition: all 0.25s; position: relative; overflow: hidden;
+    padding: 20px; transition: all 0.25s var(--ease); position: relative; overflow: hidden;
   }
   .link-card:hover { transform: translateY(-4px); box-shadow: var(--card-shadow-hover); border-color: var(--primary); }
   .link-avatar {
@@ -142,7 +147,7 @@
   .link-info { min-width: 0; flex: 1; }
   .link-name { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
   .link-desc { font-size: 13px; color: var(--text-light); line-height: 1.6; word-break: break-all; }
-  .link-arrow { color: var(--text-mute); font-size: 18px; transition: transform 0.25s, color 0.25s; flex-shrink: 0; }
+  .link-arrow { color: var(--text-mute); font-size: 18px; transition: transform 0.25s var(--ease), color 0.25s var(--ease); flex-shrink: 0; }
   .link-card:hover .link-arrow { transform: translateX(3px); color: var(--primary); }
   .empty {
     grid-column: 1 / -1; text-align: center; padding: 60px 20px;
@@ -171,7 +176,7 @@
   .apply-note b { color: var(--text); }
   .btn {
     border: none; border-radius: 10px; padding: 9px 16px; font-size: 13px; font-weight: 600;
-    cursor: pointer; font-family: inherit; transition: all 0.2s;
+    cursor: pointer; font-family: inherit; transition: all 0.2s var(--ease);
     background: var(--primary); color: var(--on-accent);
   }
   .btn:hover { filter: brightness(1.08); }
@@ -183,14 +188,19 @@
     position: fixed; bottom: 30px; right: 30px; width: 48px; height: 48px; border-radius: 50%;
     background: var(--primary); color: var(--on-accent); border: none; cursor: pointer; font-size: 20px;
     box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4); opacity: 0; transform: translateY(20px);
-    transition: all 0.3s; z-index: 99;
+    transition: all 0.3s var(--ease); z-index: 99;
   }
+    .back-top:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
+    }
+
   .back-top.show { opacity: 1; transform: translateY(0); }
 
   .toast {
     position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(20px);
     background: var(--text); color: var(--bg); padding: 10px 20px; border-radius: var(--radius-pill);
-    font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.3s; z-index: 200;
+    font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.3s var(--ease); z-index: 200;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
@@ -215,7 +225,11 @@
         scroll-behavior: auto !important;
       }
     }
-</style>
+    /* 交互反馈：按下态（opacity 方案，避免与组件既有 transform 冲突） */
+    a:active, button:active, [role="button"]:active,
+    .game-card:active, .post-card:active, .link-card:active, .timeline-item:active,
+    .rank-tab:active, .tab:active, .opt-btn:active { opacity: 0.85; }
+  </style>
 </head>
 <body>
 <script>

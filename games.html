@@ -69,6 +69,9 @@
     --game-cyan: #06b6d4;
     --game-gray: #374151;
     --game-gray-light: #9ca3af;
+
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
   }
   body.dark {
     --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
@@ -92,10 +95,10 @@
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
     background: var(--bg); color: var(--text); line-height: 1.6;
-    transition: background 0.3s, color 0.3s; padding-bottom: 70px; overflow-wrap: break-word;}
+    transition: background 0.3s var(--ease), color 0.3s var(--ease); padding-bottom: 70px; overflow-wrap: break-word;}
   .navbar {
     background: var(--nav-bg); position: sticky; top: 0; z-index: 100;
-    border-bottom: 1px solid transparent; transition: all 0.3s ease;
+    border-bottom: 1px solid transparent; transition: all 0.3s var(--ease);
   }
   .navbar.scrolled {
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -107,18 +110,21 @@
   ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; }
 
   .nav-inner { max-width: 1100px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
-  .logo { font-size: 19px; font-weight: 700; color: var(--text); text-decoration: none; }
+  .logo { font-size: 19px; font-weight: 700; color: var(--text); text-decoration: none;
+    transition: opacity 0.2s var(--ease);
+  }
+    .logo:hover { opacity: 0.85; }
   .nav-right { display: flex; align-items: center; gap: 14px; }
   .nav-links { display: flex; gap: 22px; list-style: none; }
-  .nav-links a { color: var(--text-light); text-decoration: none; font-size: 15px; transition: color 0.2s; }
+  .nav-links a { color: var(--text-light); text-decoration: none; font-size: 15px; transition: color 0.2s var(--ease); }
   .nav-links a:hover, .nav-links a.active { color: var(--primary); }
   .theme-btn {
     width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border);
-    background: var(--card-bg); cursor: pointer; font-size: 16px; transition: all 0.2s;
+    background: var(--card-bg); cursor: pointer; font-size: 16px; transition: all 0.2s var(--ease);
   }
   .theme-btn:hover { transform: rotate(20deg); }
   .nav-toggle { display: none; flex-direction: column; gap: 5px; background: none; border: none; cursor: pointer; padding: 6px; }
-  .nav-toggle span { width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+  .nav-toggle span { width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s var(--ease); }
   .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
   .nav-toggle.active span:nth-child(2) { opacity: 0; }
   .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
@@ -127,14 +133,15 @@
     border-bottom: 1px solid var(--border); padding: 10px 24px 16px;
   }
   .mobile-menu.active { display: flex; }
-  .mobile-menu a { color: var(--text-light); text-decoration: none; padding: 10px 0; font-size: 15px; border-bottom: 1px solid var(--border); }
+  .mobile-menu a { color: var(--text-light); text-decoration: none; padding: 10px 0; font-size: 15px; border-bottom: 1px solid var(--border); transition: color 0.2s var(--ease), background 0.2s var(--ease); }
   .mobile-menu a:last-child { border-bottom: none; }
   .mobile-menu a.active { color: var(--primary); font-weight: 600; }
+  .mobile-menu a:hover { color: var(--primary); background: var(--item-bg, rgba(var(--primary-rgb), 0.06)); }
 
   .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
 
   /* ---------- 页头 ---------- */
-  .page-header { text-align: center; margin-bottom: 34px; animation: fadeUp 0.5s ease both; }
+  .page-header { text-align: center; margin-bottom: 34px; animation: fadeUp 0.5s var(--ease) both; }
   .page-title {
     font-size: 32px; font-weight: 800; letter-spacing: 0.5px;
     background: linear-gradient(135deg, var(--primary), var(--primary-2));
@@ -151,15 +158,15 @@
   .game-card {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 18px;
     padding: 20px 14px 16px; text-align: center; cursor: pointer;
-    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease), border-color 0.25s var(--ease);
     box-shadow: var(--card-shadow); position: relative; overflow: hidden;
-    animation: fadeUp 0.5s ease both;
+    animation: fadeUp 0.5s var(--ease) both;
     outline: none;
   }
   .game-card::before {
     content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
     background: linear-gradient(90deg, var(--primary), var(--primary-2));
-    opacity: 0; transition: opacity 0.25s;
+    opacity: 0; transition: opacity 0.25s var(--ease);
   }
   .game-card:hover, .game-card:focus-visible {
     transform: translateY(-5px); box-shadow: var(--card-shadow-hover); border-color: rgba(var(--primary-rgb),0.35);
@@ -171,7 +178,7 @@
     width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 16px;
     display: flex; align-items: center; justify-content: center; font-size: 30px;
     background: linear-gradient(135deg, rgba(var(--primary-rgb),0.12), rgba(124,58,237,0.12));
-    transition: transform 0.25s ease;
+    transition: transform 0.25s var(--ease);
   }
   .game-card:hover .game-icon { transform: scale(1.1) rotate(-6deg); }
   .game-name { font-weight: 700; font-size: 15px; }
@@ -186,7 +193,7 @@
   .stage {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 22px;
     box-shadow: var(--card-shadow); overflow: hidden;
-    display: none; animation: stageIn 0.35s ease both;
+    display: none; animation: stageIn 0.35s var(--ease) both;
   }
   .stage.open { display: block; }
   @keyframes stageIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
@@ -227,7 +234,7 @@
     text-align: center; padding: 24px; gap: 8px;
   }
   body.dark .board-overlay { background: rgba(15,15,26,0.75); }
-  .board-overlay.show { display: flex; animation: overlayIn 0.3s ease both; }
+  .board-overlay.show { display: flex; animation: overlayIn 0.3s var(--ease) both; }
   @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
   .board-overlay h3 { font-size: 24px; font-weight: 800; }
   .overlay-score { font-size: 34px; font-weight: 800; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1.2; }
@@ -237,8 +244,9 @@
   /* ---------- 按钮 ---------- */
   .btn {
     border: none; border-radius: 12px; padding: 10px 20px; font-size: 14px; font-weight: 600;
-    cursor: pointer; font-family: inherit; transition: all 0.2s ease; white-space: nowrap;
+    cursor: pointer; font-family: inherit; transition: all 0.2s var(--ease); white-space: nowrap;
   }
+  .btn:hover:not(:disabled):not(.primary):not(.ghost) { background: var(--item-bg); }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn.primary {
     background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: var(--on-accent);
@@ -270,7 +278,7 @@
   .opt-btn {
     border: 1px solid var(--border); background: transparent; color: var(--text-light);
     border-radius: var(--radius-pill); padding: 5px 14px; font-size: 13px; cursor: pointer;
-    font-family: inherit; transition: all 0.2s;
+    font-family: inherit; transition: all 0.2s var(--ease);
   }
   .opt-btn:hover { border-color: var(--primary); color: var(--primary); }
   .opt-btn.active {
@@ -286,7 +294,7 @@
   .dpad-btn {
     border: 1px solid var(--border); background: var(--card-bg); color: var(--primary);
     border-radius: 12px; font-size: 17px; cursor: pointer; font-family: inherit;
-    transition: all 0.12s ease; box-shadow: var(--card-shadow); touch-action: none;
+    transition: all 0.12s var(--ease); box-shadow: var(--card-shadow); touch-action: none;
   }
   .dpad-btn:hover { border-color: var(--primary); }
   .dpad-btn:active { transform: scale(0.9); background: var(--item-bg); }
@@ -306,12 +314,12 @@
   .grid-board .tile {
     aspect-ratio: 1; border-radius: 8px; display: flex; align-items: center; justify-content: center;
     font-weight: 800; font-size: 1.05em; background: var(--card-bg); color: var(--text);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.05); transition: background 0.15s;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05); transition: background 0.15s var(--ease);
     font-variant-numeric: tabular-nums;
   }
-  .grid-board .tile.pop { animation: tilePop 0.22s ease both; }
-  .grid-board .tile.new { animation: tileNew 0.2s ease both; }
-  .grid-board .tile.merge { animation: tileMerge 0.25s ease both; }
+  .grid-board .tile.pop { animation: tilePop 0.22s var(--ease) both; }
+  .grid-board .tile.new { animation: tileNew 0.2s var(--ease) both; }
+  .grid-board .tile.merge { animation: tileMerge 0.25s var(--ease) both; }
   @keyframes tilePop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   @keyframes tileNew { 0% { transform: scale(0.2); } 70% { transform: scale(1.08); } 100% { transform: scale(1); } }
   @keyframes tileMerge { 0% { transform: scale(1); } 45% { transform: scale(1.18); } 100% { transform: scale(1); } }
@@ -331,7 +339,7 @@
   /* ---------- 记忆翻牌（3D 翻转） ---------- */
   .mem-card {
     aspect-ratio: 1; border-radius: 12px; cursor: pointer; position: relative;
-    transform-style: preserve-3d; transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.1);
+    transform-style: preserve-3d; transition: transform 0.45s var(--ease-spring);
     user-select: none; -webkit-user-select: none;
   }
   .mem-card.flipped, .mem-card.done { transform: rotateY(180deg); }
@@ -361,14 +369,14 @@
     aspect-ratio: 1; border-radius: 8px; display: flex; align-items: center; justify-content: center;
     font-size: 15px; font-weight: 800; cursor: pointer; background: var(--item-bg); color: var(--text);
     border: 1px solid var(--border); user-select: none; -webkit-user-select: none;
-    transition: background 0.15s, transform 0.15s;
+    transition: background 0.15s var(--ease), transform 0.15s var(--ease);
   }
   .mine-cell:hover { filter: brightness(0.96); }
-  .mine-cell.open { background: var(--card-bg); cursor: default; animation: cellReveal 0.25s ease both; }
+  .mine-cell.open { background: var(--card-bg); cursor: default; animation: cellReveal 0.25s var(--ease) both; }
   @keyframes cellReveal { from { transform: scale(0.75); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
-  .mine-cell.flag { background: rgba(239,68,68,0.14); animation: flagPop 0.25s ease both; }
+  .mine-cell.flag { background: rgba(239,68,68,0.14); animation: flagPop 0.25s var(--ease) both; }
   @keyframes flagPop { 0% { transform: scale(1); } 50% { transform: scale(1.22); } 100% { transform: scale(1); } }
-  .mine-cell.boom { background: var(--danger-solid); color: var(--on-accent); animation: boomShake 0.4s ease both; }
+  .mine-cell.boom { background: var(--danger-solid); color: var(--on-accent); animation: boomShake 0.4s var(--ease) both; }
   @keyframes boomShake { 0%,100% { transform: translate(0,0); } 25% { transform: translate(-2px,1px); } 50% { transform: translate(2px,-1px); } 75% { transform: translate(-1px,-1px); } }
   .mine-cell.wrong { background: rgba(239,68,68,0.25); }
   .n1{color:var(--game-blue)}.n2{color:var(--game-green)}.n3{color:var(--danger-solid)}.n4{color:var(--game-purple)}
@@ -384,14 +392,14 @@
   .rank-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
   .rank-tab {
     border: 1px solid var(--border); background: transparent; color: var(--text-light);
-    border-radius: var(--radius-pill); padding: 5px 14px; font-size: 13px; cursor: pointer; font-family: inherit; transition: all 0.2s;
+    border-radius: var(--radius-pill); padding: 5px 14px; font-size: 13px; cursor: pointer; font-family: inherit; transition: all 0.2s var(--ease);
   }
   .rank-tab:hover { border-color: var(--primary); color: var(--primary); }
   .rank-tab.active { background: var(--primary); border-color: var(--primary); color: var(--on-accent); }
   .rank-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .rank-table th, .rank-table td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border); }
   .rank-table th { font-size: 12px; color: var(--text-mute); font-weight: 600; }
-  .rank-table tbody tr { transition: background 0.15s; }
+  .rank-table tbody tr { transition: background 0.15s var(--ease); }
   .rank-table tbody tr:hover { background: var(--item-bg); }
   .rank-table td:last-child, .rank-table th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
   .rank-medal { font-size: 15px; }
@@ -402,14 +410,19 @@
     position: fixed; bottom: 30px; right: 30px; width: 48px; height: 48px; border-radius: 50%;
     background: var(--primary); color: var(--on-accent); border: none; cursor: pointer; font-size: 20px;
     box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4); opacity: 0; transform: translateY(20px);
-    transition: all 0.3s; z-index: 99;
+    transition: all 0.3s var(--ease); z-index: 99;
   }
+    .back-top:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
+    }
+
   .back-top.show { opacity: 1; transform: translateY(0); }
 
   .toast {
     position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(20px);
     background: var(--text); color: var(--bg); padding: 10px 20px; border-radius: var(--radius-pill);
-    font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.3s; z-index: 200;
+    font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.3s var(--ease); z-index: 200;
     max-width: 86vw; text-align: center;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -442,7 +455,11 @@
         scroll-behavior: auto !important;
       }
     }
-</style>
+    /* 交互反馈：按下态（opacity 方案，避免与组件既有 transform 冲突） */
+    a:active, button:active, [role="button"]:active,
+    .game-card:active, .post-card:active, .link-card:active, .timeline-item:active,
+    .rank-tab:active, .tab:active, .opt-btn:active { opacity: 0.85; }
+  </style>
 </head>
 <body>
 <script>

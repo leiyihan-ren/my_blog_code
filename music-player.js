@@ -17,7 +17,7 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.35s var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
     will-change: transform;
   }
   body.dark .mp-player {
@@ -45,14 +45,14 @@
     border-top: 1px solid var(--border, #eaecef);
     border-left: 1px solid var(--border, #eaecef);
     border-right: 1px solid var(--border, #eaecef);
-    transition: background 0.2s;
+    transition: background 0.2s var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
   }
   .mp-toggle-btn:hover {
     background: var(--primary, #4f46e5);
     color: var(--on-accent, #fff);
   }
   .mp-toggle-btn .mp-toggle-icon {
-    transition: transform 0.3s;
+    transition: transform 0.3s var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
   }
   .mp-player.mp-hidden .mp-toggle-btn .mp-toggle-icon {
     transform: rotate(180deg);
@@ -72,7 +72,7 @@
   .mp-cover img {
     width: 100%; height: 100%;
     object-fit: cover;
-    transition: transform 0.3s;
+    transition: transform 0.3s var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
   }
   /* 播放中封面轻微放大，提供"正在播放"的视觉反馈 */
   .mp-cover.mp-cover-playing img {
@@ -117,7 +117,7 @@
     border-radius: 2px;
     cursor: pointer;
     position: relative;
-    transition: height 0.15s;
+    transition: height 0.15s var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
     touch-action: none; /* 让 pointer 事件接管拖动，不触发页面滚动 */
   }
   .mp-progress:hover, .mp-progress.mp-seeking {
@@ -152,7 +152,7 @@
     border-radius: 50%;
     background: var(--primary, #4f46e5);
     box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-    transition: transform 0.15s;
+    transition: transform 0.15s var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
   }
   .mp-progress:hover .mp-progress-bar::after,
   .mp-progress.mp-seeking .mp-progress-bar::after {
@@ -178,7 +178,7 @@
     color: var(--text, #333);
     cursor: pointer;
     font-size: 15px;
-    transition: all 0.2s;
+    transition: all 0.2s var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -280,7 +280,7 @@
   .mp-playlist-item {
     padding: 12px 18px;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s var(--ease, cubic-bezier(0.4, 0, 0.2, 1));
     border-bottom: 1px solid var(--border, #eaecef);
     display: flex;
     align-items: center;

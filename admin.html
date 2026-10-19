@@ -42,6 +42,9 @@
       --item-bg-hover: #e5e7eb;
       --primary-border: #c7d2fe;
       --switch-bg: #cbd5e1;
+
+      --ease: cubic-bezier(0.4, 0, 0.2, 1);
+      --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
     }
     body.dark {
       --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
@@ -67,12 +70,12 @@
       background: var(--bg);
       color: var(--text);
       line-height: 1.6;
-      transition: background 0.3s, color 0.3s; overflow-wrap: break-word;}
+      transition: background 0.3s var(--ease), color 0.3s var(--ease); overflow-wrap: break-word;}
 
     /* 自定义滚动条 */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; transition: background 0.2s var(--ease); }
     ::-webkit-scrollbar-thumb:hover { background: rgba(var(--primary-rgb),0.5); }
     body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
     body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
@@ -104,7 +107,7 @@
       background: var(--card-bg); color: var(--text); cursor: pointer;
       font-size: 18px; z-index: 999; box-shadow: var(--card-shadow);
       border: 1px solid var(--border);
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: all 0.3s var(--ease);
     }
     .theme-btn:hover { transform: scale(1.1); }
     .theme-btn:active { transform: scale(0.97); }
@@ -154,7 +157,7 @@
       color: var(--text-light);
       border-bottom: 2px solid transparent;
       margin-bottom: -2px;
-      transition: all 0.2s;
+      transition: all 0.2s var(--ease);
     }
     .tab:hover { color: var(--primary); }
     .tab.active {
@@ -181,7 +184,7 @@
       font-size: 15px;
       font-family: inherit;
       outline: none;
-      transition: all 0.2s;
+      transition: all 0.2s var(--ease);
       background: var(--card-bg);
       color: var(--text);
     }
@@ -218,7 +221,7 @@
       font-size: 15px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.2s var(--ease);
       font-family: inherit;
       position: relative;
       overflow: hidden;
@@ -287,7 +290,7 @@
       top: 0; left: 0; right: 0; bottom: 0;
       background: var(--switch-bg);
       border-radius: 28px;
-      transition: 0.3s;
+      transition: 0.3s var(--ease);
     }
     .slider:before {
       position: absolute;
@@ -298,7 +301,7 @@
       bottom: 3px;
       background: white;
       border-radius: 50%;
-      transition: 0.3s;
+      transition: 0.3s var(--ease);
     }
     input:checked + .slider { background: var(--primary); }
     input:checked + .slider:before { transform: translateX(24px); }
@@ -391,7 +394,7 @@
       background: var(--item-bg);
       border-radius: 12px;
       margin-bottom: 10px;
-      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      transition: all 0.25s var(--ease);
       border: 1px solid transparent;
     }
     .list-item:hover {
@@ -496,7 +499,9 @@
       text-decoration: none;
       margin-bottom: 20px;
       font-size: 14px;
+      transition: color 0.2s var(--ease);
     }
+    .back-link:hover { color: var(--primary-hover); text-decoration: underline; }
 
     @media (max-width: 600px) {
       .card { padding: 20px; }
@@ -518,7 +523,12 @@
         scroll-behavior: auto !important;
       }
     }
-</style>
+    /* 交互反馈：按下态（opacity 方案，避免与组件既有 transform 冲突） */
+    a:active, button:active, [role="button"]:active,
+    .game-card:active, .post-card:active, .link-card:active, .timeline-item:active,
+    .rank-tab:active, .tab:active, .opt-btn:active { opacity: 0.85; }
+    .help-link:hover { text-decoration: underline; }
+  </style>
 </head>
 <body>
 <script>
@@ -752,7 +762,7 @@
         <div class="tab-content" id="tab-links">
           <h2>友链管理</h2>
           <p style="color:var(--text-mute);font-size:13px;margin-bottom:14px">
-            添加后会展示在 <a href="links.html" target="_blank" style="color:var(--primary)">友情链接页</a>，「排序」数字越小越靠前。
+            添加后会展示在 <a href="links.html" target="_blank" class="help-link" style="color:var(--primary)">友情链接页</a>，「排序」数字越小越靠前。
           </p>
           <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openLinkModal()">+ 添加友链</button>
           <div id="links-list"></div>
@@ -762,7 +772,7 @@
         <div class="tab-content" id="tab-games">
           <h2>游戏管理</h2>
           <p style="color:var(--text-mute);font-size:13px;margin-bottom:14px">
-            查看 <a href="games.html" target="_blank" style="color:var(--primary)">游戏大厅</a> 的各游戏排行榜，可清空单个游戏的全部成绩。
+            查看 <a href="games.html" target="_blank" class="help-link" style="color:var(--primary)">游戏大厅</a> 的各游戏排行榜，可清空单个游戏的全部成绩。
           </p>
           <div id="games-list"></div>
         </div>
