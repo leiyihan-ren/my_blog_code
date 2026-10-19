@@ -61,11 +61,13 @@
         const el = e.target.closest(".mine-cell");
         if (!el) return;
         longFiredCell = null;
-        timer = setTimeout(() => {
+        // 用框架 after() 登记：切游戏/销毁时随 clearTimers 一起取消，
+        // 杜绝对已废弃实例的延迟回调（裸 setTimeout 不在管理范围）
+        timer = this.after(450, () => {
           longFiredCell = el; // 记录被长按的那一格
           this.flag(+el.dataset.r, +el.dataset.c);
           timer = null;
-        }, 450);
+        });
       }, { passive: true });
       const cancelHold = () => { if (timer) { clearTimeout(timer); timer = null; } };
       this.on(this.board, "touchend", cancelHold, { passive: true });
