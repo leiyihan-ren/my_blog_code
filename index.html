@@ -25,6 +25,32 @@
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
       --nav-bg: rgba(255, 255, 255, 0.85);
+
+      --primary-rgb: 79,70,229;
+      --accent-rgb: 99,102,241;
+      --brand-from: #667eea;
+      --brand-to: #764ba2;
+      --brand-rgb: 102,126,234;
+      --success-rgb: 22,163,74;
+      --warning-rgb: 245,158,11;
+      --danger-rgb: 239,68,68;
+      --on-accent: #fff;
+      --brand-deep: #5b21b6;
+      --grad-brand: linear-gradient(135deg, var(--brand-from), var(--brand-to));
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --success-text: #166534;
+      --danger: #dc2626;
+      --danger-solid: #ef4444;
+      --danger-bg: #fee2e2;
+      --danger-text: #991b1b;
+      --warning: #d97706;
+      --warning-strong: #b45309;
+      --warning-bg: #fef3c7;
+      --warning-text: #92400e;
+      --radius-pill: 999px;
+      --primary-disabled: #a5b4fc;
+      --grad-hero: linear-gradient(135deg, var(--brand-from) 0%, var(--brand-to) 50%, var(--brand-deep) 100%);
     }
     body.dark {
       --bg: #0f0f1a;
@@ -36,6 +62,17 @@
       --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
       --nav-bg: rgba(15, 15, 26, 0.85);
+
+      --success: #22c55e;
+      --success-bg: rgba(34,197,94,0.16);
+      --success-text: #86efac;
+      --danger: #fca5a5;
+      --danger-bg: rgba(239,68,68,0.16);
+      --danger-text: #fca5a5;
+      --warning: #fbbf24;
+      --warning-strong: #fbbf24;
+      --warning-bg: rgba(251,191,36,0.14);
+      --warning-text: #fcd34d;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -70,19 +107,19 @@
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb {
-      background: rgba(79,70,229,0.3);
+      background: rgba(var(--primary-rgb),0.3);
       border-radius: 4px;
       transition: background 0.2s;
     }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
-    body.dark::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); }
-    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(var(--primary-rgb),0.5); }
+    body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
+    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
 
     /* 文字选中样式 */
-    ::selection { background: rgba(79,70,229,0.3); color: #fff; }
-    ::-moz-selection { background: rgba(79,70,229,0.3); color: #fff; }
-    body.dark ::selection { background: rgba(99,102,241,0.4); color: #fff; }
-    body.dark ::-moz-selection { background: rgba(99,102,241,0.4); color: #fff; }
+    ::selection { background: rgba(var(--primary-rgb),0.3); color: var(--on-accent); }
+    ::-moz-selection { background: rgba(var(--primary-rgb),0.3); color: var(--on-accent); }
+    body.dark ::selection { background: rgba(var(--accent-rgb),0.4); color: var(--on-accent); }
+    body.dark ::-moz-selection { background: rgba(var(--accent-rgb),0.4); color: var(--on-accent); }
     .nav-inner {
       max-width: 960px;
       margin: 0 auto;
@@ -97,7 +134,7 @@
       font-size: 18px;
       color: var(--text);
       text-decoration: none;
-      background: linear-gradient(135deg, #667eea, #764ba2);
+      background: var(--grad-brand);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -144,8 +181,8 @@
       background:
         radial-gradient(ellipse at top left, rgba(255,255,255,0.2) 0%, transparent 50%),
         radial-gradient(ellipse at bottom right, rgba(255,255,255,0.15) 0%, transparent 50%),
-        linear-gradient(135deg, #667eea 0%, #764ba2 50%, #5b21b6 100%);
-      color: white;
+        var(--grad-hero);
+      color: var(--on-accent);
       padding: 100px 24px 80px;
       text-align: center;
       overflow: hidden;
@@ -207,7 +244,7 @@
       height: 110px;
       border-radius: 50%;
       background: rgba(255,255,255,0.25);
-      color: white;
+      color: var(--on-accent);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -343,7 +380,7 @@
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 3px;
-      background: linear-gradient(90deg, #667eea, #764ba2);
+      background: linear-gradient(90deg, var(--brand-from), var(--brand-to));
       transform: scaleX(0);
       transform-origin: left;
       transition: transform 0.3s ease;
@@ -444,11 +481,11 @@
       height: 48px;
       border-radius: 50%;
       background: var(--primary);
-      color: white;
+      color: var(--on-accent);
       border: none;
       cursor: pointer;
       font-size: 20px;
-      box-shadow: 0 4px 16px rgba(79,70,229,0.4);
+      box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4);
       opacity: 0;
       transform: translateY(20px);
       transition: all 0.3s;
@@ -460,7 +497,7 @@
     }
     .back-top:hover {
       transform: translateY(-4px);
-      box-shadow: 0 8px 24px rgba(79,70,229,0.5);
+      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
     }
 
     /* 移动端汉堡菜单 */
@@ -506,7 +543,7 @@
     }
     .mobile-menu a:hover, .mobile-menu a.active {
       color: var(--primary);
-      background: var(--item-bg, rgba(79,70,229,0.06));
+      background: var(--item-bg, rgba(var(--primary-rgb),0.06));
     }
 
     /* 响应式 */
@@ -660,7 +697,7 @@
     }
 
     const DEFAULT_SITE = {
-      title: "Lei Yihan 的个人博客", name: "Lei Yihan", avatar: "LY", avatarBg: "#4f46e5",
+      title: "Lei Yihan 的个人博客", name: "Lei Yihan", avatar: "LY", avatarBg: "var(--primary)",
       bio: "欢迎来到我的个人主页！这里会记录我的学习与生活。",
       school: "松滋市金松初级中学", grade: "七年级", className: "6班",
       email: "3872011023@qq.com", footer: "© 2026 Lei Yihan"

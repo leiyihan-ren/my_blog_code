@@ -13,6 +13,35 @@
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
       --item-bg: #f9fafb;
+
+      --primary-rgb: 79,70,229;
+      --accent-rgb: 99,102,241;
+      --brand-from: #667eea;
+      --brand-to: #764ba2;
+      --brand-rgb: 102,126,234;
+      --success-rgb: 22,163,74;
+      --warning-rgb: 245,158,11;
+      --danger-rgb: 239,68,68;
+      --on-accent: #fff;
+      --primary-hover: #4338ca;
+      --brand-deep: #5b21b6;
+      --grad-brand: linear-gradient(135deg, var(--brand-from), var(--brand-to));
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --success-text: #166534;
+      --danger: #dc2626;
+      --danger-solid: #ef4444;
+      --danger-bg: #fee2e2;
+      --danger-text: #991b1b;
+      --warning: #d97706;
+      --warning-strong: #b45309;
+      --warning-bg: #fef3c7;
+      --warning-text: #92400e;
+      --radius-pill: 999px;
+      --primary-disabled: #a5b4fc;
+      --item-bg-hover: #e5e7eb;
+      --primary-border: #c7d2fe;
+      --switch-bg: #cbd5e1;
     }
     body.dark {
       --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
@@ -20,6 +49,18 @@
       --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
       --item-bg: #16162a;
+
+      --success: #22c55e;
+      --success-bg: rgba(34,197,94,0.16);
+      --success-text: #86efac;
+      --danger: #fca5a5;
+      --danger-bg: rgba(239,68,68,0.16);
+      --danger-text: #fca5a5;
+      --warning: #fbbf24;
+      --warning-strong: #fbbf24;
+      --warning-bg: rgba(251,191,36,0.14);
+      --warning-text: #fcd34d;
+      --item-bg-hover: #2a2a40;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", sans-serif;
@@ -32,16 +73,16 @@
     /* 自定义滚动条 */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 4px; transition: background 0.2s; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
-    body.dark::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); }
-    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(var(--primary-rgb),0.5); }
+    body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
+    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
 
     /* 文字选中样式 */
-    ::selection { background: rgba(79,70,229,0.3); color: #fff; }
-    ::-moz-selection { background: rgba(79,70,229,0.3); color: #fff; }
-    body.dark ::selection { background: rgba(99,102,241,0.4); color: #fff; }
-    body.dark ::-moz-selection { background: rgba(99,102,241,0.4); color: #fff; }
+    ::selection { background: rgba(var(--primary-rgb),0.3); color: var(--on-accent); }
+    ::-moz-selection { background: rgba(var(--primary-rgb),0.3); color: var(--on-accent); }
+    body.dark ::selection { background: rgba(var(--accent-rgb),0.4); color: var(--on-accent); }
+    body.dark ::-moz-selection { background: rgba(var(--accent-rgb),0.4); color: var(--on-accent); }
     .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
     .card {
       background: var(--card-bg);
@@ -84,14 +125,14 @@
       width: 70px;
       height: 70px;
       border-radius: 50%;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
+      background: var(--grad-brand);
+      color: var(--on-accent);
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 30px;
       margin: 0 auto 20px;
-      box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+      box-shadow: 0 8px 24px rgba(var(--brand-rgb), 0.4);
       animation: pulse 2s ease-in-out infinite;
     }
     @keyframes pulse {
@@ -147,13 +188,13 @@
     }
     input:focus, textarea:focus, select:focus {
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+      box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
     }
     input:hover, textarea:hover, select:hover {
-      border-color: #c7d2fe;
+      border-color: var(--primary-border);
     }
     body.dark input:hover, body.dark textarea:hover, body.dark select:hover {
-      border-color: #4338ca;
+      border-color: var(--primary-hover);
     }
     textarea { resize: vertical; min-height: 150px; }
     .row { display: flex; gap: 12px; }
@@ -185,32 +226,32 @@
     }
     .btn:active { transform: scale(0.97); }
     .btn-primary {
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+      background: var(--grad-brand);
+      color: var(--on-accent);
+      box-shadow: 0 4px 12px rgba(var(--brand-rgb), 0.3);
     }
     .btn-primary:hover {
       transform: translateY(-1px);
-      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+      box-shadow: 0 6px 20px rgba(var(--brand-rgb), 0.4);
     }
     .btn-primary:disabled {
-      background: #a5b4fc;
+      background: var(--primary-disabled);
       cursor: not-allowed;
       transform: none;
       box-shadow: none;
     }
-    .btn-danger { background: #ef4444; color: white; }
-    .btn-danger:hover { background: #dc2626; transform: translateY(-1px); }
+    .btn-danger { background: var(--danger-solid); color: var(--on-accent); }
+    .btn-danger:hover { background: var(--danger); transform: translateY(-1px); }
     .btn-secondary {
       background: var(--item-bg);
       color: var(--text-light);
       border: 1px solid var(--border);
     }
     .btn-secondary:hover {
-      background: #e5e7eb;
+      background: var(--item-bg-hover);
       transform: translateY(-1px);
     }
-    body.dark .btn-secondary:hover { background: #2a2a40; }
+    body.dark .btn-secondary:hover { background: var(--item-bg-hover); }
     .btn-sm { padding: 8px 16px; font-size: 13px; border-radius: 8px; }
     .btn-row { display: flex; gap: 10px; margin-top: 20px; }
 
@@ -245,7 +286,7 @@
       position: absolute;
       cursor: pointer;
       top: 0; left: 0; right: 0; bottom: 0;
-      background: #cbd5e1;
+      background: var(--switch-bg);
       border-radius: 28px;
       transition: 0.3s;
     }
@@ -269,8 +310,8 @@
       align-items: center;
       gap: 6px;
       padding: 4px 10px;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
+      background: var(--grad-brand);
+      color: var(--on-accent);
       font-size: 12px;
       font-weight: 600;
       border-radius: 20px;
@@ -278,8 +319,8 @@
     }
     .auto-notice {
       padding: 14px 18px;
-      background: rgba(79, 70, 229, 0.08);
-      border: 1px solid rgba(79, 70, 229, 0.2);
+      background: rgba(var(--primary-rgb), 0.08);
+      border: 1px solid rgba(var(--primary-rgb), 0.2);
       border-radius: 12px;
       font-size: 13px;
       color: var(--text-light);
@@ -309,27 +350,27 @@
       color: var(--text-light);
       line-height: 1.8;
     }
-    .gh-status-body .st-ok { color: #16a34a; font-weight: 600; }
-    .gh-status-body .st-bad { color: #dc2626; font-weight: 600; }
-    .gh-status-body .st-warn { color: #d97706; font-weight: 600; }
+    .gh-status-body .st-ok { color: var(--success); font-weight: 600; }
+    .gh-status-body .st-bad { color: var(--danger); font-weight: 600; }
+    .gh-status-body .st-warn { color: var(--warning); font-weight: 600; }
     .gh-status-body .st-dim { color: var(--text-mute); }
 
     .src-badge {
       display: inline-block;
       margin-left: 8px;
       padding: 1px 8px;
-      border-radius: 999px;
+      border-radius: var(--radius-pill);
       font-size: 11px;
       font-weight: 600;
       vertical-align: middle;
-      background: rgba(79, 70, 229, 0.12);
+      background: rgba(var(--primary-rgb), 0.12);
       color: var(--primary);
-      border: 1px solid rgba(79, 70, 229, 0.25);
+      border: 1px solid rgba(var(--primary-rgb), 0.25);
     }
     .src-badge.src-local {
-      background: rgba(22, 163, 74, 0.12);
-      color: #16a34a;
-      border-color: rgba(22, 163, 74, 0.25);
+      background: rgba(var(--success-rgb), 0.12);
+      color: var(--success);
+      border-color: rgba(var(--success-rgb), 0.25);
     }
     .modal-hint {
       padding: 10px 14px;
@@ -337,11 +378,10 @@
       border: 1px solid rgba(245, 158, 11, 0.3);
       border-radius: 10px;
       font-size: 12px;
-      color: #b45309;
+      color: var(--warning-strong);
       margin-bottom: 14px;
       line-height: 1.6;
     }
-    body.dark .modal-hint { color: #fbbf24; }
 
     /* 列表 */
     .list-item {
@@ -408,11 +448,11 @@
       transform: translateY(-50%);
       font-size: 18px;
     }
-    .alert-success { background: #dcfce7; color: #166534; display: block; }
+    .alert-success { background: var(--success-bg); color: var(--success-text); display: block; }
     .alert-success::before { content: "✅"; }
-    .alert-error { background: #fee2e2; color: #991b1b; display: block; }
+    .alert-error { background: var(--danger-bg); color: var(--danger-text); display: block; }
     .alert-error::before { content: "❌"; }
-    .alert-warning { background: #fef3c7; color: #92400e; display: block; }
+    .alert-warning { background: var(--warning-bg); color: var(--warning-text); display: block; }
     .alert-warning::before { content: "⚠️"; }
 
     /* 模态框 */
@@ -453,7 +493,7 @@
     }
     .back-link {
       display: inline-block;
-      color: #4f46e5;
+      color: var(--primary);
       text-decoration: none;
       margin-bottom: 20px;
       font-size: 14px;
@@ -641,7 +681,7 @@
             <div class="form-group">
               <label>头像颜色</label>
               <div class="color-row">
-                <input type="color" id="site-avatarBg" value="#4f46e5">
+                <input type="color" id="site-avatarBg" value="var(--primary)">
                 <span style="font-size:13px;color:var(--text-mute)">选个你喜欢的颜色</span>
               </div>
             </div>
@@ -1033,7 +1073,7 @@
           document.getElementById("site-name").value = s.name || "";
           document.getElementById("site-bio").value = s.bio || "";
           document.getElementById("site-avatar").value = s.avatar || "";
-          document.getElementById("site-avatarBg").value = s.avatarBg || "#4f46e5";
+          document.getElementById("site-avatarBg").value = s.avatarBg || "var(--primary)";
           document.getElementById("site-school").value = s.school || "";
           document.getElementById("site-grade").value = s.grade || "";
           document.getElementById("site-className").value = s.className || "";

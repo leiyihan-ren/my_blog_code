@@ -49,7 +49,7 @@
   }
   .mp-toggle-btn:hover {
     background: var(--primary, #4f46e5);
-    color: white;
+    color: var(--on-accent, #fff);
   }
   .mp-toggle-btn .mp-toggle-icon {
     transition: transform 0.3s;
@@ -60,7 +60,7 @@
   .mp-cover {
     width: 48px; height: 48px;
     border-radius: 10px;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--grad-brand, linear-gradient(135deg, #667eea, #764ba2));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -97,7 +97,7 @@
   }
   .mp-artist {
     font-size: 12px;
-    color: var(--text-mute, #999);
+    color: var(--text-mute, #6b7280);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -160,7 +160,7 @@
   }
   .mp-time {
     font-size: 11px;
-    color: var(--text-mute, #999);
+    color: var(--text-mute, #6b7280);
     display: flex;
     justify-content: space-between;
     font-variant-numeric: tabular-nums;
@@ -187,22 +187,22 @@
   }
   .mp-btn:hover {
     background: var(--primary, #4f46e5);
-    color: white;
+    color: var(--on-accent, #fff);
   }
   .mp-btn:active { transform: scale(0.92); }
   .mp-play {
     width: 40px; height: 40px;
     background: var(--primary, #4f46e5);
-    color: white;
+    color: var(--on-accent, #fff);
     font-size: 16px;
   }
   .mp-play:hover {
-    background: #4338ca;
+    background: var(--primary-hover, #4338ca);
   }
   /* 播放模式按钮激活态 */
   .mp-mode-btn.mp-mode-active {
     color: var(--primary, #4f46e5);
-    background: rgba(79,70,229,0.12);
+    background: rgba(var(--primary-rgb, 79,70,229),0.12);
   }
   .mp-volume {
     display: none;
@@ -275,7 +275,7 @@
   .mp-playlist-count {
     font-size: 12px;
     font-weight: 400;
-    color: var(--text-mute, #999);
+    color: var(--text-mute, #6b7280);
   }
   .mp-playlist-item {
     padding: 12px 18px;
@@ -289,7 +289,7 @@
   .mp-playlist-item:last-child { border-bottom: none; }
   .mp-playlist-item:hover { background: var(--item-bg, #f9fafb); }
   .mp-playlist-item.active {
-    background: rgba(79,70,229,0.1);
+    background: rgba(var(--primary-rgb, 79,70,229),0.1);
     color: var(--primary, #4f46e5);
   }
   .mp-playlist-item-eq {
@@ -309,7 +309,7 @@
   }
   .mp-playlist-item-artist {
     font-size: 12px;
-    color: var(--text-mute, #999);
+    color: var(--text-mute, #6b7280);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -333,7 +333,7 @@
   .mp-playlist-item:not(.active) .mp-eq-bar { display: none; }
   .mp-playlist-item-num {
     font-size: 11px;
-    color: var(--text-mute, #999);
+    color: var(--text-mute, #6b7280);
     width: 16px;
     text-align: center;
     flex-shrink: 0;
@@ -696,7 +696,7 @@
     const el = $("mpPlaylistItems");
     $("mpPlaylistCount").textContent = playlist.length ? `${playlist.length} 首` : "";
     if (!playlist.length) {
-      el.innerHTML = '<div style="padding:24px;text-align:center;color:#999;font-size:13px">暂无歌曲</div>';
+      el.innerHTML = '<div style="padding:24px;text-align:center;color: var(--text-mute, #6b7280);font-size:13px">暂无歌曲</div>';
       return;
     }
     el.innerHTML = playlist.map((s, i) => `

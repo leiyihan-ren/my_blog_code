@@ -19,6 +19,33 @@
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
       --nav-bg: rgba(255,255,255,0.85);
       --item-bg: #f9fafb;
+
+      --primary-rgb: 79,70,229;
+      --accent-rgb: 99,102,241;
+      --brand-from: #667eea;
+      --brand-to: #764ba2;
+      --brand-rgb: 102,126,234;
+      --success-rgb: 22,163,74;
+      --warning-rgb: 245,158,11;
+      --danger-rgb: 239,68,68;
+      --on-accent: #fff;
+      --primary-hover: #4338ca;
+      --brand-deep: #5b21b6;
+      --grad-brand: linear-gradient(135deg, var(--brand-from), var(--brand-to));
+      --success: #16a34a;
+      --success-bg: #dcfce7;
+      --success-text: #166534;
+      --danger: #dc2626;
+      --danger-solid: #ef4444;
+      --danger-bg: #fee2e2;
+      --danger-text: #991b1b;
+      --warning: #d97706;
+      --warning-strong: #b45309;
+      --warning-bg: #fef3c7;
+      --warning-text: #92400e;
+      --radius-pill: 999px;
+      --primary-disabled: #a5b4fc;
+      --grad-cdn: linear-gradient(135deg, #f59e0b, #ef4444);
     }
     body.dark {
       --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
@@ -26,6 +53,17 @@
       --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
       --nav-bg: rgba(15,15,26,0.85);
       --item-bg: #16162a;
+
+      --success: #22c55e;
+      --success-bg: rgba(34,197,94,0.16);
+      --success-text: #86efac;
+      --danger: #fca5a5;
+      --danger-bg: rgba(239,68,68,0.16);
+      --danger-text: #fca5a5;
+      --warning: #fbbf24;
+      --warning-strong: #fbbf24;
+      --warning-bg: rgba(251,191,36,0.14);
+      --warning-text: #fcd34d;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -50,23 +88,23 @@
     /* 自定义滚动条 */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 4px; transition: background 0.2s; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
-    body.dark::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); }
-    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
+    ::-webkit-scrollbar-thumb { background: rgba(var(--primary-rgb),0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(var(--primary-rgb),0.5); }
+    body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
+    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
 
     /* 文字选中样式 */
-    ::selection { background: rgba(79,70,229,0.3); color: #fff; }
-    ::-moz-selection { background: rgba(79,70,229,0.3); color: #fff; }
-    body.dark ::selection { background: rgba(99,102,241,0.4); color: #fff; }
-    body.dark ::-moz-selection { background: rgba(99,102,241,0.4); color: #fff; }
+    ::selection { background: rgba(var(--primary-rgb),0.3); color: var(--on-accent); }
+    ::-moz-selection { background: rgba(var(--primary-rgb),0.3); color: var(--on-accent); }
+    body.dark ::selection { background: rgba(var(--accent-rgb),0.4); color: var(--on-accent); }
+    body.dark ::-moz-selection { background: rgba(var(--accent-rgb),0.4); color: var(--on-accent); }
     .nav-inner {
       max-width: 1200px; margin: 0 auto; padding: 0 24px;
       display: flex; align-items: center; justify-content: space-between; height: 64px;
     }
     .logo {
       font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none;
-      background: linear-gradient(135deg, #667eea, #764ba2);
+      background: var(--grad-brand);
       -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
     }
     .nav-right { display: flex; align-items: center; gap: 16px; }
@@ -105,8 +143,8 @@
       align-items: center;
       gap: 4px;
       padding: 4px 10px;
-      background: linear-gradient(135deg, #667eea, #764ba2);
-      color: white;
+      background: var(--grad-brand);
+      color: var(--on-accent);
       font-size: 12px;
       font-weight: 600;
       border-radius: 20px;
@@ -214,7 +252,7 @@
       border-radius: 50%;
       border: none;
       background: rgba(255,255,255,0.1);
-      color: white;
+      color: var(--on-accent);
       font-size: 24px;
       cursor: pointer;
       transition: background 0.2s;
@@ -228,7 +266,7 @@
       border-radius: 50%;
       border: none;
       background: rgba(255,255,255,0.1);
-      color: white;
+      color: var(--on-accent);
       font-size: 22px;
       cursor: pointer;
       transition: background 0.2s;
@@ -240,7 +278,7 @@
       position: absolute;
       bottom: 30px; left: 50%;
       transform: translateX(-50%);
-      color: white;
+      color: var(--on-accent);
       font-size: 15px;
       text-align: center;
       max-width: 80%;
@@ -258,13 +296,12 @@
       border-radius: 10px;
       background: rgba(245, 158, 11, 0.12);
       border: 1px solid rgba(245, 158, 11, 0.35);
-      color: #b45309;
+      color: var(--warning-strong);
       font-size: 13px;
       text-align: center;
     }
     body.dark .album-notice {
-      color: #fbbf24;
-      background: rgba(245, 158, 11, 0.15);
+      background: rgba(var(--warning-rgb), 0.15);
     }
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(20px); }
@@ -293,11 +330,11 @@
       height: 48px;
       border-radius: 50%;
       background: var(--primary);
-      color: white;
+      color: var(--on-accent);
       border: none;
       cursor: pointer;
       font-size: 20px;
-      box-shadow: 0 4px 16px rgba(79,70,229,0.4);
+      box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4);
       opacity: 0;
       transform: translateY(20px);
       transition: all 0.3s;
@@ -309,7 +346,7 @@
     }
     .back-top:hover {
       transform: translateY(-4px);
-      box-shadow: 0 8px 24px rgba(79,70,229,0.5);
+      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
     }
 
     @media (max-width: 1024px) { .masonry { column-count: 3; } }
@@ -323,7 +360,7 @@
     @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     .mobile-menu.active { display: block; }
     .mobile-menu a { display: block; padding: 14px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s; }
-    .mobile-menu a:hover, .mobile-menu a.active { color: var(--primary); background: var(--item-bg, rgba(79,70,229,0.06)); }
+    .mobile-menu a:hover, .mobile-menu a.active { color: var(--primary); background: var(--item-bg, rgba(var(--primary-rgb),0.06)); }
     @media (max-width: 900px) {
       .nav-links { display: none; }
       .nav-toggle { display: flex; }
@@ -632,7 +669,7 @@
           // 显示仓库同步标识
           if (site.autoMode) {
             const subtitle = document.getElementById("album-subtitle");
-            subtitle.innerHTML = `${escapeHtml(site.githubRepo)} 仓库自动同步 <span class="auto-badge">🤖 GitHub 同步</span>${useCdn ? ' <span class="auto-badge" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">⚡ CDN加速</span>' : ''}`;
+            subtitle.innerHTML = `${escapeHtml(site.githubRepo)} 仓库自动同步 <span class="auto-badge">🤖 GitHub 同步</span>${useCdn ? ' <span class="auto-badge" style="background:var(--grad-cdn, linear-gradient(135deg,#f59e0b,var(--danger-solid)))">⚡ CDN加速</span>' : ''}`;
           }
           try {
             photos = await loadPhotos();
@@ -648,7 +685,7 @@
               return;
             }
             document.getElementById("album-content").innerHTML =
-              `<div class="empty">❌ 相册加载失败<br><br>${escapeHtml(err.message || "未知错误")}<br><br>请检查 GitHub 仓库配置，或稍后重试<br><br><button style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary,#4f46e5);color:#fff;cursor:pointer;font-size:14px" onclick="init()">🔄 重试</button></div>`;
+              `<div class="empty">❌ 相册加载失败<br><br>${escapeHtml(err.message || "未知错误")}<br><br>请检查 GitHub 仓库配置，或稍后重试<br><br><button style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary,var(--primary));color: var(--on-accent);cursor:pointer;font-size:14px" onclick="init()">🔄 重试</button></div>`;
             return;
           }
         }
@@ -657,7 +694,7 @@
       // 站点接口失败（网络/服务故障）：明确提示，避免误导成"未配置"
       if (siteReqFailed) {
         document.getElementById("album-content").innerHTML =
-          `<div class="empty">⚠️ 暂时无法连接服务器<br><br>请检查网络后重试<br><br><button style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary,#4f46e5);color:#fff;cursor:pointer;font-size:14px" onclick="init()">🔄 重试</button></div>`;
+          `<div class="empty">⚠️ 暂时无法连接服务器<br><br>请检查网络后重试<br><br><button style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary,var(--primary));color: var(--on-accent);cursor:pointer;font-size:14px" onclick="init()">🔄 重试</button></div>`;
         return;
       }
 
