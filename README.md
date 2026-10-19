@@ -26,10 +26,10 @@
                                                       └── Cloudflare KV（SITE_DATA）
 ```
 
-### Worker 分层结构（`_worker.js`，约 2000 行）
+### Worker 分层结构（`_worker.js`，约 2650 行）
 
 ```
- 1. CONFIG       —— 全部可调参数（限流、长度、默认数据、GitHub 拉取策略）
+ 1. CONFIG       —— 全部可调参数（限流、长度、默认数据、GitHub 拉取策略、边缘缓存 TTL）
  2. UTILS        —— 安全 JSON 解析、ID 生成、时间格式化
  3. VALIDATORS  —— 昵称/富文本/URL/ID 格式校验
  4. SANITIZE    —— XSS 深度净化（6 轮检测）
@@ -41,8 +41,10 @@
 10. Services    —— 限流、登录锁定、认证中间件
 11. Handlers    —— 各接口处理函数
 12. ROUTES      —— 表驱动路由（路径模式 → 正则 + :param 提取）
-13. Entry       —— fetch 入口：API 分发 + 静态资源 + 统一错误处理
+13. Entry       —— fetch 入口：API 分发 + 静态资源 + 边缘缓存层 + 统一错误处理
 ```
+
+> **边缘缓存层（v2 新增）**：10 个公共 GET 接口（site/stats/posts/messages/music/timeline/links/game-scores/album-photos）按各自 TTL 走 Cloudflare Cache API，命中时 Worker 根本不执行、**KV 零读取**；带 `Authorization` 的请求与 POST 不缓存。写操作成功后 `ctx.waitUntil(purgeApiCache())` 失效对应缓存，数据改完即刻可见。静态资源：HTML `max-age=0, must-revalidate`（保证部署后立即可见），其余 `max-age=3600`（文件名无 hash，不用 immutable 避免手工更新后长期取旧文件）。
 
 ### 双内容源：后台手写 × GitHub 仓库
 
@@ -359,3 +361,34 @@ games.html ──► game-core.js（框架）
 - Chrome / Edge / Firefox / Safari 近两年版本
 - 响应式布局（手机 / 平板 / 桌面）
 - 游戏支持键盘 + 触屏
+
+## 更新日志（v2 修订）
+
+**Worker / 性能 / KV**
+- 新增边缘缓存层：10 个公共 GET 接口按 TTL 走 Cloudflare Cache API，命中时 Worker 不执行、KV 零读取；写操作后 `waitUntil` 失效缓存
+- 静态资源缓存头：HTML `max-age=0, must-revalidate`，其余 `max-age=3600`（不用 immutable，文件名无 hash）
+- 修复合并视图 memo 串键：posts/music/timeline 的请求级缓存改用独立 `VIEW_KEY`，后台数据与合并视图不再互相污染
+
+**Bug 修复**
+- 贪吃蛇：吃满全屏通关时不再 do…while 死循环（空格收集法）；尾格跟随判定修正（不增长时排除尾格，避免贴尾误判撞尾）
+- 打砖块：球从侧向击中挡板时垂直速度可能趋近 0 导致横向死循环——加最小分速比保底（双向）
+- 2048：合并动画改为按真实合并位置标记（`mergedCells`），滑入更高值格子不再误播脉冲
+- 扫雷：秒表改首击才启动（reset 不再开表），符合扫雷惯例
+- 记忆翻牌：新增键盘操作（方向键移动焦点 + roving tabindex + Enter/空格翻牌）
+- 音乐播放器：`playing` 事件清零连续失败计数（修复手动切歌成功后计数叠加误判"全部失败"）；失败自动切歌定时器可被手动切歌取消（不再连跳两首）；同步 `mediaSession.playbackState`；进度条允许拖到 0 秒；相册灯箱打开时让位键盘快捷键
+- 游戏框架：`escapeAttr` 属性上下文转义（data-id 等）；虚拟方向键长按计时器登记到框架（destroy 后无幽灵操作）；个人纪录刷新后当前游戏卡片保持高亮
+- 管理后台：登录口令改存 sessionStorage（旧 localStorage 一次性迁移，关闭标签页即失效）；6 处 `data-id` 改 `escapeAttr`；站点设置加载失败且从未成功加载时禁用保存按钮（防空表单覆盖真实配置）
+- 首页：5 项统计栏允许换行 + 小屏收紧间距，修复窄屏横向溢出
+- 文章页：Markdown 表格支持 GFM 管道表格（`.table-wrap` 横向滚动）；评论提交先判 `res.ok` 与 content-type 再解析 JSON
+
+**安全**
+- 文章页 Markdown 渲染：`img`/`a` 的 `src`/`href` 等属性位置全部改 `escapeAttr`（`escapeHtml` 不转义引号，属性上下文可被注入闭合）
+
+**UI / 可访问性 / SEO**
+- 对比度：`--text-mute` 亮色 #999→#6b7280（白底 4.6:1 达 WCAG AA），暗色 #6b7280→#9ca3af
+- 暗色模式 FOUC：`<body>` 首行同步主题脚本，预设暗色首屏不再白闪
+- 语义化：页脚 `div`→`<footer>`，主体内容包 `<main>`
+- SEO：8 个公开页补 meta description + og/twitter 卡片标签 + 静态默认 title；管理后台 noindex
+- 可访问性：全局 `:focus-visible` 焦点环、全局 `prefers-reduced-motion` 遵循、留言/评论输入 aria-label、toast 与相册提示 `role="status"` + `aria-live`
+
+**回滚方案**：全部改动按四步分批提交（审查 → KV/缓存重构 → Bug 修复 → UI 美化），每批一个 commit。需回滚到修订前版本：`git reset --hard 63ba61b`（基线 commit）；只回滚 UI 美化：`git reset --hard 7433d78`。
