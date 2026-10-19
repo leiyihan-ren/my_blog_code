@@ -8,14 +8,14 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
-      --text-mute: #999; --border: #e5e7eb; --primary: #4f46e5;
+      --text-mute: #6b7280; --border: #e5e7eb; --primary: #4f46e5;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
       --item-bg: #f9fafb;
     }
     body.dark {
       --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
-      --text-mute: #6b7280; --border: #2a2a40;
+      --text-mute: #9ca3af; --border: #2a2a40;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
       --item-bg: #16162a;
@@ -463,9 +463,33 @@
       .row { flex-direction: column; gap: 0; }
       .tabs { overflow-x: auto; }
     }
-  </style>
+  
+    /* 可访问性：键盘焦点清晰可见 */
+    :focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    /* 尊重系统减弱动效偏好：关闭装饰性动画与过渡 */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+</style>
 </head>
 <body>
+<script>
+  // 同步应用主题：避免暗色模式首屏白闪（FOUC）。与页尾 initTheme 逻辑保持一致
+  try {
+    var __t = localStorage.getItem("theme");
+    if (__t === "dark" || (!__t && matchMedia("(prefers-color-scheme: dark)").matches)) {
+      document.body.classList.add("dark");
+    }
+  } catch (e) {}
+</script>
   <div class="container">
     <a href="index.html" class="back-link">← 返回网站</a>
 
@@ -617,7 +641,7 @@
               <label>头像颜色</label>
               <div class="color-row">
                 <input type="color" id="site-avatarBg" value="#4f46e5">
-                <span style="font-size:13px;color:#999">选个你喜欢的颜色</span>
+                <span style="font-size:13px;color:var(--text-mute)">选个你喜欢的颜色</span>
               </div>
             </div>
           </div>

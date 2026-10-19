@@ -3,19 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="个人相册，收录旅行、生活与日常瞬间的照片。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="我的博客">
+  <meta property="og:title" content="相册 - 我的博客">
+  <meta property="og:description" content="个人相册，收录旅行、生活与日常瞬间的照片。">
+  <meta property="og:url" content="https://leiyihan.dpdns.org/album.html">
+  <meta name="twitter:card" content="summary">
   <title>相册 - 我的博客</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
-      --text-mute: #999; --border: #eaecef; --primary: #4f46e5;
+      --text-mute: #6b7280; --border: #eaecef; --primary: #4f46e5;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
       --nav-bg: rgba(255,255,255,0.85);
       --item-bg: #f9fafb;
     }
     body.dark {
       --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
-      --text-mute: #6b7280; --border: #2a2a40;
+      --text-mute: #9ca3af; --border: #2a2a40;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
       --nav-bg: rgba(15,15,26,0.85);
       --item-bg: #16162a;
@@ -327,9 +334,34 @@
       .lightbox-next { right: 10px; }
       .back-top { bottom: 90px; right: 20px; width: 42px; height: 42px; }
     }
-  </style>
+  
+    /* 可访问性：键盘焦点清晰可见 */
+    :focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    /* 尊重系统减弱动效偏好：关闭装饰性动画与过渡 */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+</style>
 </head>
 <body>
+<script>
+  // 同步应用主题：避免暗色模式首屏白闪（FOUC）。与页尾 initTheme 逻辑保持一致
+  try {
+    var __t = localStorage.getItem("theme");
+    if (__t === "dark" || (!__t && matchMedia("(prefers-color-scheme: dark)").matches)) {
+      document.body.classList.add("dark");
+    }
+  } catch (e) {}
+</script>
+<main>
   <nav class="navbar">
     <div class="nav-inner">
       <a href="index.html" class="logo" id="nav-logo">我的博客</a>
@@ -368,7 +400,9 @@
     </div>
   </div>
 
-  <div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+  </main>
+
+  <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
 
   <!-- 灯箱 -->
   <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
@@ -461,6 +495,8 @@
         notice = document.createElement("div");
         notice.id = "album-notice";
         notice.className = "album-notice";
+        notice.setAttribute("role", "status");
+        notice.setAttribute("aria-live", "polite");
         el.prepend(notice);
       }
       notice.textContent = text;

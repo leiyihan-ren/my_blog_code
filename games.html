@@ -3,12 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="在线小游戏大厅：贪吃蛇、俄罗斯方块、2048、扫雷、记忆翻牌与打砖块，支持全站排行榜。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="我的博客">
+  <meta property="og:title" content="游戏大厅 - 我的博客">
+  <meta property="og:description" content="在线小游戏大厅：贪吃蛇、俄罗斯方块、2048、扫雷、记忆翻牌与打砖块，支持全站排行榜。">
+  <meta property="og:url" content="https://leiyihan.dpdns.org/games.html">
+  <meta name="twitter:card" content="summary">
 <title>游戏大厅 - 我的博客</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
     --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
-    --text-mute: #999; --border: #eaecef; --primary: #4f46e5;
+    --text-mute: #6b7280; --border: #eaecef; --primary: #4f46e5;
     --primary-2: #7c3aed;
     --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
     --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
@@ -17,7 +24,7 @@
   }
   body.dark {
     --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
-    --text-mute: #6b7280; --border: #2a2a40;
+    --text-mute: #9ca3af; --border: #2a2a40;
     --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
     --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
     --nav-bg: rgba(15,15,26,0.85);
@@ -362,9 +369,34 @@
     .stage-side { width: 100%; }
     .board-wrap { min-height: 320px; }
   }
+
+    /* 可访问性：键盘焦点清晰可见 */
+    :focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    /* 尊重系统减弱动效偏好：关闭装饰性动画与过渡 */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
 </style>
 </head>
 <body>
+<script>
+  // 同步应用主题：避免暗色模式首屏白闪（FOUC）。与页尾 initTheme 逻辑保持一致
+  try {
+    var __t = localStorage.getItem("theme");
+    if (__t === "dark" || (!__t && matchMedia("(prefers-color-scheme: dark)").matches)) {
+      document.body.classList.add("dark");
+    }
+  } catch (e) {}
+</script>
+<main>
 <nav class="navbar">
   <div class="nav-inner">
     <a href="index.html" class="logo" id="nav-logo">我的博客</a>
@@ -443,9 +475,11 @@
   </section>
 </div>
 
-<div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+</main>
+
+<footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
 <button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="game-core.js"></script>
 <script src="games/snake.js"></script>

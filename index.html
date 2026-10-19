@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>加载中...</title>
+  <meta name="description" content="Lei Yihan 的个人主页与博客，分享技术笔记、生活记录与项目作品。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="我的博客">
+  <meta property="og:title" content="首页 - 我的博客">
+  <meta property="og:description" content="Lei Yihan 的个人主页与博客，分享技术笔记、生活记录与项目作品。">
+  <meta property="og:url" content="https://leiyihan.dpdns.org/index.html">
+  <meta name="twitter:card" content="summary">
+  <title>首页 - 我的博客</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -11,7 +18,7 @@
       --card-bg: #ffffff;
       --text: #333;
       --text-light: #666;
-      --text-mute: #999;
+      --text-mute: #6b7280;
       --border: #eaecef;
       --primary: #4f46e5;
       --primary-hover: #4338ca;
@@ -24,7 +31,7 @@
       --card-bg: #1a1a2e;
       --text: #e5e7eb;
       --text-light: #9ca3af;
-      --text-mute: #6b7280;
+      --text-mute: #9ca3af;
       --border: #2a2a40;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
@@ -525,6 +532,16 @@
   </style>
 </head>
 <body>
+<script>
+  // 同步应用主题：避免暗色模式首屏白闪（FOUC）。与页尾 initTheme 逻辑保持一致
+  try {
+    var __t = localStorage.getItem("theme");
+    if (__t === "dark" || (!__t && matchMedia("(prefers-color-scheme: dark)").matches)) {
+      document.body.classList.add("dark");
+    }
+  } catch (e) {}
+</script>
+<main>
   <nav class="navbar">
     <div class="nav-inner">
       <a href="index.html" class="logo" id="nav-logo">我的博客</a>
@@ -628,7 +645,9 @@
     <div id="popular-posts" class="reveal"></div>
   </div>
 
-  <div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+  </main>
+
+  <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
 
   <button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
 

@@ -3,6 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="阅读博客文章全文，参与评论交流。">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="我的博客">
+  <meta property="og:title" content="文章 - 我的博客">
+  <meta property="og:description" content="阅读博客文章全文，参与评论交流。">
+  <meta property="og:url" content="https://leiyihan.dpdns.org/post.html">
+  <meta name="twitter:card" content="summary">
   <title>文章 - 我的博客</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -11,7 +18,7 @@
       --card-bg: #ffffff;
       --text: #333;
       --text-light: #666;
-      --text-mute: #999;
+      --text-mute: #6b7280;
       --border: #eaecef;
       --primary: #4f46e5;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
@@ -24,7 +31,7 @@
       --card-bg: #1a1a2e;
       --text: #e5e7eb;
       --text-light: #9ca3af;
-      --text-mute: #6b7280;
+      --text-mute: #9ca3af;
       --border: #2a2a40;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
@@ -669,9 +676,34 @@
       .action-btn { flex: 1; justify-content: center; }
       .back-top { bottom: 90px; right: 20px; width: 42px; height: 42px; }
     }
-  </style>
+  
+    /* 可访问性：键盘焦点清晰可见 */
+    :focus-visible {
+      outline: 2px solid var(--primary);
+      outline-offset: 2px;
+    }
+    /* 尊重系统减弱动效偏好：关闭装饰性动画与过渡 */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+</style>
 </head>
 <body>
+<script>
+  // 同步应用主题：避免暗色模式首屏白闪（FOUC）。与页尾 initTheme 逻辑保持一致
+  try {
+    var __t = localStorage.getItem("theme");
+    if (__t === "dark" || (!__t && matchMedia("(prefers-color-scheme: dark)").matches)) {
+      document.body.classList.add("dark");
+    }
+  } catch (e) {}
+</script>
+<main>
   <div class="progress-bar" id="progressBar"></div>
 
   <nav class="navbar">
@@ -707,7 +739,9 @@
     <div id="article-container"></div>
   </div>
 
-  <div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+  </main>
+
+  <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
   <div class="share-toast" id="shareToast">链接已复制到剪贴板</div>
 
   <script>
@@ -979,9 +1013,9 @@
             <div class="comment-form">
               <div class="comment-alert" id="comment-alert"></div>
               <div class="comment-form-row">
-                <input type="text" id="comment-name" placeholder="你的昵称（最多20字）" maxlength="20">
+                <input type="text" id="comment-name" placeholder="你的昵称（最多20字）" maxlength="20" aria-label="评论昵称">
               </div>
-              <textarea id="comment-content" placeholder="写下你的评论...（最多500字）" maxlength="500"></textarea>
+              <textarea id="comment-content" placeholder="写下你的评论...（最多500字）" maxlength="500" aria-label="评论内容"></textarea>
               <div class="comment-form-footer">
                 <span class="comment-char-count" id="comment-char-count">0 / 500</span>
                 <button class="comment-submit-btn" id="comment-submit" onclick="submitComment()">发表评论</button>
