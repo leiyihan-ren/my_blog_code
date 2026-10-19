@@ -82,6 +82,37 @@ const CONFIG = {
   games: ["snake", "breakout", "2048", "memory", "mines"],
 };
 
+/**
+ * 公共只读接口的边缘缓存 TTL（秒）。
+ * 这些接口是 KV 读取的主要来源：命中 Cloudflare 边缘缓存时 Worker 根本不会
+ * 被调用，KV 读取量随之下降一个数量级。
+ *
+ * 设计约束：
+ *   - 只缓存 GET 且不需要管理权限的接口（写接口 Cloudflare 本就不会缓存）；
+ *   - 携带 Authorization 的请求一律不缓存（cache.delete 由写操作负责，见 entry）；
+ *   - like/view/comments 等涉及计数与 IP 去重的接口不在此列，避免计数失真；
+ *   - 管理端写操作成功后会清空本表中的全部键，数据实时性不受影响。
+ */
+const API_CACHE_TTL = {
+  "/api/site": 60,
+  "/api/stats": 30,
+  "/api/popular": 60,
+  "/api/posts": 30,
+  "/api/messages": 15,
+  "/api/music": 60,
+  "/api/timeline": 60,
+  "/api/links": 60,
+  "/api/game/scores": 30,
+  "/api/album/photos": 60,
+};
+
+/** 合并视图在请求级 memo 中的键（与本地视图的 KEYS.posts 区分，避免互相覆盖） */
+const VIEW_KEY = {
+  posts: "view:posts",
+  music: "view:music",
+  timeline: "view:timeline",
+};
+
 // ============================================================
 // 2. UTILS —— 通用工具函数
 // ============================================================
@@ -461,8 +492,26 @@ function jsonEtagResponse(request, data) {
   return new Response(body, { headers: buildHeaders({ ETag: etag }) });
 }
 
+/**
+ * 静态资源缓存策略。
+ * HTML 一律 `max-age=0, must-revalidate`：内容随时会变，靠 ETag 协商缓存，
+ * 保证后台改完文章后刷新即可见，同时不丢 304 的带宽优势。
+ * JS/CSS/图片等用 1 小时短缓存：本项目文件名无 hash 后缀，缓存窗口必须可控，
+ * 否则手工上传新版本后浏览器会长期拿旧文件。
+ */
+function staticCacheControl(pathname) {
+  if (
+    pathname === "/" ||
+    pathname.endsWith("/") ||
+    pathname.endsWith(".html")
+  ) {
+    return "public, max-age=0, must-revalidate";
+  }
+  return "public, max-age=3600";
+}
+
 /** 为静态资源响应附加安全响应头 */
-function addStaticSecurityHeaders(response) {
+function addStaticSecurityHeaders(response, pathname) {
   const headers = new Headers(response.headers);
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
@@ -471,6 +520,10 @@ function addStaticSecurityHeaders(response) {
   // 仅 HTML 页面加 CSP（含 media-src 以支持外链音频）
   if ((headers.get("Content-Type") || "").includes("text/html")) {
     headers.set("Content-Security-Policy", CSP_POLICY);
+  }
+  // 不覆盖上游已设置的缓存头（如 Cloudflare 对带指纹资源的处理）
+  if (!headers.has("Cache-Control") && response.status !== 304) {
+    headers.set("Cache-Control", staticCacheControl(pathname || "/"));
   }
   // 304 响应无 body，需传 null
   const body = response.status === 304 ? null : response.body;
@@ -1002,7 +1055,7 @@ const Repo = {
   // ---------- 合并视图（前台展示：GitHub + 后台，本地优先） ----------
 
   async getPosts(store) {
-    const cached = store.jsonMemo.get(KEYS.posts);
+    const cached = store.jsonMemo.get(VIEW_KEY.posts);
     if (cached != null) return cached;
 
     const site = await Repo.getSite(store);
@@ -1029,7 +1082,7 @@ const Repo = {
     // GitHub 正常但仓库无文章则是用户主动清空，展示空列表）
     if (posts.length === 0 && (!ghEnabled || ghFailed)) posts = DEFAULT_POSTS;
 
-    store.jsonMemo.set(KEYS.posts, posts);
+    store.jsonMemo.set(VIEW_KEY.posts, posts);
     return posts;
   },
 
@@ -1050,7 +1103,7 @@ const Repo = {
   },
 
   async getMusic(store) {
-    const cached = store.jsonMemo.get(KEYS.music);
+    const cached = store.jsonMemo.get(VIEW_KEY.music);
     if (cached != null) return cached;
 
     const site = await Repo.getSite(store);
@@ -1074,12 +1127,12 @@ const Repo = {
     }
     if (music.length === 0 && (!ghEnabled || ghFailed)) music = DEFAULT_MUSIC;
 
-    store.jsonMemo.set(KEYS.music, music);
+    store.jsonMemo.set(VIEW_KEY.music, music);
     return music;
   },
 
   async getTimeline(store) {
-    const cached = store.jsonMemo.get(KEYS.timeline);
+    const cached = store.jsonMemo.get(VIEW_KEY.timeline);
     if (cached != null) return cached;
 
     const site = await Repo.getSite(store);
@@ -1103,7 +1156,7 @@ const Repo = {
     }
     if (timeline.length === 0 && (!ghEnabled || ghFailed)) timeline = DEFAULT_TIMELINE;
 
-    store.jsonMemo.set(KEYS.timeline, timeline);
+    store.jsonMemo.set(VIEW_KEY.timeline, timeline);
     return timeline;
   },
 
@@ -2510,6 +2563,27 @@ async function dispatchApi(request, env, ctx, url) {
   return await route.handler(context);
 }
 
+/**
+ * 清空公共只读接口的边缘缓存。
+ * 策略说明：任何成功的写操作（管理端写入 / 点赞 / 留言 / 评论 / 成绩提交）
+ * 都全量清理，而不是按路径精确匹配。理由是个人博客的写频率极低，
+ * 10 次 cache.delete 的成本可忽略；而精确映射一旦漏一个路径就会出现
+ * "后台改完前台不更新"的难以排查问题——正确性优先于微优化。
+ */
+function purgeApiCache(request) {
+  try {
+    if (typeof caches === "undefined" || !caches.default) return Promise.resolve();
+    const origin = new URL(request.url).origin;
+    const tasks = Object.keys(API_CACHE_TTL).map((p) =>
+      caches.default.delete(new Request(origin + p, { method: "GET" }))
+    );
+    return Promise.all(tasks).catch(() => {});
+  } catch (e) {
+    /* 缓存清理失败不影响主流程 */
+    return Promise.resolve();
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -2534,16 +2608,40 @@ export default {
       }
       const headers = new Headers(response.headers);
       headers.set("X-Response-Time", Date.now() - startTime + "ms");
-      return new Response(response.status === 304 ? null : response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-      });
+
+      // 公共只读 GET：允许边缘缓存。命中缓存时 Worker 根本不会被执行，
+      // 因此这部分请求完全不产生 KV 读取——这是降低 KV 用量的主要手段。
+      // 带 Authorization 的请求不缓存（管理端数据实时性优先）。
+      if (
+        request.method === "GET" &&
+        response.status === 200 &&
+        !request.headers.get("Authorization")
+      ) {
+        const ttl = API_CACHE_TTL[url.pathname] || 0;
+        if (ttl > 0) {
+          headers.set(
+            "Cache-Control",
+            `public, max-age=${ttl}, stale-while-revalidate=${ttl * 4}`
+          );
+        }
+      }
+
+      const finalResponse = new Response(
+        response.status === 304 ? null : response.body,
+        { status: response.status, statusText: response.statusText, headers }
+      );
+
+      // 写操作成功：异步清理边缘缓存，保证前台立刻看到最新数据
+      if (request.method === "POST" && response.status === 200) {
+        const purge = purgeApiCache(request);
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(purge);
+      }
+      return finalResponse;
     }
 
-    // 非 API 请求：交给静态资源处理器，并附加安全头
+    // 非 API 请求：交给静态资源处理器，并附加安全头与缓存策略
     if (env.ASSETS) {
-      return addStaticSecurityHeaders(await env.ASSETS.fetch(request));
+      return addStaticSecurityHeaders(await env.ASSETS.fetch(request), url.pathname);
     }
     return new Response("Not Found", { status: 404 });
   },
