@@ -17,6 +17,7 @@
         unit: "分",
       });
       this.size = 4;
+      this.mergedCells = new Set(); // 本步真实合并的格子 "r,c"
     }
 
     mount(root, api) {
