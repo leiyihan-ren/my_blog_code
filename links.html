@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>友情链接 - 我的博客</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
+    --text-mute: #999; --border: #eaecef; --primary: #4f46e5;
+    --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
+    --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
+    --nav-bg: rgba(255,255,255,0.85);
+    --item-bg: rgba(79,70,229,0.06);
+  }
+  body.dark {
+    --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
+    --text-mute: #6b7280; --border: #2a2a40;
+    --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
+    --nav-bg: rgba(15,15,26,0.85);
+    --item-bg: rgba(99,102,241,0.12);
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+    transition: background 0.3s, color 0.3s; padding-bottom: 70px;
+  }
+  .navbar {
+    background: var(--nav-bg); position: sticky; top: 0; z-index: 100;
+    border-bottom: 1px solid transparent; transition: all 0.3s ease;
+  }
+  .navbar.scrolled {
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border); box-shadow: 0 2px 20px rgba(0,0,0,0.04);
+  }
+  body.dark .navbar.scrolled { box-shadow: 0 2px 20px rgba(0,0,0,0.2); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
+  ::selection { background: rgba(79,70,229,0.3); color: #fff; }
+  .nav-inner {
+    max-width: 1080px; margin: 0 auto; padding: 0 24px;
+    display: flex; align-items: center; justify-content: space-between; height: 64px;
+  }
+  .logo {
+    font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    white-space: nowrap;
+  }
+  .nav-right { display: flex; align-items: center; gap: 12px; }
+  .nav-links { display: flex; gap: 20px; list-style: none; }
+  .nav-links a {
+    color: var(--text-light); text-decoration: none; font-size: 15px;
+    transition: color 0.2s; position: relative; white-space: nowrap;
+  }
+  .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+  .nav-links a.active::after {
+    content: ""; position: absolute; bottom: -6px; left: 0; right: 0;
+    height: 2px; background: var(--primary); border-radius: 2px;
+  }
+  .theme-btn {
+    width: 36px; height: 36px; border-radius: 50%; border: none; flex-shrink: 0;
+    background: var(--card-bg); color: var(--text); cursor: pointer;
+    font-size: 16px; transition: all 0.2s; box-shadow: var(--card-shadow);
+  }
+  .theme-btn:hover { transform: scale(1.1); }
+  .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
+  .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+  .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .nav-toggle.active span:nth-child(2) { opacity: 0; }
+  .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+  .mobile-menu { display: none; position: fixed; top: 64px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; }
+  .mobile-menu.active { display: block; }
+  .mobile-menu a { display: block; padding: 13px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; }
+  .mobile-menu a:hover, .mobile-menu a.active { color: var(--primary); background: var(--item-bg); }
+
+  .container { max-width: 1080px; margin: 0 auto; padding: 44px 24px; }
+  .page-header { margin-bottom: 26px; }
+  .page-title { font-size: 28px; font-weight: 700; }
+  .page-sub { font-size: 14px; color: var(--text-mute); margin-top: 6px; }
+
+  .link-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+  .link-card {
+    display: flex; gap: 14px; align-items: flex-start; text-decoration: none;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 18px;
+    padding: 20px; transition: all 0.25s; position: relative; overflow: hidden;
+  }
+  .link-card:hover { transform: translateY(-4px); box-shadow: var(--card-shadow-hover); border-color: var(--primary); }
+  .link-avatar {
+    width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 700;
+    background: linear-gradient(135deg, #667eea, #764ba2); color: #fff;
+  }
+  .link-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .link-info { min-width: 0; flex: 1; }
+  .link-name { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .link-desc { font-size: 13px; color: var(--text-light); line-height: 1.6; word-break: break-all; }
+  .link-arrow { color: var(--text-mute); font-size: 18px; transition: transform 0.25s, color 0.25s; flex-shrink: 0; }
+  .link-card:hover .link-arrow { transform: translateX(3px); color: var(--primary); }
+  .empty {
+    grid-column: 1 / -1; text-align: center; padding: 60px 20px;
+    color: var(--text-mute); background: var(--card-bg);
+    border: 1px dashed var(--border); border-radius: 18px;
+  }
+  .empty .ico { font-size: 40px; display: block; margin-bottom: 12px; }
+
+  .apply {
+    margin-top: 28px; background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 20px; padding: 26px; box-shadow: var(--card-shadow);
+  }
+  .apply h2 { font-size: 19px; margin-bottom: 6px; }
+  .apply > p { font-size: 14px; color: var(--text-light); margin-bottom: 18px; }
+  .apply-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .apply-item {
+    background: var(--item-bg); border-radius: 12px; padding: 14px 16px;
+    display: flex; flex-direction: column; gap: 4px; min-width: 0;
+  }
+  .apply-item span { font-size: 12px; color: var(--text-mute); }
+  .apply-item b { font-size: 14px; font-weight: 600; word-break: break-all; }
+  .apply-note {
+    margin-top: 16px; font-size: 13px; color: var(--text-light);
+    line-height: 1.8; background: var(--item-bg); border-radius: 12px; padding: 14px 16px;
+  }
+  .apply-note b { color: var(--text); }
+  .btn {
+    border: none; border-radius: 10px; padding: 9px 16px; font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit; transition: all 0.2s;
+    background: var(--primary); color: #fff;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--text-light); }
+  .apply-actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .footer { text-align: center; padding: 40px 24px; color: var(--text-mute); font-size: 13px; border-top: 1px solid var(--border); }
+  .back-top {
+    position: fixed; bottom: 30px; right: 30px; width: 48px; height: 48px; border-radius: 50%;
+    background: var(--primary); color: white; border: none; cursor: pointer; font-size: 20px;
+    box-shadow: 0 4px 16px rgba(79,70,229,0.4); opacity: 0; transform: translateY(20px);
+    transition: all 0.3s; z-index: 99;
+  }
+  .back-top.show { opacity: 1; transform: translateY(0); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(20px);
+    background: var(--text); color: var(--bg); padding: 10px 20px; border-radius: 999px;
+    font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.3s; z-index: 200;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 900px) {
+    .nav-links { display: none; }
+    .nav-toggle { display: flex; }
+    .container { padding: 30px 18px; }
+    .page-title { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-inner">
+    <a href="index.html" class="logo" id="nav-logo">我的博客</a>
+    <div class="nav-right">
+      <ul class="nav-links">
+        <li><a href="index.html">首页</a></li>
+        <li><a href="blog.html">博客</a></li>
+        <li><a href="album.html">相册</a></li>
+        <li><a href="timeline.html">时间线</a></li>
+        <li><a href="guestbook.html">留言</a></li>
+        <li><a href="games.html">游戏</a></li>
+        <li><a href="links.html" class="active">友链</a></li>
+      </ul>
+      <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+      <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="index.html">首页</a>
+  <a href="blog.html">博客</a>
+  <a href="album.html">相册</a>
+  <a href="timeline.html">时间线</a>
+  <a href="guestbook.html">留言</a>
+  <a href="games.html">游戏</a>
+  <a href="links.html" class="active">友链</a>
+</div>
+
+<div class="container">
+  <div class="page-header">
+    <h1 class="page-title">🔗 友情链接</h1>
+    <p class="page-sub" id="link-count">加载中…</p>
+  </div>
+
+  <div class="link-grid" id="link-grid">
+    <div class="empty"><span class="ico">⏳</span>正在加载友链…</div>
+  </div>
+
+  <section class="apply">
+    <h2>💌 申请友链</h2>
+    <p>欢迎交换友链～请先把本站添加到你的友链列表，再通过下面的方式联系我，我会尽快添加。</p>
+    <div class="apply-grid">
+      <div class="apply-item"><span>站点名称</span><b id="ap-name">-</b></div>
+      <div class="apply-item"><span>站点地址</span><b id="ap-url">-</b></div>
+      <div class="apply-item"><span>站点描述</span><b id="ap-desc">-</b></div>
+      <div class="apply-item"><span>联系邮箱</span><b id="ap-email">-</b></div>
+    </div>
+    <div class="apply-note">
+      <b>申请要求：</b>站点内容健康、无违规信息；能够正常访问；已添加本站友链。<br>
+      <b>小提示：</b>点击下方「复制站点信息」，按格式发送邮件即可，我会在收到后手动添加。
+    </div>
+    <div class="apply-actions">
+      <button class="btn" id="btn-copy">📋 复制站点信息</button>
+      <button class="btn ghost" id="btn-mail">✉️ 发邮件申请</button>
+    </div>
+  </section>
+</div>
+
+<div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+<button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+function escapeHtml(str) {
+  const d = document.createElement("div");
+  d.textContent = str == null ? "" : String(str);
+  return d.innerHTML;
+}
+// 属性上下文转义：在 escapeHtml 基础上额外转义双引号，防止 URL 突破属性边界（属性注入 XSS）
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, "&quot;");
+}
+
+// 安全的 localStorage 读写（隐私模式/存储被禁用的浏览器不抛错）
+const safeStorage = {
+  get(key) { try { return localStorage.getItem(key); } catch(e) { return null; } },
+  set(key, val) { try { localStorage.setItem(key, val); } catch(e) {} }
+};
+
+let toastTimer = null;
+function toast(msg) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+function toggleTheme() {
+  document.body.classList.toggle("dark");
+  safeStorage.set("theme", document.body.classList.contains("dark") ? "dark" : "light");
+  document.querySelector(".theme-btn").textContent = document.body.classList.contains("dark") ? "☀️" : "🌙";
+}
+(function initTheme() {
+  const s = safeStorage.get("theme");
+  const d = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  if (s === "dark" || (!s && d)) {
+    document.body.classList.add("dark");
+    document.querySelector(".theme-btn").textContent = "☀️";
+  }
+})();
+
+(function initMenu() {
+  const t = $("navToggle"), m = $("mobileMenu");
+  if (!t || !m) return;
+  t.addEventListener("click", (e) => { e.stopPropagation(); t.classList.toggle("active"); m.classList.toggle("active"); });
+  m.querySelectorAll("a").forEach(a => a.addEventListener("click", () => { t.classList.remove("active"); m.classList.remove("active"); }));
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".nav-right") && !e.target.closest("#mobileMenu")) {
+      t.classList.remove("active"); m.classList.remove("active");
+    }
+  });
+})();
+
+function scrollToTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }
+let scrollTicking = false;
+window.addEventListener("scroll", () => {
+  if (scrollTicking) return;
+  scrollTicking = true;
+  requestAnimationFrame(() => {
+    document.querySelector(".navbar").classList.toggle("scrolled", window.scrollY > 10);
+    $("backTop").classList.toggle("show", window.scrollY > 300);
+    scrollTicking = false;
+  });
+});
+
+/* ---------- 渲染友链 ---------- */
+function renderLinks(links) {
+  const grid = $("link-grid");
+  if (!links.length) {
+    grid.innerHTML = `<div class="empty"><span class="ico">🌱</span>还没有友链，成为第一个吧！</div>`;
+  } else {
+    grid.innerHTML = links.map(l => {
+      const name = escapeHtml(l.name || "未命名");
+      const initial = escapeHtml((l.name || "?").trim().charAt(0).toUpperCase());
+      const avatar = l.icon
+        ? `<img src="${escapeAttr(l.icon)}" alt="${name}" loading="lazy" data-fallback="${initial}">`
+        : initial;
+      return `
+      <a class="link-card" href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer nofollow">
+        <div class="link-avatar">${avatar}</div>
+        <div class="link-info">
+          <div class="link-name">${name}</div>
+          <div class="link-desc">${escapeHtml(l.desc || l.url)}</div>
+        </div>
+        <div class="link-arrow">→</div>
+      </a>`;
+    }).join("");
+    // 头像加载失败时回退为首字母（事件绑定代替内联 onerror，避免注入面）
+    grid.querySelectorAll("img[data-fallback]").forEach(img => {
+      img.addEventListener("error", function() {
+        this.parentNode.textContent = this.dataset.fallback;
+        this.parentNode.classList.add("fallback");
+      });
+    });
+  }
+  $("link-count").textContent = `共 ${links.length} 个友链`;
+}
+
+/* ---------- 站点信息 ---------- */
+let siteInfo = null;
+function renderSite(s) {
+  siteInfo = s;
+  const host = location.host || "example.com";
+  $("ap-name").textContent = s.title || document.title;
+  $("ap-url").textContent = location.origin + "/";
+  $("ap-desc").textContent = s.bio || "欢迎交换友链";
+  $("ap-email").textContent = s.email || "未设置邮箱";
+}
+
+$("btn-copy").addEventListener("click", async () => {
+  const s = siteInfo || {};
+  const text =
+    `站点名称：${s.title || document.title}\n` +
+    `站点地址：${location.origin}/\n` +
+    `站点描述：${s.bio || ""}\n` +
+    `联系邮箱：${s.email || "未设置"}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("站点信息已复制到剪贴板 ✅");
+  } catch (e) {
+    // 剪贴板不可用时降级为弹窗选择
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); toast("站点信息已复制 ✅"); }
+    catch (e2) { toast("复制失败，请手动记录"); }
+    document.body.removeChild(ta);
+  }
+});
+
+$("btn-mail").addEventListener("click", () => {
+  const s = siteInfo || {};
+  const email = s.email || "";
+  if (!email) { toast("站长未设置联系邮箱"); return; }
+  const subject = encodeURIComponent("友链申请");
+  const body = encodeURIComponent(
+    `你好，我想和你交换友链：\n\n站点名称：\n站点地址：\n站点描述：\n\n我已添加你的站点：${location.origin}/\n`
+  );
+  location.href = `mailto:${email}?subject=${subject}&body=${body}`;
+});
+
+/* ---------- 启动 ---------- */
+(async function init() {
+  try {
+    const res = await fetch("/api/links");
+    if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
+      const list = await res.json();
+      renderLinks(Array.isArray(list) ? list : []);
+    } else {
+      renderLinks([]);
+    }
+  } catch (e) { renderLinks([]); }
+
+  try {
+    const res = await fetch("/api/site");
+    if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
+      const s = await res.json();
+      if (s && typeof s.title === "string") {
+        document.title = `友情链接 - ${s.title}`;
+        $("nav-logo").textContent = s.title;
+        $("footer-text").textContent = s.footer;
+        renderSite(s);
+      }
+    }
+  } catch (e) {}
+})();
+</script>
+<script src="music-player.js" defer></script>
+</body>
+</html>

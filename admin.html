@@ -1,0 +1,1983 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>管理后台 - 我的博客</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
+      --text-mute: #999; --border: #e5e7eb; --primary: #4f46e5;
+      --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
+      --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
+      --item-bg: #f9fafb;
+    }
+    body.dark {
+      --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
+      --text-mute: #6b7280; --border: #2a2a40;
+      --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
+      --item-bg: #16162a;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
+    body.dark::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); }
+    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
+
+    /* 文字选中样式 */
+    ::selection { background: rgba(79,70,229,0.3); color: #fff; }
+    ::-moz-selection { background: rgba(79,70,229,0.3); color: #fff; }
+    body.dark ::selection { background: rgba(99,102,241,0.4); color: #fff; }
+    body.dark ::-moz-selection { background: rgba(99,102,241,0.4); color: #fff; }
+    .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+    .card {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: var(--card-shadow);
+      border: 1px solid var(--border);
+      animation: fadeIn 0.4s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    h1 { font-size: 24px; color: var(--text); margin-bottom: 8px; }
+    h2 { font-size: 20px; color: var(--text); margin-bottom: 16px; }
+    .subtitle { color: var(--text-mute); font-size: 14px; margin-bottom: 24px; }
+    .theme-btn {
+      position: fixed; top: 20px; right: 20px;
+      width: 40px; height: 40px; border-radius: 50%; border: none;
+      background: var(--card-bg); color: var(--text); cursor: pointer;
+      font-size: 18px; z-index: 999; box-shadow: var(--card-shadow);
+      border: 1px solid var(--border);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .theme-btn:hover { transform: scale(1.1); }
+    .theme-btn:active { transform: scale(0.97); }
+
+    /* 登录页 */
+    .login-card {
+      max-width: 420px;
+      margin: 80px auto;
+      text-align: center;
+      animation: fadeInUp 0.5s ease-out;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .login-icon {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      margin: 0 auto 20px;
+      box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+
+    /* Tab 导航 */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 24px;
+      border-bottom: 2px solid var(--border);
+    }
+    .tab {
+      padding: 12px 20px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-light);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.2s;
+    }
+    .tab:hover { color: var(--primary); }
+    .tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* 表单 */
+    .form-group { margin-bottom: 16px; }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-light);
+      margin-bottom: 6px;
+    }
+    input, textarea, select {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      font-size: 15px;
+      font-family: inherit;
+      outline: none;
+      transition: all 0.2s;
+      background: var(--card-bg);
+      color: var(--text);
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+    input:hover, textarea:hover, select:hover {
+      border-color: #c7d2fe;
+    }
+    body.dark input:hover, body.dark textarea:hover, body.dark select:hover {
+      border-color: #4338ca;
+    }
+    textarea { resize: vertical; min-height: 150px; }
+    .row { display: flex; gap: 12px; }
+    .row .form-group { flex: 1; }
+    .color-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .color-row input[type="color"] {
+      width: 56px;
+      height: 48px;
+      padding: 4px;
+      cursor: pointer;
+    }
+
+    /* 按钮 */
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+    }
+    .btn-primary:disabled {
+      background: #a5b4fc;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover { background: #dc2626; transform: translateY(-1px); }
+    .btn-secondary {
+      background: var(--item-bg);
+      color: var(--text-light);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: #e5e7eb;
+      transform: translateY(-1px);
+    }
+    body.dark .btn-secondary:hover { background: #2a2a40; }
+    .btn-sm { padding: 8px 16px; font-size: 13px; border-radius: 8px; }
+    .btn-row { display: flex; gap: 10px; margin-top: 20px; }
+
+    /* 开关 */
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      background: var(--item-bg);
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+    .switch-label {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .switch-desc {
+      font-size: 12px;
+      color: var(--text-mute);
+      margin-top: 2px;
+    }
+    .switch {
+      position: relative;
+      width: 52px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+    .switch input { display: none; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: #cbd5e1;
+      border-radius: 28px;
+      transition: 0.3s;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+    input:checked + .slider { background: var(--primary); }
+    input:checked + .slider:before { transform: translateX(24px); }
+
+    /* 全自动模式提示 */
+    .auto-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 20px;
+      margin-left: 8px;
+    }
+    .auto-notice {
+      padding: 14px 18px;
+      background: rgba(79, 70, 229, 0.08);
+      border: 1px solid rgba(79, 70, 229, 0.2);
+      border-radius: 12px;
+      font-size: 13px;
+      color: var(--text-light);
+      margin-bottom: 16px;
+      line-height: 1.6;
+    }
+    .auto-notice strong { color: var(--primary); }
+
+    .gh-status-box {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .gh-status-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      background: var(--bg-soft, rgba(0,0,0,0.03));
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .gh-status-body {
+      padding: 12px 16px;
+      font-size: 12px;
+      color: var(--text-light);
+      line-height: 1.8;
+    }
+    .gh-status-body .st-ok { color: #16a34a; font-weight: 600; }
+    .gh-status-body .st-bad { color: #dc2626; font-weight: 600; }
+    .gh-status-body .st-warn { color: #d97706; font-weight: 600; }
+    .gh-status-body .st-dim { color: var(--text-mute); }
+
+    .src-badge {
+      display: inline-block;
+      margin-left: 8px;
+      padding: 1px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      vertical-align: middle;
+      background: rgba(79, 70, 229, 0.12);
+      color: var(--primary);
+      border: 1px solid rgba(79, 70, 229, 0.25);
+    }
+    .src-badge.src-local {
+      background: rgba(22, 163, 74, 0.12);
+      color: #16a34a;
+      border-color: rgba(22, 163, 74, 0.25);
+    }
+    .modal-hint {
+      padding: 10px 14px;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      border-radius: 10px;
+      font-size: 12px;
+      color: #b45309;
+      margin-bottom: 14px;
+      line-height: 1.6;
+    }
+    body.dark .modal-hint { color: #fbbf24; }
+
+    /* 列表 */
+    .list-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      background: var(--item-bg);
+      border-radius: 12px;
+      margin-bottom: 10px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1px solid transparent;
+    }
+    .list-item:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--card-shadow-hover);
+      border-color: var(--border);
+    }
+    body.dark .list-item:hover {
+      box-shadow: var(--card-shadow-hover);
+    }
+    .list-item-info { flex: 1; }
+    .list-item-title {
+      font-weight: 600;
+      color: var(--text);
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+    .list-item-meta {
+      font-size: 12px;
+      color: var(--text-mute);
+    }
+    .list-item-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-mute);
+      background: var(--item-bg);
+      border-radius: 12px;
+    }
+
+    /* 提示 */
+    .alert {
+      padding: 12px 16px 12px 44px;
+      border-radius: 12px;
+      font-size: 14px;
+      margin-bottom: 16px;
+      display: none;
+      position: relative;
+      font-weight: 500;
+      animation: slideDown 0.3s ease-out;
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .alert::before {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 18px;
+    }
+    .alert-success { background: #dcfce7; color: #166534; display: block; }
+    .alert-success::before { content: "✅"; }
+    .alert-error { background: #fee2e2; color: #991b1b; display: block; }
+    .alert-error::before { content: "❌"; }
+    .alert-warning { background: #fef3c7; color: #92400e; display: block; }
+    .alert-warning::before { content: "⚠️"; }
+
+    /* 模态框 */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: var(--card-bg);
+      border-radius: 16px;
+      padding: 28px;
+      max-width: 500px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      animation: modalIn 0.25s ease-out;
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .modal h2 { margin-bottom: 20px; }
+
+    .logout-row {
+      text-align: right;
+      margin-top: 24px;
+    }
+    .back-link {
+      display: inline-block;
+      color: #4f46e5;
+      text-decoration: none;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 600px) {
+      .card { padding: 20px; }
+      .row { flex-direction: column; gap: 0; }
+      .tabs { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="index.html" class="back-link">← 返回网站</a>
+
+    <!-- 登录页面 -->
+    <div class="card login-card" id="login-page">
+      <div class="login-icon">🔐</div>
+      <h1>管理后台</h1>
+      <p class="subtitle">请输入管理密码登录</p>
+      <div class="alert" id="login-alert"></div>
+      <div class="form-group">
+        <input type="password" id="password" placeholder="管理密码" autofocus>
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="login()">登录</button>
+    </div>
+
+    <!-- 管理页面 -->
+    <div id="admin-page" style="display:none">
+      <h1>⚙️ 管理后台</h1>
+      <p class="subtitle">在这里管理你的网站内容</p>
+
+      <div class="card">
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab('site')">站点设置</div>
+          <div class="tab" onclick="switchTab('posts')">文章管理</div>
+          <div class="tab" onclick="switchTab('music')">音乐管理</div>
+          <div class="tab" onclick="switchTab('timeline')">时间线</div>
+          <div class="tab" onclick="switchTab('comments')">评论管理</div>
+          <div class="tab" onclick="switchTab('messages')">留言管理</div>
+          <div class="tab" onclick="switchTab('links')">友链管理</div>
+          <div class="tab" onclick="switchTab('games')">游戏管理</div>
+          <div class="tab" onclick="switchTab('backup')">数据备份</div>
+        </div>
+
+        <div class="alert" id="admin-alert"></div>
+
+        <!-- 站点设置 -->
+        <div class="tab-content active" id="tab-site">
+          <h2>站点设置</h2>
+
+          <!-- GitHub 同步开关（双来源合并） -->
+          <div class="switch-row">
+            <div>
+              <div class="switch-label">🔗 GitHub 同步</div>
+              <div class="switch-desc">开启后，GitHub 仓库内容与后台数据<b>合并展示</b>：后台发布/编辑的内容优先，仓库新增内容自动补充</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="site-autoMode" onchange="toggleAutoMode()">
+              <span class="slider"></span>
+            </label>
+          </div>
+
+          <div id="auto-config" style="display:none">
+            <div class="auto-notice">
+              <strong>📝 双来源合并说明：</strong><br>
+              • 文章 / 音乐 / 时间线 / 相册：GitHub 仓库内容与后台数据<b>合并展示</b>，不再是二选一<br>
+              • 后台发布新文章 → 直接出现在合并列表中；编辑仓库文章 → 生成后台版本并覆盖仓库版本<br>
+              • 后台删除仓库文章 → 记录删除墓碑，仓库更新后也不会复活<br>
+              • 文章：仓库 posts/ 文件夹的 .md 文件（支持 front matter）；音乐：music.json 或 music/ 文件夹；时间线：timeline.json；相册：photos/ 文件夹<br>
+              • 数据每 5 分钟自动刷新；jsDelivr CDN 可能有最多约 12 小时的缓存延迟，追求实时可关闭 CDN 加速<br>
+              • GitHub 连接不稳定时自动切换镜像源，并优先使用缓存内容，站点不会空屏
+            </div>
+
+            <!-- GitHub 连接状态 -->
+            <div class="gh-status-box" id="gh-status-box">
+              <div class="gh-status-head">
+                <span>📡 GitHub 连接状态</span>
+                <button class="btn btn-secondary btn-sm" onclick="loadGithubStatus()">刷新状态</button>
+              </div>
+              <div id="gh-status-body" class="gh-status-body">检测中…</div>
+            </div>
+
+            <!-- CDN 加速开关 -->
+            <div class="switch-row">
+              <div>
+                <div class="switch-label">⚡ CDN 加速（推荐）</div>
+                <div class="switch-desc">通过 jsDelivr CDN 访问 GitHub，国内访问速度更快更稳定；CDN 故障时自动切换官方源与其他镜像</div>
+              </div>
+              <label class="switch">
+                <input type="checkbox" id="site-useCdn" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label>GitHub 仓库地址</label>
+              <input type="text" id="site-githubRepo" placeholder="如：username/my-blog-content">
+              <small style="color:var(--text-mute);font-size:12px">格式：用户名/仓库名，所有内容都从这个仓库读取</small>
+            </div>
+            <div class="form-group">
+              <label>分支名</label>
+              <input type="text" id="site-githubBranch" placeholder="main">
+              <small style="color:var(--text-mute);font-size:12px">默认 main，旧仓库可能是 master</small>
+            </div>
+            <div class="row">
+              <div class="form-group">
+                <label>文章文件夹</label>
+                <input type="text" id="site-githubPostsPath" placeholder="posts">
+                <small style="color:var(--text-mute);font-size:12px">默认：posts</small>
+              </div>
+              <div class="form-group">
+                <label>音乐文件夹</label>
+                <input type="text" id="site-githubMusicPath" placeholder="music">
+                <small style="color:var(--text-mute);font-size:12px">默认：music</small>
+              </div>
+            </div>
+            <div class="row">
+              <div class="form-group">
+                <label>相册文件夹</label>
+                <input type="text" id="site-githubAlbumPath" placeholder="photos">
+                <small style="color:var(--text-mute);font-size:12px">默认：photos</small>
+              </div>
+              <div class="form-group">
+                <label>时间线文件名</label>
+                <input type="text" id="site-githubTimelineFile" placeholder="timeline.json">
+                <small style="color:var(--text-mute);font-size:12px">默认：timeline.json</small>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>音乐列表文件名（可选）</label>
+              <input type="text" id="site-githubMusicListFile" placeholder="music.json">
+              <small style="color:var(--text-mute);font-size:12px">提供更详细的歌曲信息（歌名、歌手、封面），默认 music.json</small>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="refreshGithubCache()" style="margin-bottom:16px">
+              🔄 立即刷新 GitHub 缓存
+            </button>
+          </div>
+
+          <h3 style="font-size:16px;margin:24px 0 12px;color:var(--text)">👤 基本信息</h3>
+          <div class="row">
+            <div class="form-group">
+              <label>站点标题</label>
+              <input type="text" id="site-title" placeholder="网站标题">
+            </div>
+            <div class="form-group">
+              <label>你的名字</label>
+              <input type="text" id="site-name" placeholder="显示在主页的名字">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>个人简介</label>
+            <textarea id="site-bio" placeholder="一句话介绍自己"></textarea>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label>头像文字</label>
+              <input type="text" id="site-avatar" placeholder="如：LY" maxlength="2">
+            </div>
+            <div class="form-group">
+              <label>头像颜色</label>
+              <div class="color-row">
+                <input type="color" id="site-avatarBg" value="#4f46e5">
+                <span style="font-size:13px;color:#999">选个你喜欢的颜色</span>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label>学校</label>
+              <input type="text" id="site-school">
+            </div>
+          </div>
+          <div class="row">
+            <div class="form-group">
+              <label>年级</label>
+              <input type="text" id="site-grade">
+            </div>
+            <div class="form-group">
+              <label>班级</label>
+              <input type="text" id="site-className">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>邮箱</label>
+            <input type="email" id="site-email">
+          </div>
+          <div class="form-group">
+            <label>页脚文字</label>
+            <input type="text" id="site-footer" placeholder="如：© 2026 Lei Yihan">
+          </div>
+
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="saveSite()">保存设置</button>
+          </div>
+        </div>
+
+        <!-- 文章管理 -->
+        <div class="tab-content" id="tab-posts">
+          <h2>文章管理</h2>
+          <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openPostModal()">+ 写新文章</button>
+          <div id="posts-list"></div>
+        </div>
+
+        <!-- 音乐管理 -->
+        <div class="tab-content" id="tab-music">
+          <h2>音乐管理</h2>
+          <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openMusicModal()">+ 添加歌曲</button>
+          <div id="music-list"></div>
+        </div>
+
+        <!-- 时间线管理 -->
+        <div class="tab-content" id="tab-timeline">
+          <h2>时间线管理</h2>
+          <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openTimelineModal()">+ 添加记录</button>
+          <div id="timeline-list"></div>
+        </div>
+
+        <!-- 评论管理 -->
+        <div class="tab-content" id="tab-comments">
+          <h2>评论管理</h2>
+          <div id="comments-list"></div>
+        </div>
+
+        <!-- 留言管理 -->
+        <div class="tab-content" id="tab-messages">
+          <h2>留言管理</h2>
+          <div id="messages-list"></div>
+        </div>
+
+        <!-- 友链管理 -->
+        <div class="tab-content" id="tab-links">
+          <h2>友链管理</h2>
+          <p style="color:var(--text-mute);font-size:13px;margin-bottom:14px">
+            添加后会展示在 <a href="links.html" target="_blank" style="color:var(--primary)">友情链接页</a>，「排序」数字越小越靠前。
+          </p>
+          <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openLinkModal()">+ 添加友链</button>
+          <div id="links-list"></div>
+        </div>
+
+        <!-- 游戏管理 -->
+        <div class="tab-content" id="tab-games">
+          <h2>游戏管理</h2>
+          <p style="color:var(--text-mute);font-size:13px;margin-bottom:14px">
+            查看 <a href="games.html" target="_blank" style="color:var(--primary)">游戏大厅</a> 的各游戏排行榜，可清空单个游戏的全部成绩。
+          </p>
+          <div id="games-list"></div>
+        </div>
+
+        <!-- 数据备份 -->
+        <div class="tab-content" id="tab-backup">
+          <h2>数据备份</h2>
+          <div class="auto-notice">
+            <strong>💾 关于备份：</strong><br>
+            • 所有内容都存在 Cloudflare KV 中，KV 没有「回收站」，误删后无法恢复<br>
+            • 建议定期点「导出备份」把数据下载到本地保存<br>
+            • 导入会用备份文件<b>覆盖</b>当前全部内容，请谨慎操作
+          </div>
+          <div class="btn-row" style="margin-top:16px">
+            <button class="btn btn-primary" onclick="exportBackup()">⬇️ 导出备份</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">⬆️ 导入备份</button>
+            <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
+          </div>
+          <div id="backup-status" style="margin-top:14px;font-size:13px;color:var(--text-mute)"></div>
+        </div>
+
+        <div class="logout-row">
+          <button class="btn btn-secondary btn-sm" onclick="logout()">退出登录</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 文章编辑模态框 -->
+  <div class="modal-overlay" id="post-modal">
+    <div class="modal">
+      <h2 id="post-modal-title">写新文章</h2>
+      <div class="modal-hint" id="post-modal-hint" style="display:none"></div>
+      <div class="form-group">
+        <label>文章标题</label>
+        <input type="text" id="post-title" placeholder="给文章起个标题">
+      </div>
+      <div class="form-group">
+        <label>日期</label>
+        <input type="date" id="post-date">
+      </div>
+      <div class="form-group">
+        <label>文章摘要（可选）</label>
+        <input type="text" id="post-desc" placeholder="简短描述，显示在文章列表中" maxlength="500">
+      </div>
+      <div class="form-group">
+        <label>文章内容</label>
+        <textarea id="post-content" placeholder="写点什么..." style="min-height:250px"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="savePost()">保存</button>
+        <button class="btn btn-secondary" onclick="closePostModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 时间线编辑模态框 -->
+  <div class="modal-overlay" id="timeline-modal">
+    <div class="modal">
+      <h2 id="timeline-modal-title">添加记录</h2>
+      <div class="form-group">
+        <label>日期</label>
+        <input type="date" id="tl-date">
+      </div>
+      <div class="form-group">
+        <label>标题</label>
+        <input type="text" id="tl-title" placeholder="例如：升入七年级">
+      </div>
+      <div class="form-group">
+        <label>描述（可选）</label>
+        <input type="text" id="tl-desc" placeholder="简短描述">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveTimeline()">保存</button>
+        <button class="btn btn-secondary" onclick="closeTimelineModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 音乐编辑模态框 -->
+  <div class="modal-overlay" id="music-modal">
+    <div class="modal">
+      <h2 id="music-modal-title">添加歌曲</h2>
+      <div class="form-group">
+        <label>歌曲名</label>
+        <input type="text" id="music-title" placeholder="如：稻香">
+      </div>
+      <div class="form-group">
+        <label>歌手</label>
+        <input type="text" id="music-artist" placeholder="如：周杰伦">
+      </div>
+      <div class="form-group">
+        <label>歌曲链接 (mp3)</label>
+        <input type="text" id="music-url" placeholder="https://...">
+        <small style="color:var(--text-mute);font-size:12px">可以放 GitHub 原始链接或其他直链</small>
+      </div>
+      <div class="form-group">
+        <label>封面图片链接（可选）</label>
+        <input type="text" id="music-cover" placeholder="https://...">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveMusic()">保存</button>
+        <button class="btn btn-secondary" onclick="closeMusicModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 友链编辑模态框 -->
+  <div class="modal-overlay" id="link-modal">
+    <div class="modal">
+      <h2 id="link-modal-title">添加友链</h2>
+      <div class="form-group">
+        <label>站点名称</label>
+        <input type="text" id="link-name" placeholder="如：小明的前端笔记" maxlength="30">
+      </div>
+      <div class="form-group">
+        <label>站点链接</label>
+        <input type="text" id="link-url" placeholder="https://...">
+      </div>
+      <div class="form-group">
+        <label>站点简介（可选）</label>
+        <input type="text" id="link-desc" placeholder="一句话介绍这个站点" maxlength="100">
+      </div>
+      <div class="form-group">
+        <label>头像/图标链接（可选）</label>
+        <input type="text" id="link-icon" placeholder="https://... 留空则用首字母">
+      </div>
+      <div class="form-group">
+        <label>排序（可选）</label>
+        <input type="number" id="link-order" placeholder="0" min="0" max="9999">
+        <small style="color:var(--text-mute);font-size:12px">数字越小越靠前，默认 0</small>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveLink()">保存</button>
+        <button class="btn btn-secondary" onclick="closeLinkModal()">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 安全的 localStorage 读写（隐私模式/存储被禁用的浏览器不抛错，否则整个后台脚本会中断）
+    const safeStorage = {
+      get(key) { try { return localStorage.getItem(key); } catch(e) { return null; } },
+      set(key, val) { try { localStorage.setItem(key, val); } catch(e) {} },
+      remove(key) { try { localStorage.removeItem(key); } catch(e) {} }
+    };
+    let token = safeStorage.get("admin_token") || "";
+    let editingPostId = null;
+    let editingTimelineId = null;
+
+    // ========== 登录 ==========
+    async function login() {
+      const pwd = document.getElementById("password").value;
+      const btn = document.querySelector("#login-page .btn-primary");
+      if (!pwd) {
+        showAlert("login-alert", "请输入密码", "warning");
+        return;
+      }
+      if (pwd.length > 200) {
+        showAlert("login-alert", "密码太长了", "error");
+        return;
+      }
+      if (btn.disabled) return; // 防重复提交
+
+      setBtnLoading(btn, true, "登录中...");
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pwd })
+        });
+        const data = await res.json();
+
+        if (res.status === 429) {
+          showAlert("login-alert", data.error, "error");
+          return;
+        }
+        if (!res.ok) {
+          showAlert("login-alert", data.error || "密码错误", "error");
+          document.getElementById("password").value = "";
+          return;
+        }
+
+        // 登录成功
+        token = pwd;
+        safeStorage.set("admin_token", pwd);
+        document.getElementById("login-page").style.display = "none";
+        document.getElementById("admin-page").style.display = "block";
+        showAlert("admin-alert", "登录成功", "success");
+        loadAll();
+      } catch(e) {
+        showAlert("login-alert", "网络错误，请稍后重试", "error");
+      } finally {
+        setBtnLoading(btn, false);
+      }
+    }
+
+    function logout() {
+      token = "";
+      safeStorage.remove("admin_token");
+      document.getElementById("login-page").style.display = "block";
+      document.getElementById("admin-page").style.display = "none";
+      document.getElementById("password").value = "";
+    }
+
+    // 页面加载时检查是否已登录
+    async function checkLogin() {
+      if (!token) return false;
+      try {
+        const res = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: token })
+        });
+        if (res.ok) {
+          document.getElementById("login-page").style.display = "none";
+          document.getElementById("admin-page").style.display = "block";
+          loadAll();
+          return true;
+        }
+      } catch(e) {}
+      token = "";
+      safeStorage.remove("admin_token");
+      return false;
+    }
+
+    document.getElementById("password").addEventListener("keydown", e => {
+      if (e.key === "Enter") login();
+    });
+
+    // ========== Tab 切换 ==========
+    function switchTab(name) {
+      const tabs = document.querySelectorAll(".tab");
+      const tabNames = ["site", "posts", "music", "timeline", "comments", "messages", "links", "games", "backup"];
+      const idx = tabNames.indexOf(name);
+      tabs.forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
+      if (idx >= 0 && tabs[idx]) tabs[idx].classList.add("active");
+      document.getElementById("tab-" + name).classList.add("active");
+      // 按需加载各标签数据
+      if (name === "links") loadLinks();
+      if (name === "games") loadGames();
+    }
+
+    // ========== 提示 ==========
+    // 安全的日期格式化：非法日期返回 "-" 而非 "Invalid Date"
+    function formatDate(dateStr) {
+      if (!dateStr) return "-";
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return escapeHtml(String(dateStr));
+      return d.toLocaleString();
+    }
+
+    function showAlert(id, msg, type) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = msg;
+      el.className = "alert alert-" + type;
+      el.style.display = "";
+      clearTimeout(el._timer);
+      el._timer = setTimeout(() => { el.style.display = "none"; }, 3000);
+    }
+
+    // 按钮加载状态
+    function setBtnLoading(btn, loading, loadingText) {
+      if (!btn) return;
+      if (loading) {
+        btn._origText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = loadingText || "处理中...";
+        btn.style.opacity = "0.7";
+        btn.style.cursor = "not-allowed";
+      } else {
+        btn.disabled = false;
+        btn.textContent = btn._origText || btn.textContent;
+        btn.style.opacity = "";
+        btn.style.cursor = "";
+      }
+    }
+
+    // ========== 站点设置 ==========
+    async function loadSite() {
+      try {
+        const res = await fetch("/api/site");
+        if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
+          const s = await res.json();
+          if (!s || typeof s !== "object") return;
+          document.getElementById("site-title").value = s.title || "";
+          document.getElementById("site-name").value = s.name || "";
+          document.getElementById("site-bio").value = s.bio || "";
+          document.getElementById("site-avatar").value = s.avatar || "";
+          document.getElementById("site-avatarBg").value = s.avatarBg || "#4f46e5";
+          document.getElementById("site-school").value = s.school || "";
+          document.getElementById("site-grade").value = s.grade || "";
+          document.getElementById("site-className").value = s.className || "";
+          document.getElementById("site-email").value = s.email || "";
+          document.getElementById("site-footer").value = s.footer || "";
+          document.getElementById("site-autoMode").checked = !!s.autoMode;
+          document.getElementById("site-useCdn").checked = s.useCdn !== false;
+          document.getElementById("site-githubRepo").value = s.githubRepo || "";
+          document.getElementById("site-githubBranch").value = s.githubBranch || "main";
+          document.getElementById("site-githubPostsPath").value = s.githubPostsPath || "posts";
+          document.getElementById("site-githubMusicPath").value = s.githubMusicPath || "music";
+          document.getElementById("site-githubAlbumPath").value = s.githubAlbumPath || "photos";
+          document.getElementById("site-githubTimelineFile").value = s.githubTimelineFile || "timeline.json";
+          document.getElementById("site-githubMusicListFile").value = s.githubMusicListFile || "music.json";
+          toggleAutoMode();
+        }
+      } catch(e) {}
+    }
+
+    function toggleAutoMode() {
+      const on = document.getElementById("site-autoMode").checked;
+      document.getElementById("auto-config").style.display = on ? "block" : "none";
+      // 更新各 Tab 的提示
+      updateAutoBadges(on);
+      // 开启同步时加载连接状态
+      if (on) loadGithubStatus();
+    }
+
+    function updateAutoBadges(autoMode) {
+      // 给文章、音乐、时间线 Tab 加上全自动标识
+      const tabs = ["posts", "music", "timeline"];
+      tabs.forEach(name => {
+        const tab = [...document.querySelectorAll(".tab")].find(t => t.textContent.includes(
+          name === "posts" ? "文章" : name === "music" ? "音乐" : "时间线"
+        ));
+        if (!tab) return;
+        if (autoMode && !tab.querySelector(".auto-badge")) {
+          const badge = document.createElement("span");
+          badge.className = "auto-badge";
+          badge.textContent = "🤖 自动";
+          tab.appendChild(badge);
+        } else if (!autoMode) {
+          const badge = tab.querySelector(".auto-badge");
+          if (badge) badge.remove();
+        }
+      });
+    }
+
+    async function refreshGithubCache() {
+      try {
+        const res = await fetch("/api/refresh-github", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "GitHub 缓存已刷新", "success");
+          // 重新加载数据
+          loadPosts();
+          loadMusic();
+          loadTimeline();
+          loadGithubStatus();
+        } else {
+          showAlert("admin-alert", result.error || "刷新失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误", "error");
+      }
+    }
+
+    /** 加载 GitHub 连接状态（排查「连接不稳定」问题时看这里） */
+    async function loadGithubStatus() {
+      const body = document.getElementById("gh-status-body");
+      if (!body) return;
+      try {
+        const res = await fetch("/api/github-status", {
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const st = await res.json();
+        if (res.status === 401) {
+          body.innerHTML = '<span class="st-dim">请先登录后查看</span>';
+          return;
+        }
+        if (!st.configured) {
+          body.innerHTML = '<span class="st-dim">尚未配置 GitHub 仓库（或未开启同步开关）</span>';
+          return;
+        }
+        const fmt = (t) => (t ? new Date(t).toLocaleString("zh-CN") : "从未");
+        let html = `仓库：<b>${escapeHtml(st.repo)}</b> @ ${escapeHtml(st.branch || "main")} · 优先源：${st.useCdn ? "jsDelivr CDN" : "GitHub 官方"}<br>`;
+        if (st.lastOkAt) {
+          html += `最近成功：<span class="st-ok">${fmt(st.lastOkAt)}</span>（${escapeHtml(st.lastOkSource || "")}）<br>`;
+        } else {
+          html += `最近成功：<span class="st-warn">还没有成功记录</span><br>`;
+        }
+        if (st.usingStale) {
+          html += `<span class="st-warn">⚠️ 正在使用过期缓存展示内容</span>（GitHub 暂不可达，恢复后自动更新）<br>`;
+        }
+        if (st.lastError) {
+          html += `最近失败：<span class="st-bad">${fmt(st.lastFailAt)}</span><br><span class="st-bad">${escapeHtml(st.lastError)}</span><br>`;
+        }
+        html += '<span class="st-dim">提示：CDN 源（jsDelivr）可能有最多约 12 小时缓存延迟；Worker 位于 Cloudflare 边缘，本机 DNS 加速对服务端拉取无效，不稳定时请依靠上方多镜像自动切换。</span>';
+        body.innerHTML = html;
+      } catch (e) {
+        body.innerHTML = '<span class="st-bad">状态加载失败</span>';
+      }
+    }
+
+    async function saveSite() {
+      const data = {
+        title: document.getElementById("site-title").value,
+        name: document.getElementById("site-name").value,
+        bio: document.getElementById("site-bio").value,
+        avatar: document.getElementById("site-avatar").value || "LY",
+        avatarBg: document.getElementById("site-avatarBg").value,
+        school: document.getElementById("site-school").value,
+        grade: document.getElementById("site-grade").value,
+        className: document.getElementById("site-className").value,
+        email: document.getElementById("site-email").value,
+        footer: document.getElementById("site-footer").value,
+        autoMode: document.getElementById("site-autoMode").checked,
+        useCdn: document.getElementById("site-useCdn").checked,
+        githubRepo: document.getElementById("site-githubRepo").value.trim(),
+        githubBranch: document.getElementById("site-githubBranch").value.trim() || "main",
+        githubPostsPath: document.getElementById("site-githubPostsPath").value.trim() || "posts",
+        githubMusicPath: document.getElementById("site-githubMusicPath").value.trim() || "music",
+        githubAlbumPath: document.getElementById("site-githubAlbumPath").value.trim() || "photos",
+        githubTimelineFile: document.getElementById("site-githubTimelineFile").value.trim() || "timeline.json",
+        githubMusicListFile: document.getElementById("site-githubMusicListFile").value.trim() || "music.json"
+      };
+
+      try {
+        const res = await fetch("/api/site", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "设置已保存", "success");
+          // 重新加载以刷新自动模式状态
+          setTimeout(() => {
+            loadSite();
+            loadPosts();
+            loadMusic();
+            loadTimeline();
+          }, 500);
+        }
+        else showAlert("admin-alert", result.error || "保存失败", "error");
+      } catch(e) {
+        showAlert("admin-alert", "网络错误", "error");
+      }
+    }
+
+    // ========== 文章管理 ==========
+    // 当前列表中来自 GitHub 同步的文章 id（用于展示来源徽章与编辑提示）
+    let ghPostIds = new Set();
+
+    async function loadPosts() {
+      try {
+        const res = await fetch("/api/posts?withSource=1");
+        if (res.headers.get("content-type")?.includes("json")) {
+          const data = await res.json();
+          // withSource=1 时返回 { posts, ghIds }；异常情况下按纯数组兜底
+          const posts = Array.isArray(data) ? data : (data.posts || []);
+          ghPostIds = new Set(Array.isArray(data) ? [] : (data.ghIds || []));
+          renderPosts(posts);
+          return;
+        }
+      } catch(e) {}
+      ghPostIds = new Set();
+      renderPosts([]);
+    }
+
+    function renderPosts(posts) {
+      const el = document.getElementById("posts-list");
+      if (posts.length === 0) {
+        el.innerHTML = '<div class="empty">还没有文章，点上方按钮写第一篇吧</div>';
+        return;
+      }
+      el.innerHTML = posts.map((p, i) => `
+        <div class="list-item" data-id="${escapeHtml(p.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+          <div class="list-item-info">
+            <div class="list-item-title">${escapeHtml(p.title)}${ghPostIds.has(p.id)
+              ? '<span class="src-badge" title="来自 GitHub 仓库同步">GitHub</span>'
+              : '<span class="src-badge src-local" title="后台发布/编辑">后台</span>'}</div>
+            <div class="list-item-meta">📅 ${escapeHtml(p.date)} · ${(p.content || "").length} 字 · 👁️ ${(p.views || 0).toLocaleString()} 阅读 · ❤️ ${p.likes || 0} 赞</div>
+          </div>
+          <div class="list-item-actions">
+            <button class="btn btn-secondary btn-sm btn-edit-post">编辑</button>
+            <button class="btn btn-danger btn-sm btn-delete-post">删除</button>
+          </div>
+        </div>
+      `).join("");
+
+      // 事件委托
+      el.querySelectorAll(".btn-edit-post").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const id = this.closest(".list-item").dataset.id;
+          editPost(id);
+        });
+      });
+      el.querySelectorAll(".btn-delete-post").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const id = this.closest(".list-item").dataset.id;
+          deletePost(id);
+        });
+      });
+    }
+
+    function openPostModal(post) {
+      editingPostId = post ? post.id : null;
+      document.getElementById("post-modal-title").textContent = post ? "编辑文章" : "写新文章";
+      document.getElementById("post-title").value = post ? post.title : "";
+      document.getElementById("post-date").value = post ? post.date : new Date().toISOString().split("T")[0];
+      document.getElementById("post-desc").value = post ? (post.desc || "") : "";
+      document.getElementById("post-content").value = post ? post.content : "";
+      // 编辑 GitHub 同步来的文章时提示：保存后将生成后台版本并覆盖仓库版本
+      const hint = document.getElementById("post-modal-hint");
+      if (post && ghPostIds.has(post.id)) {
+        hint.style.display = "block";
+        hint.textContent = "📄 这篇文章来自 GitHub 仓库同步。保存后将生成后台版本并覆盖 GitHub 上的内容；如需恢复仓库原版，可删除后台的这篇文章（仓库更新后会重新出现）。";
+      } else {
+        hint.style.display = "none";
+        hint.textContent = "";
+      }
+      document.getElementById("post-modal").classList.add("active");
+    }
+
+    function closePostModal() {
+      document.getElementById("post-modal").classList.remove("active");
+    }
+
+    async function editPost(id) {
+      try {
+        const res = await fetch(`/api/post/${id}`);
+        if (!res.ok) { showAlert("admin-alert", "文章加载失败", "error"); return; }
+        const post = await res.json();
+        if (!post || !post.id) { showAlert("admin-alert", "文章不存在", "error"); return; }
+        openPostModal(post);
+      } catch(e) { showAlert("admin-alert", "网络错误，文章加载失败", "error"); }
+    }
+
+    async function savePost() {
+      const title = document.getElementById("post-title").value.trim();
+      const content = document.getElementById("post-content").value.trim();
+      const date = document.getElementById("post-date").value;
+      const desc = document.getElementById("post-desc").value.trim();
+
+      if (!title || !content) {
+        showAlert("admin-alert", "标题和内容不能为空", "warning");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/posts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ id: editingPostId, title, content, date, desc })
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "文章已保存", "success");
+          closePostModal();
+          loadPosts();
+        } else {
+          showAlert("admin-alert", result.error || "保存失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误", "error");
+      }
+    }
+
+    async function deletePost(id) {
+      if (!confirm("确定要删除这篇文章吗？")) return;
+      try {
+        const res = await fetch(`/api/post/delete/${id}`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "文章已删除", "success");
+          loadPosts();
+        } else {
+          showAlert("admin-alert", result.error || "删除失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误，删除失败", "error");
+      }
+    }
+
+    // ========== 时间线管理 ==========
+    // 当前列表中来自 GitHub 同步的条目 id（用于展示来源徽章）
+    let ghTimelineIds = new Set();
+    let ghMusicIds = new Set();
+
+    async function loadTimeline() {
+      try {
+        const res = await fetch("/api/timeline?withSource=1");
+        if (res.headers.get("content-type")?.includes("json")) {
+          const data = await res.json();
+          const items = Array.isArray(data) ? data : (data.timeline || []);
+          ghTimelineIds = new Set(Array.isArray(data) ? [] : (data.ghIds || []));
+          renderTimeline(items);
+          return;
+        }
+      } catch(e) {}
+      ghTimelineIds = new Set();
+      renderTimeline([]);
+    }
+
+    function renderTimeline(items) {
+      const el = document.getElementById("timeline-list");
+      if (items.length === 0) {
+        el.innerHTML = '<div class="empty">还没有记录</div>';
+        return;
+      }
+      el.innerHTML = items.map((t, i) => `
+        <div class="list-item" data-id="${escapeHtml(t.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+          <div class="list-item-info">
+            <div class="list-item-title">${escapeHtml(t.title)}${ghTimelineIds.has(t.id)
+              ? '<span class="src-badge" title="来自 GitHub 仓库同步">GitHub</span>'
+              : '<span class="src-badge src-local" title="后台发布/编辑">后台</span>'}</div>
+            <div class="list-item-meta">📅 ${escapeHtml(t.date)}${t.desc ? " · " + escapeHtml(t.desc) : ""}</div>
+          </div>
+          <div class="list-item-actions">
+            <button class="btn btn-secondary btn-sm btn-edit-tl">编辑</button>
+            <button class="btn btn-danger btn-sm btn-delete-tl">删除</button>
+          </div>
+        </div>
+      `).join("");
+
+      el.querySelectorAll(".btn-edit-tl").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const id = this.closest(".list-item").dataset.id;
+          editTimeline(id);
+        });
+      });
+      el.querySelectorAll(".btn-delete-tl").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const id = this.closest(".list-item").dataset.id;
+          deleteTimeline(id);
+        });
+      });
+    }
+
+    function openTimelineModal(item) {
+      editingTimelineId = item ? item.id : null;
+      document.getElementById("timeline-modal-title").textContent = item ? "编辑记录" : "添加记录";
+      document.getElementById("tl-date").value = item ? item.date : new Date().toISOString().split("T")[0];
+      document.getElementById("tl-title").value = item ? item.title : "";
+      document.getElementById("tl-desc").value = item ? item.desc : "";
+      document.getElementById("timeline-modal").classList.add("active");
+    }
+
+    function closeTimelineModal() {
+      document.getElementById("timeline-modal").classList.remove("active");
+    }
+
+    async function editTimeline(id) {
+      try {
+        const res = await fetch("/api/timeline");
+        const items = await res.json();
+        const item = items.find(t => t.id === id);
+        if (item) openTimelineModal(item);
+      } catch(e) {}
+    }
+
+    async function saveTimeline() {
+      const title = document.getElementById("tl-title").value.trim();
+      const date = document.getElementById("tl-date").value;
+      const desc = document.getElementById("tl-desc").value.trim();
+
+      if (!title || !date) {
+        showAlert("admin-alert", "标题和日期不能为空", "warning");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/timeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+          body: JSON.stringify({ id: editingTimelineId, title, date, desc })
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "记录已保存", "success");
+          closeTimelineModal();
+          loadTimeline();
+        } else {
+          showAlert("admin-alert", result.error || "保存失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误", "error");
+      }
+    }
+
+    async function deleteTimeline(id) {
+      if (!confirm("确定要删除这条记录吗？")) return;
+      try {
+        const res = await fetch(`/api/timeline/delete/${id}`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "记录已删除", "success");
+          loadTimeline();
+        } else {
+          showAlert("admin-alert", result.error || "删除失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误，删除失败", "error");
+      }
+    }
+
+    // ========== 留言管理 ==========
+    async function loadMessages() {
+      try {
+        const res = await fetch("/api/messages");
+        if (res.headers.get("content-type")?.includes("json")) {
+          const msgs = await res.json();
+          renderMessages(msgs);
+          return;
+        }
+      } catch(e) {}
+      renderMessages([]);
+    }
+
+    function renderMessages(msgs) {
+      const el = document.getElementById("messages-list");
+      if (msgs.length === 0) {
+        el.innerHTML = '<div class="empty">还没有留言</div>';
+        return;
+      }
+      el.innerHTML = msgs.map((m, i) => `
+        <div class="list-item" data-id="${escapeHtml(m.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+          <div class="list-item-info">
+            <div class="list-item-title">${escapeHtml(m.name)}</div>
+            <div class="list-item-meta">${formatDate(m.date)}</div>
+            <div style="font-size:14px;color:var(--text-light);margin-top:6px;white-space:pre-wrap;word-wrap:break-word">${escapeHtml(m.content)}</div>
+          </div>
+          <div class="list-item-actions">
+            <button class="btn btn-danger btn-sm btn-delete-msg">删除</button>
+          </div>
+        </div>
+      `).join("");
+
+      el.querySelectorAll(".btn-delete-msg").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const id = this.closest(".list-item").dataset.id;
+          deleteMsg(id);
+        });
+      });
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str == null ? "" : String(str);
+      return div.innerHTML;
+    }
+
+    async function deleteMsg(id) {
+      if (!confirm("确定要删除这条留言吗？")) return;
+      try {
+        const res = await fetch(`/api/message/delete/${id}`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "留言已删除", "success");
+          loadMessages();
+        } else {
+          showAlert("admin-alert", result.error || "删除失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误，删除失败", "error");
+      }
+    }
+
+    // ========== 评论管理 ==========
+    async function loadComments() {
+      try {
+        // 先获取所有文章
+        const postsRes = await fetch("/api/posts");
+        if (!postsRes.headers.get("content-type")?.includes("json")) {
+          renderComments([]);
+          return;
+        }
+        const posts = await postsRes.json();
+        if (!posts.length) {
+          renderComments([]);
+          return;
+        }
+
+        // 并行获取每篇文章的评论
+        const commentPromises = posts.map(post =>
+          fetch(`/api/comments/${post.id}`)
+            .then(res => {
+              if (res.headers.get("content-type")?.includes("json")) {
+                return res.json().then(comments => ({ post, comments }));
+              }
+              return { post, comments: [] };
+            })
+            .catch(() => ({ post, comments: [] }))
+        );
+
+        const results = await Promise.all(commentPromises);
+
+        // 合并所有评论并附加文章信息
+        const allComments = [];
+        results.forEach(({ post, comments }) => {
+          comments.forEach(c => {
+            allComments.push({
+              id: c.id,
+              postId: post.id,
+              postTitle: post.title,
+              name: c.name,
+              content: c.content,
+              date: c.date
+            });
+          });
+        });
+
+        // 按时间倒序排列
+        allComments.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        renderComments(allComments);
+      } catch(e) {
+        renderComments([]);
+      }
+    }
+
+    function renderComments(comments) {
+      const el = document.getElementById("comments-list");
+      if (!comments || comments.length === 0) {
+        el.innerHTML = '<div class="empty">还没有评论</div>';
+        return;
+      }
+      el.innerHTML = comments.map((c, i) => `
+        <div class="list-item" data-id="${escapeHtml(c.id)}" data-post-id="${escapeHtml(c.postId)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+          <div class="list-item-info">
+            <div class="list-item-title">${escapeHtml(c.name)}</div>
+            <div class="list-item-meta">📅 ${formatDate(c.date)}</div>
+            <div style="font-size:13px;color:var(--text-mute);margin-top:4px">📄 ${escapeHtml(c.postTitle)}</div>
+            <div style="font-size:14px;color:var(--text-light);margin-top:6px;white-space:pre-wrap;word-wrap:break-word;line-height:1.6">${escapeHtml(c.content)}</div>
+          </div>
+          <div class="list-item-actions">
+            <button class="btn btn-danger btn-sm btn-delete-comment">删除</button>
+          </div>
+        </div>
+      `).join("");
+
+      // 事件委托
+      el.querySelectorAll(".btn-delete-comment").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const item = this.closest(".list-item");
+          const id = item.dataset.id;
+          const postId = item.dataset.postId;
+          deleteComment(postId, id);
+        });
+      });
+    }
+
+    async function deleteComment(postId, commentId) {
+      if (!confirm("确定要删除这条评论吗？")) return;
+      try {
+        const res = await fetch(`/api/comment/delete/${postId}/${commentId}`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "评论已删除", "success");
+          loadComments();
+        } else {
+          showAlert("admin-alert", result.error || "删除失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误，删除失败", "error");
+      }
+    }
+
+    // ========== 音乐管理 ==========
+    let editingMusicId = null;
+
+    async function loadMusic() {
+      try {
+        const res = await fetch("/api/music?withSource=1");
+        if (res.headers.get("content-type")?.includes("json")) {
+          const data = await res.json();
+          const music = Array.isArray(data) ? data : (data.music || []);
+          ghMusicIds = new Set(Array.isArray(data) ? [] : (data.ghIds || []));
+          renderMusic(music);
+          return;
+        }
+      } catch(e) {}
+      ghMusicIds = new Set();
+      renderMusic([]);
+    }
+
+    function renderMusic(list) {
+      const el = document.getElementById("music-list");
+      if (list.length === 0) {
+        el.innerHTML = '<div class="empty">还没有歌曲，点上方按钮添加第一首吧</div>';
+        return;
+      }
+      el.innerHTML = list.map((m, i) => `
+        <div class="list-item" data-id="${escapeHtml(m.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+          <div class="list-item-info">
+            <div class="list-item-title">${escapeHtml(m.title)}${ghMusicIds.has(m.id)
+              ? '<span class="src-badge" title="来自 GitHub 仓库同步">GitHub</span>'
+              : '<span class="src-badge src-local" title="后台发布/编辑">后台</span>'}</div>
+            <div class="list-item-meta">🎤 ${escapeHtml(m.artist || "未知歌手")}</div>
+          </div>
+          <div class="list-item-actions">
+            <button class="btn btn-secondary btn-sm btn-edit-music">编辑</button>
+            <button class="btn btn-danger btn-sm btn-delete-music">删除</button>
+          </div>
+        </div>
+      `).join("");
+
+      el.querySelectorAll(".btn-edit-music").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const id = this.closest(".list-item").dataset.id;
+          editMusic(id);
+        });
+      });
+      el.querySelectorAll(".btn-delete-music").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const id = this.closest(".list-item").dataset.id;
+          deleteMusic(id);
+        });
+      });
+    }
+
+    function openMusicModal(song) {
+      editingMusicId = song ? song.id : null;
+      document.getElementById("music-modal-title").textContent = song ? "编辑歌曲" : "添加歌曲";
+      document.getElementById("music-title").value = song ? song.title : "";
+      document.getElementById("music-artist").value = song ? song.artist || "" : "";
+      document.getElementById("music-url").value = song ? song.url : "";
+      document.getElementById("music-cover").value = song ? song.cover || "" : "";
+      document.getElementById("music-modal").classList.add("active");
+    }
+
+    function closeMusicModal() {
+      document.getElementById("music-modal").classList.remove("active");
+      editingMusicId = null;
+    }
+
+    async function saveMusic() {
+      const title = document.getElementById("music-title").value.trim();
+      const artist = document.getElementById("music-artist").value.trim();
+      const url = document.getElementById("music-url").value.trim();
+      const cover = document.getElementById("music-cover").value.trim();
+
+      if (!title || !url) { showAlert("admin-alert", "歌曲名和链接不能为空", "error"); return; }
+
+      const data = { title, artist, url, cover };
+      if (editingMusicId) data.id = editingMusicId;
+
+      try {
+        const res = await fetch("/api/music", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify(data)
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", editingMusicId ? "歌曲已更新" : "歌曲已添加", "success");
+          closeMusicModal();
+          loadMusic();
+        } else {
+          showAlert("admin-alert", result.error || "保存失败", "error");
+        }
+      } catch(e) { showAlert("admin-alert", "网络错误", "error"); }
+    }
+
+    async function editMusic(id) {
+      try {
+        const res = await fetch("/api/music");
+        if (res.headers.get("content-type")?.includes("json")) {
+          const list = await res.json();
+          const song = list.find(m => m.id === id);
+          if (song) openMusicModal(song);
+        }
+      } catch(e) {}
+    }
+
+    async function deleteMusic(id) {
+      if (!confirm("确定要删除这首歌曲吗？")) return;
+      try {
+        const res = await fetch(`/api/music/delete/${id}`, {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + token }
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "歌曲已删除", "success");
+          loadMusic();
+        } else {
+          showAlert("admin-alert", result.error || "删除失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误，删除失败", "error");
+      }
+    }
+
+    // ========== 友链管理 ==========
+    let editingLinkId = null;
+
+    async function loadLinks() {
+      try {
+        const res = await fetch("/api/links");
+        if (!res.headers.get("content-type")?.includes("json")) return;
+        renderLinks(await res.json());
+      } catch(e) {}
+    }
+
+    function renderLinks(list) {
+      const el = document.getElementById("links-list");
+      if (!list || list.length === 0) {
+        el.innerHTML = '<div class="empty">还没有友链，点上方按钮添加第一个吧</div>';
+        return;
+      }
+      el.innerHTML = list.map((l, i) => `
+        <div class="list-item" data-id="${escapeHtml(l.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+          <div class="list-item-info">
+            <div class="list-item-title">${escapeHtml(l.name)}</div>
+            <div class="list-item-meta">🔗 ${escapeHtml(l.url)}${l.order ? ` · 排序 ${l.order}` : ""}</div>
+            ${l.desc ? `<div class="list-item-meta">📝 ${escapeHtml(l.desc)}</div>` : ""}
+          </div>
+          <div class="list-item-actions">
+            <button class="btn btn-secondary btn-sm btn-edit-link">编辑</button>
+            <button class="btn btn-danger btn-sm btn-delete-link">删除</button>
+          </div>
+        </div>
+      `).join("");
+      el.querySelectorAll(".btn-edit-link").forEach(btn => {
+        btn.addEventListener("click", function() {
+          const id = this.closest(".list-item").dataset.id;
+          openLinkModal(list.find(l => l.id === id));
+        });
+      });
+      el.querySelectorAll(".btn-delete-link").forEach(btn => {
+        btn.addEventListener("click", function() { deleteLink(this.closest(".list-item").dataset.id); });
+      });
+    }
+
+    function openLinkModal(link) {
+      editingLinkId = link ? link.id : null;
+      document.getElementById("link-modal-title").textContent = link ? "编辑友链" : "添加友链";
+      document.getElementById("link-name").value = link ? link.name : "";
+      document.getElementById("link-url").value = link ? link.url : "";
+      document.getElementById("link-desc").value = link ? link.desc || "" : "";
+      document.getElementById("link-icon").value = link ? link.icon || "" : "";
+      document.getElementById("link-order").value = link && link.order ? link.order : "";
+      document.getElementById("link-modal").classList.add("active");
+    }
+
+    function closeLinkModal() {
+      document.getElementById("link-modal").classList.remove("active");
+      editingLinkId = null;
+    }
+
+    async function saveLink() {
+      const name = document.getElementById("link-name").value.trim();
+      const url = document.getElementById("link-url").value.trim();
+      const desc = document.getElementById("link-desc").value.trim();
+      const icon = document.getElementById("link-icon").value.trim();
+      const order = parseInt(document.getElementById("link-order").value || "0", 10);
+      if (!name) { showAlert("admin-alert", "请填写站点名称", "warning"); return; }
+      if (!/^https?:\/\//i.test(url)) { showAlert("admin-alert", "站点链接必须是 http/https 开头", "warning"); return; }
+      if (icon && !/^https?:\/\//i.test(icon)) { showAlert("admin-alert", "头像链接必须是 http/https 开头", "warning"); return; }
+
+      try {
+        const res = await fetch("/api/links", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify({ id: editingLinkId, name, url, desc, icon, order: isNaN(order) ? 0 : order })
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", editingLinkId ? "友链已更新" : "友链已添加", "success");
+          closeLinkModal();
+          loadLinks();
+        } else {
+          showAlert("admin-alert", result.error || "保存失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误，保存失败", "error");
+      }
+    }
+
+    async function deleteLink(id) {
+      if (!confirm("确定要删除这个友链吗？")) return;
+      try {
+        const res = await fetch(`/api/link/delete/${id}`, {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + token }
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", "友链已删除", "success");
+          loadLinks();
+        } else {
+          showAlert("admin-alert", result.error || "删除失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误，删除失败", "error");
+      }
+    }
+
+    // ========== 游戏管理 ==========
+    const GAME_META = {
+      snake:    { name: "贪吃蛇",   icon: "🐍", unit: "分" },
+      breakout: { name: "打砖块",   icon: "🧱", unit: "分" },
+      "2048":   { name: "2048",     icon: "🔢", unit: "分" },
+      memory:   { name: "记忆翻牌", icon: "🃏", unit: "分" },
+      mines:    { name: "扫雷",     icon: "💣", unit: "分" },
+    };
+
+    async function loadGames() {
+      let data = {};
+      try {
+        const res = await fetch("/api/game/scores");
+        if (res.headers.get("content-type")?.includes("json")) data = await res.json();
+      } catch(e) {}
+      renderGames(data);
+    }
+
+    function renderGames(data) {
+      const el = document.getElementById("games-list");
+      el.innerHTML = Object.keys(GAME_META).map((id, i) => {
+        const meta = GAME_META[id];
+        const list = (data && data[id]) || [];
+        const top = list[0];
+        return `
+        <div class="list-item" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+          <div class="list-item-info">
+            <div class="list-item-title">${meta.icon} ${meta.name}</div>
+            <div class="list-item-meta">
+              ${list.length ? `上榜 ${list.length} 人 · 最高 <b style="color:var(--primary)">${escapeHtml(String(top.score))}</b> ${meta.unit}（${escapeHtml(top.name)}）` : "暂无成绩"}
+            </div>
+          </div>
+          <div class="list-item-actions">
+            <button class="btn btn-danger btn-sm" onclick="clearGameScores('${id}')" ${list.length ? "" : "disabled"}>清空成绩</button>
+          </div>
+        </div>`;
+      }).join("");
+    }
+
+    async function clearGameScores(gameId) {
+      const meta = GAME_META[gameId];
+      if (!meta) return;
+      if (!confirm(`确定要清空「${meta.name}」的全部排行榜成绩吗？此操作不可恢复。`)) return;
+      try {
+        const res = await fetch(`/api/game/scores/${gameId}`, {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + token }
+        });
+        const result = await res.json();
+        if (result.success) {
+          showAlert("admin-alert", `「${meta.name}」成绩已清空`, "success");
+          loadGames();
+        } else {
+          showAlert("admin-alert", result.error || "操作失败", "error");
+        }
+      } catch(e) {
+        showAlert("admin-alert", "网络错误，操作失败", "error");
+      }
+    }
+
+    // ========== 数据备份 ==========
+    async function exportBackup() {
+      const status = document.getElementById("backup-status");
+      status.textContent = "正在生成备份文件...";
+      try {
+        const res = await fetch("/api/backup/export", {
+          headers: { "Authorization": "Bearer " + token }
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          status.textContent = "导出失败：" + (err.error || res.status);
+          return;
+        }
+        const data = await res.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        const stamp = new Date().toISOString().slice(0, 10);
+        a.download = `my-blog-backup-${stamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        const d = data.data || {};
+        const counts = [
+          `文章 ${(d.posts || []).length} 篇`,
+          `留言 ${(d.messages || []).length} 条`,
+          `评论 ${Object.values(d.comments || {}).reduce((s, v) => s + v.length, 0)} 条`,
+          `时间线 ${(d.timeline || []).length} 条`,
+          `音乐 ${(d.music || []).length} 首`,
+          `友链 ${(d.links || []).length} 个`,
+        ].join(" · ");
+        status.textContent = "✅ 备份已下载：" + counts;
+      } catch(e) {
+        status.textContent = "导出失败：网络错误";
+      }
+    }
+
+    async function importBackup(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const status = document.getElementById("backup-status");
+      if (!confirm(`确定要用「${file.name}」覆盖当前全部内容吗？\n\n此操作不可撤销，建议先导出一份当前备份。`)) {
+        input.value = "";
+        return;
+      }
+      status.textContent = "正在读取文件...";
+      try {
+        const text = await file.text();
+        let payload;
+        try { payload = JSON.parse(text); }
+        catch(e) { status.textContent = "❌ 文件不是有效的 JSON"; input.value = ""; return; }
+        if (!payload || typeof payload !== "object" || !payload.data) {
+          status.textContent = "❌ 文件格式不正确，缺少 data 字段";
+          input.value = "";
+          return;
+        }
+        status.textContent = "正在导入...";
+        const res = await fetch("/api/backup/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+          body: JSON.stringify(payload)
+        });
+        const result = await res.json().catch(() => ({}));
+        if (res.ok && result.success) {
+          status.textContent = "✅ 导入完成：" + (result.message || "数据已恢复");
+          loadAll();
+        } else {
+          status.textContent = "❌ 导入失败：" + (result.error || res.status);
+        }
+      } catch(e) {
+        status.textContent = "❌ 导入失败：网络错误";
+      }
+      input.value = "";
+    }
+
+    // ========== 加载全部 ==========
+    async function loadAll() {
+      loadSite();
+      loadPosts();
+      loadMusic();
+      loadTimeline();
+      loadComments();
+      loadMessages();
+      // GitHub 连接状态面板：登录后即展示，无需等用户拨动同步开关
+      loadGithubStatus();
+      // 友链 / 游戏按需加载：仅在切换到对应标签时才请求，减少登录后的请求数
+      const activeTab = document.querySelector(".tab-content.active");
+      if (activeTab && activeTab.id === "tab-links") loadLinks();
+      if (activeTab && activeTab.id === "tab-games") loadGames();
+    }
+
+    // 主题切换
+    function toggleTheme() {
+      document.body.classList.toggle("dark");
+      safeStorage.set("theme", document.body.classList.contains("dark") ? "dark" : "light");
+      document.querySelector(".theme-btn").textContent = document.body.classList.contains("dark") ? "☀️" : "🌙";
+    }
+    (function() {
+      const s = safeStorage.get("theme");
+      const d = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (s === "dark" || (!s && d)) { document.body.classList.add("dark"); }
+      const btn = document.createElement("button");
+      btn.className = "theme-btn";
+      btn.onclick = toggleTheme;
+      btn.textContent = document.body.classList.contains("dark") ? "☀️" : "🌙";
+      btn.title = "切换主题";
+      document.body.appendChild(btn);
+    })();
+
+    // 页面加载时检查登录状态
+    checkLogin();
+  </script>
+</body>
+</html>

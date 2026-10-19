@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>相册 - 我的博客</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
+      --text-mute: #999; --border: #eaecef; --primary: #4f46e5;
+      --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
+      --nav-bg: rgba(255,255,255,0.85);
+      --item-bg: #f9fafb;
+    }
+    body.dark {
+      --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
+      --text-mute: #6b7280; --border: #2a2a40;
+      --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      --nav-bg: rgba(15,15,26,0.85);
+      --item-bg: #16162a;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
+      transition: background 0.3s, color 0.3s;
+      padding-bottom: 70px;
+    }
+    .navbar {
+      background: var(--nav-bg);
+      position: sticky; top: 0; z-index: 100;
+      border-bottom: 1px solid transparent;
+      transition: all 0.3s ease;
+    }
+    .navbar.scrolled {
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 20px rgba(0,0,0,0.04);
+    }
+    body.dark .navbar.scrolled { box-shadow: 0 2px 20px rgba(0,0,0,0.2); }
+
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
+    body.dark::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); }
+    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
+
+    /* 文字选中样式 */
+    ::selection { background: rgba(79,70,229,0.3); color: #fff; }
+    ::-moz-selection { background: rgba(79,70,229,0.3); color: #fff; }
+    body.dark ::selection { background: rgba(99,102,241,0.4); color: #fff; }
+    body.dark ::-moz-selection { background: rgba(99,102,241,0.4); color: #fff; }
+    .nav-inner {
+      max-width: 1200px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between; height: 64px;
+    }
+    .logo {
+      font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .nav-right { display: flex; align-items: center; gap: 16px; }
+    .nav-links { display: flex; gap: 28px; list-style: none; }
+    .nav-links a {
+      color: var(--text-light); text-decoration: none; font-size: 15px;
+      transition: color 0.2s; position: relative;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+    .nav-links a.active::after {
+      content: ""; position: absolute; bottom: -6px; left: 0; right: 0;
+      height: 2px; background: var(--primary); border-radius: 2px;
+    }
+    .theme-btn {
+      width: 36px; height: 36px; border-radius: 50%; border: none;
+      background: var(--card-bg); color: var(--text); cursor: pointer;
+      font-size: 16px; transition: all 0.2s; box-shadow: var(--card-shadow);
+    }
+    .theme-btn:hover { transform: scale(1.1); }
+    .theme-btn:active { transform: scale(0.97); }
+    .back-top:active { transform: scale(0.92); }
+    .lightbox-close:active, .lightbox-prev:active, .lightbox-next:active { transform: scale(0.92); }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 50px 24px; }
+    .page-header {
+      text-align: center; margin-bottom: 40px;
+    }
+    .page-title {
+      font-size: 32px; font-weight: 700; color: var(--text); margin-bottom: 8px;
+    }
+    .page-subtitle {
+      color: var(--text-mute); font-size: 15px;
+    }
+    .auto-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 20px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    /* 瀑布流 */
+    .masonry {
+      column-count: 4;
+      column-gap: 16px;
+    }
+    .photo-item {
+      break-inside: avoid;
+      margin-bottom: 16px;
+      border-radius: 14px;
+      overflow: hidden;
+      cursor: pointer;
+      background: var(--card-bg);
+      box-shadow: var(--card-shadow);
+      transition: all 0.3s;
+      border: 1px solid var(--border);
+    }
+    .photo-item:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.15);
+    }
+    .photo-item img {
+      width: 100%;
+      display: block;
+      transition: transform 0.3s;
+    }
+    .photo-item:hover img {
+      transform: scale(1.05);
+    }
+    .photo-img-wrap {
+      background: var(--item-bg);
+      position: relative;
+      overflow: hidden;
+    }
+    .photo-img-wrap::before {
+      content: "";
+      display: block;
+      padding-top: 75%;
+    }
+    .lazy-img {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    .lazy-img.loaded {
+      opacity: 1;
+    }
+    .photo-info {
+      padding: 12px 14px;
+    }
+    .photo-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* 灯箱 */
+    .lightbox {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.9);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+    }
+    .lightbox.active {
+      display: flex;
+      animation: lightboxFade 0.25s ease-out;
+    }
+    @keyframes lightboxFade {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .lightbox-img {
+      max-width: 90%;
+      max-height: 85vh;
+      border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      animation: lightboxZoom 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    @keyframes lightboxZoom {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .lightbox-close {
+      position: absolute;
+      top: 20px; right: 24px;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,0.1);
+      color: white;
+      font-size: 24px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .lightbox-close:hover { background: rgba(255,255,255,0.2); }
+    .lightbox-prev, .lightbox-next {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 50px; height: 50px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255,255,255,0.1);
+      color: white;
+      font-size: 22px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .lightbox-prev:hover, .lightbox-next:hover { background: rgba(255,255,255,0.2); }
+    .lightbox-prev { left: 30px; }
+    .lightbox-next { right: 30px; }
+    .lightbox-caption {
+      position: absolute;
+      bottom: 30px; left: 50%;
+      transform: translateX(-50%);
+      color: white;
+      font-size: 15px;
+      text-align: center;
+      max-width: 80%;
+    }
+
+    .loading, .empty {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-mute);
+    }
+    .album-notice {
+      display: none;
+      margin: 0 0 16px;
+      padding: 10px 16px;
+      border-radius: 10px;
+      background: rgba(245, 158, 11, 0.12);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #b45309;
+      font-size: 13px;
+      text-align: center;
+    }
+    body.dark .album-notice {
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.15);
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .loading-spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      margin: 0 auto 16px;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .footer {
+      text-align: center; padding: 40px 24px; color: var(--text-mute);
+      font-size: 13px; border-top: 1px solid var(--border);
+    }
+
+    .back-top {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
+      box-shadow: 0 4px 16px rgba(79,70,229,0.4);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s;
+      z-index: 99;
+    }
+    .back-top.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .back-top:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(79,70,229,0.5);
+    }
+
+    @media (max-width: 1024px) { .masonry { column-count: 3; } }
+    @media (max-width: 768px) { .masonry { column-count: 2; } }
+    .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
+    .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+    .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+    .nav-toggle.active span:nth-child(2) { opacity: 0; }
+    .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+    .mobile-menu { display: none; position: fixed; top: 64px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; animation: slideDown 0.25s ease; }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    .mobile-menu.active { display: block; }
+    .mobile-menu a { display: block; padding: 14px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s; }
+    .mobile-menu a:hover, .mobile-menu a.active { color: var(--primary); background: var(--item-bg, rgba(79,70,229,0.06)); }
+    @media (max-width: 900px) {
+      .nav-links { display: none; }
+      .nav-toggle { display: flex; }
+      .page-title { font-size: 24px; }
+      .container { padding: 36px 20px; }
+      .lightbox { padding: 20px; }
+      .lightbox-prev { left: 10px; }
+      .lightbox-next { right: 10px; }
+      .back-top { bottom: 90px; right: 20px; width: 42px; height: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="index.html" class="logo" id="nav-logo">我的博客</a>
+      <div class="nav-right">
+        <ul class="nav-links">
+          <li><a href="index.html">首页</a></li>
+          <li><a href="blog.html">博客</a></li>
+          <li><a href="album.html" class="active">相册</a></li>
+          <li><a href="timeline.html">时间线</a></li>
+          <li><a href="guestbook.html">留言</a></li>
+          <li><a href="games.html">游戏</a></li>
+          <li><a href="links.html">友链</a></li>
+        </ul>
+        <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+        <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
+      </div>
+    </div>
+  </nav>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="index.html">首页</a>
+    <a href="blog.html">博客</a>
+    <a href="album.html" class="active">相册</a>
+    <a href="timeline.html">时间线</a>
+    <a href="guestbook.html">留言</a>
+    <a href="games.html">游戏</a>
+    <a href="links.html">友链</a>
+  </div>
+
+  <div class="container">
+    <div class="page-header">
+      <h1 class="page-title">📷 我的相册</h1>
+      <p class="page-subtitle" id="album-subtitle">记录生活中的美好瞬间</p>
+    </div>
+    <div id="album-content">
+      <div class="loading"><div class="loading-spinner"></div>加载中...</div>
+    </div>
+  </div>
+
+  <div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+
+  <!-- 灯箱 -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+    <button class="lightbox-prev" onclick="prevPhoto(event)">‹</button>
+    <img class="lightbox-img" id="lightbox-img" src="" alt="">
+    <button class="lightbox-next" onclick="nextPhoto(event)">›</button>
+    <div class="lightbox-caption" id="lightbox-caption"></div>
+  </div>
+
+  <script>
+    // HTML 转义
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str == null ? "" : String(str);
+      return div.innerHTML;
+    }
+
+    // 属性级转义：escapeHtml 基于 textContent→innerHTML，不转义引号，
+    // JSON 字符串（含大量双引号）直接插入双引号属性会被浏览器截断。
+    // 凡是要把 JSON/任意文本写入 HTML 属性的地方必须用本函数。
+    function escapeAttr(str) {
+      return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    // 安全的 localStorage 读写（隐私模式/存储被禁用的浏览器不抛错）
+    const safeStorage = {
+      get(key) { try { return localStorage.getItem(key); } catch(e) { return null; } },
+      set(key, val) { try { localStorage.setItem(key, val); } catch(e) {} }
+    };
+
+    function toggleTheme() {
+      document.body.classList.toggle("dark");
+      safeStorage.set("theme", document.body.classList.contains("dark") ? "dark" : "light");
+      document.querySelector(".theme-btn").textContent = document.body.classList.contains("dark") ? "☀️" : "🌙";
+    }
+    (function() {
+      const s = safeStorage.get("theme");
+      const d = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (s === "dark" || (!s && d)) { document.body.classList.add("dark"); document.querySelector(".theme-btn").textContent = "☀️"; }
+    })();
+
+    // 移动端菜单
+    (function() {
+      const t = document.getElementById("navToggle"), m = document.getElementById("mobileMenu");
+      if (!t || !m) return;
+      t.addEventListener("click", () => { t.classList.toggle("active"); m.classList.toggle("active"); });
+      m.querySelectorAll("a").forEach(a => a.addEventListener("click", () => { t.classList.remove("active"); m.classList.remove("active"); }));
+      document.addEventListener("click", e => {
+        if (!e.target.closest(".nav-right") && !e.target.closest("#mobileMenu")) { t.classList.remove("active"); m.classList.remove("active"); }
+      });
+    })();
+
+    let photos = [];
+    let currentPhotoIdx = 0;
+
+    // 照片列表经 Worker /api/album/photos 获取（Worker 侧多源故障转移 + 缓存），
+    // 浏览器只同源通信，避免 CSP connect-src 限制；每张照片带多个镜像地址，
+    // 图片加载失败时逐个切换——本机 DNS 加速失效时自动走下一个镜像。
+    const PHOTO_CACHE_KEY = "album_photos_v2";
+    const PHOTO_CACHE_TIME_KEY = "album_photos_v2_time";
+
+    function readPhotoCache() {
+      try {
+        const raw = localStorage.getItem(PHOTO_CACHE_KEY);
+        if (!raw) return null;
+        const list = JSON.parse(raw);
+        return Array.isArray(list) && list.length ? list : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function writePhotoCache(list) {
+      try {
+        localStorage.setItem(PHOTO_CACHE_KEY, JSON.stringify(list));
+        localStorage.setItem(PHOTO_CACHE_TIME_KEY, Date.now().toString());
+      } catch (e) { /* 存储空间不足时静默 */ }
+    }
+
+    function showAlbumNotice(text) {
+      const el = document.getElementById("album-content");
+      let notice = document.getElementById("album-notice");
+      if (!notice) {
+        notice = document.createElement("div");
+        notice.id = "album-notice";
+        notice.className = "album-notice";
+        el.prepend(notice);
+      }
+      notice.textContent = text;
+      notice.style.display = "block";
+    }
+
+    async function loadPhotos() {
+      const res = await fetch("/api/album/photos");
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || !Array.isArray(data.photos)) {
+        throw new Error((data && data.error) || `加载失败（HTTP ${res.status}）`);
+      }
+      if (data.photos.length === 0) return [];
+      writePhotoCache(data.photos);
+      return data.photos;
+    }
+
+    function renderPhotos(items) {
+      const el = document.getElementById("album-content");
+      if (items.length === 0) {
+        el.innerHTML = '<div class="empty">📭 相册还没有照片<br><br>在管理后台设置 GitHub 仓库后，照片会自动显示在这里</div>';
+        return;
+      }
+      el.innerHTML = `<div class="masonry">${items.map((p, i) => `
+        <div class="photo-item" onclick="openLightbox(${i})" style="animation:fadeUp 0.5s ease ${i * 0.03}s both">
+          <div class="photo-img-wrap">
+            <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name)}" class="lazy-img">
+          </div>
+          <div class="photo-info">
+            <div class="photo-name">${escapeHtml((p.name || "").replace(/\.[^.]+$/, ""))}</div>
+          </div>
+        </div>
+      `).join("")}</div>`;
+
+      // 使用 IntersectionObserver 实现懒加载
+      if ("IntersectionObserver" in window) {
+        const imgObserver = new IntersectionObserver((entries, observer) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              loadImgWithFallback(entry.target);
+              observer.unobserve(entry.target);
+            }
+          });
+        }, { rootMargin: "200px 0px" }); // 提前 200px 开始加载
+
+        document.querySelectorAll(".lazy-img").forEach(img => {
+          imgObserver.observe(img);
+        });
+      } else {
+        // 降级方案：直接加载
+        document.querySelectorAll(".lazy-img").forEach(img => loadImgWithFallback(img));
+      }
+    }
+
+    /** 图片多镜像兜底加载：当前镜像失败时自动切换下一个 */
+    function loadImgWithFallback(img) {
+      let mirrors = [];
+      try { mirrors = JSON.parse(img.dataset.mirrors || "[]"); } catch (e) { mirrors = []; }
+      let idx = parseInt(img.dataset.idx || "0", 10);
+      if (idx >= mirrors.length) {
+        img.classList.add("loaded"); // 全部镜像失败：保留占位，不卡死懒加载
+        return;
+      }
+      img.dataset.idx = String(idx + 1);
+      img.onload = () => img.classList.add("loaded");
+      img.onerror = () => loadImgWithFallback(img);
+      img.src = mirrors[idx];
+    }
+
+    function openLightbox(idx) {
+      currentPhotoIdx = idx;
+      const p = photos[idx];
+      const img = document.getElementById("lightbox-img");
+      img.dataset.mirrors = JSON.stringify(p.mirrors || []);
+      img.dataset.idx = "0";
+      img.classList.remove("loaded");
+      loadImgWithFallback(img);
+      document.getElementById("lightbox-caption").textContent = `${idx + 1} / ${photos.length} · ${p.name}`;
+      document.getElementById("lightbox").classList.add("active");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeLightbox(e) {
+      if (e && e.target && !e.target.matches(".lightbox, .lightbox-close")) return;
+      document.getElementById("lightbox").classList.remove("active");
+      document.body.style.overflow = "";
+    }
+
+    function prevPhoto(e) {
+      e.stopPropagation();
+      currentPhotoIdx = (currentPhotoIdx - 1 + photos.length) % photos.length;
+      openLightbox(currentPhotoIdx);
+    }
+
+    function nextPhoto(e) {
+      e.stopPropagation();
+      currentPhotoIdx = (currentPhotoIdx + 1) % photos.length;
+      openLightbox(currentPhotoIdx);
+    }
+
+    // 键盘导航
+    document.addEventListener("keydown", e => {
+      if (!document.getElementById("lightbox").classList.contains("active")) return;
+      if (e.key === "Escape") closeLightbox();
+      if (e.key === "ArrowLeft") prevPhoto(e);
+      if (e.key === "ArrowRight") nextPhoto(e);
+    });
+
+    async function init() {
+      // 加载站点信息
+      let siteReqFailed = false;
+      let site = null;
+      try {
+        const sRes = await fetch("/api/site");
+        if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {
+          const s = await sRes.json();
+          if (s && typeof s.title === "string") site = s;
+        } else {
+          siteReqFailed = true;
+        }
+      } catch (e) {
+        siteReqFailed = true;
+      }
+
+      if (site) {
+        document.title = `相册 - ${site.title}`;
+        document.getElementById("nav-logo").textContent = site.title;
+        document.getElementById("footer-text").textContent = site.footer;
+
+        // 如果配置了 GitHub 仓库，加载照片
+        if (site.githubRepo) {
+          const useCdn = site.useCdn !== false;
+          // 显示仓库同步标识
+          if (site.autoMode) {
+            const subtitle = document.getElementById("album-subtitle");
+            subtitle.innerHTML = `${escapeHtml(site.githubRepo)} 仓库自动同步 <span class="auto-badge">🤖 GitHub 同步</span>${useCdn ? ' <span class="auto-badge" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">⚡ CDN加速</span>' : ''}`;
+          }
+          try {
+            photos = await loadPhotos();
+            renderPhotos(photos);
+            return;
+          } catch (err) {
+            // 接口失败：尝试展示本地缓存的旧照片（GitHub 不稳定时不空屏）
+            const cached = readPhotoCache();
+            if (cached) {
+              photos = cached;
+              renderPhotos(photos);
+              showAlbumNotice("⚠️ 网络不稳定，正在展示缓存的相册，恢复后将自动更新");
+              return;
+            }
+            document.getElementById("album-content").innerHTML =
+              `<div class="empty">❌ 相册加载失败<br><br>${escapeHtml(err.message || "未知错误")}<br><br>请检查 GitHub 仓库配置，或稍后重试<br><br><button style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary,#4f46e5);color:#fff;cursor:pointer;font-size:14px" onclick="init()">🔄 重试</button></div>`;
+            return;
+          }
+        }
+      }
+
+      // 站点接口失败（网络/服务故障）：明确提示，避免误导成"未配置"
+      if (siteReqFailed) {
+        document.getElementById("album-content").innerHTML =
+          `<div class="empty">⚠️ 暂时无法连接服务器<br><br>请检查网络后重试<br><br><button style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary,#4f46e5);color:#fff;cursor:pointer;font-size:14px" onclick="init()">🔄 重试</button></div>`;
+        return;
+      }
+
+      // 站点正常但未配置 GitHub 仓库：显示引导
+      document.getElementById("album-content").innerHTML =
+        `<div class="empty">
+          📷 相册还没配置
+          <br><br>
+          前往管理后台 → 站点设置
+          <br>
+          填写 GitHub 仓库地址（如 username/repo）和照片文件夹路径
+          <br><br>
+          <small>照片会自动从 GitHub 仓库读取，无需手动上传</small>
+        </div>`;
+    }
+    init();
+
+    function scrollToTop() {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    function handleNavScroll() {
+      const navbar = document.querySelector(".navbar");
+      if (window.scrollY > 10) navbar.classList.add("scrolled");
+      else navbar.classList.remove("scrolled");
+    }
+    let backTopTicking = false;
+    window.addEventListener("scroll", () => {
+      if (!backTopTicking) {
+        requestAnimationFrame(() => {
+          handleNavScroll();
+          const btn = document.getElementById("backTop");
+          btn.classList.toggle("show", window.scrollY > 300);
+          backTopTicking = false;
+        });
+        backTopTicking = true;
+      }
+    });
+    handleNavScroll();
+  </script>
+  <button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
+<script src="music-player.js" defer></script>
+</body>
+</html>

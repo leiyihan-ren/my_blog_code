@@ -1,0 +1,34 @@
+name = "my-blog"
+compatibility_date = "2024-09-01"
+pages_build_output_dir = "."
+
+# ============================================================
+# 部署说明（请仔细阅读）
+# ------------------------------------------------------------
+# 方式一：Cloudflare Dashboard 上传（推荐新手）
+#   1. 登录 https://dash.cloudflare.com
+#   2. Workers & Pages → Create → Pages → Upload assets
+#   3. 上传解压后的整个文件夹
+#   4. 部署完成后，在 Pages 项目 → Settings → Functions → KV namespace bindings
+#      添加一个绑定：Variable name = SITE_DATA，选择一个 KV 命名空间（没有就新建一个）
+#   5. 重新部署即可使用
+#
+# 方式二：Wrangler CLI 部署
+#   1. 安装：npm install -g wrangler
+#   2. 登录：wrangler login
+#   3. 创建 KV：wrangler kv namespace create SITE_DATA
+#      （会输出一个 id，复制到下方 id 字段）
+#   4. 部署：wrangler pages deploy .
+# ============================================================
+
+# KV 命名空间绑定：存储站点所有数据（文章、留言、时间线、音乐、点赞、评论等）
+# 用 Dashboard 上传部署时，此 id 可留空，在 Dashboard 的 KV bindings 中配置即可
+# 用 Wrangler CLI 部署时，必须填写实际的 KV 命名空间 ID
+[[kv_namespaces]]
+binding = "SITE_DATA"
+id = "please-create-a-kv-namespace-and-paste-id-here"
+
+# 环境变量（可选）：管理员密码
+# 强烈建议设置一个强密码！不设置则使用 _worker.js 中的默认密码
+# [vars]
+# ADMIN_PASSWORD = "your-strong-password-here"

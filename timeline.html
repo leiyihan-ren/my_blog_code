@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>时间线 - 我的博客</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
+      --text-mute: #999; --border: #eaecef; --primary: #4f46e5;
+      --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
+      --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
+      --nav-bg: rgba(255,255,255,0.85);
+    }
+    body.dark {
+      --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
+      --text-mute: #6b7280; --border: #2a2a40;
+      --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
+      --nav-bg: rgba(15,15,26,0.85);
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg); color: var(--text); line-height: 1.6;
+      transition: background 0.3s, color 0.3s;
+      padding-bottom: 70px;
+    }
+    .navbar {
+      background: var(--nav-bg);
+      position: sticky; top: 0; z-index: 100;
+      border-bottom: 1px solid transparent;
+      transition: all 0.3s ease;
+    }
+    .navbar.scrolled {
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 20px rgba(0,0,0,0.04);
+    }
+    body.dark .navbar.scrolled { box-shadow: 0 2px 20px rgba(0,0,0,0.2); }
+
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
+    body.dark::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); }
+    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
+
+    /* 文字选中样式 */
+    ::selection { background: rgba(79,70,229,0.3); color: #fff; }
+    ::-moz-selection { background: rgba(79,70,229,0.3); color: #fff; }
+    body.dark ::selection { background: rgba(99,102,241,0.4); color: #fff; }
+    body.dark ::-moz-selection { background: rgba(99,102,241,0.4); color: #fff; }
+    .nav-inner {
+      max-width: 960px; margin: 0 auto; padding: 0 24px;
+      display: flex; align-items: center; justify-content: space-between; height: 64px;
+    }
+    .logo {
+      font-weight: 700; font-size: 18px; color: var(--text); text-decoration: none;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .nav-right { display: flex; align-items: center; gap: 16px; }
+    .nav-links { display: flex; gap: 28px; list-style: none; }
+    .nav-links a {
+      color: var(--text-light); text-decoration: none; font-size: 15px;
+      transition: color 0.2s; position: relative;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+    .nav-links a.active::after {
+      content: ""; position: absolute; bottom: -6px; left: 0; right: 0;
+      height: 2px; background: var(--primary); border-radius: 2px;
+    }
+    .theme-btn {
+      width: 36px; height: 36px; border-radius: 50%; border: none;
+      background: var(--card-bg); color: var(--text); cursor: pointer;
+      font-size: 16px; transition: all 0.2s; box-shadow: var(--card-shadow);
+    }
+    .theme-btn:hover { transform: scale(1.1); }
+    .theme-btn:active { transform: scale(0.97); }
+    .back-top:active { transform: scale(0.92); }
+    .container { max-width: 720px; margin: 0 auto; padding: 50px 24px; }
+    .page-title {
+      font-size: 28px; font-weight: 700; color: var(--text);
+      margin-bottom: 36px; text-align: center;
+    }
+    .timeline { position: relative; padding-left: 32px; }
+    .timeline::before {
+      content: ""; position: absolute; left: 9px; top: 0; bottom: 0;
+      width: 2px; background: linear-gradient(180deg, #667eea, #764ba2);
+    }
+    .timeline-item {
+      position: relative; margin-bottom: 24px;
+      background: var(--card-bg); border-radius: 16px;
+      padding: 22px 26px; box-shadow: var(--card-shadow);
+      border: 1px solid var(--border);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+    .timeline-item.visible {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    .timeline-item:hover {
+      transform: translateX(6px);
+      box-shadow: var(--card-shadow-hover);
+      border-color: var(--primary);
+    }
+    .timeline-item::before {
+      content: ""; position: absolute; left: -29px; top: 26px;
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--primary); border: 3px solid var(--bg);
+      box-shadow: 0 0 0 2px var(--primary);
+      transition: all 0.3s;
+    }
+    .timeline-item:hover::before {
+      box-shadow: 0 0 0 4px rgba(79,70,229,0.3);
+    }
+    .timeline-date {
+      font-size: 13px; color: var(--primary); font-weight: 600; margin-bottom: 6px;
+    }
+    .timeline-title {
+      font-size: 17px; font-weight: 600; color: var(--text); margin-bottom: 6px;
+    }
+    .timeline-desc {
+      font-size: 14px; color: var(--text-light); line-height: 1.6;
+    }
+    .empty { text-align: center; padding: 60px 20px; color: var(--text-mute); }
+    @keyframes fadeInLeft {
+      from { opacity: 0; transform: translateX(-20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .footer {
+      text-align: center; padding: 40px 24px; color: var(--text-mute);
+      font-size: 13px; border-top: 1px solid var(--border);
+    }
+    .back-top {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
+      box-shadow: 0 4px 16px rgba(79,70,229,0.4);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s;
+      z-index: 99;
+    }
+    .back-top.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .back-top:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(79,70,229,0.5);
+    }
+    .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
+    .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+    .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+    .nav-toggle.active span:nth-child(2) { opacity: 0; }
+    .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+    .mobile-menu { display: none; position: fixed; top: 64px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; animation: slideDown 0.25s ease; }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    .mobile-menu.active { display: block; }
+    .mobile-menu a { display: block; padding: 14px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s; }
+    .mobile-menu a:hover, .mobile-menu a.active { color: var(--primary); background: var(--item-bg, rgba(79,70,229,0.06)); }
+    @media (max-width: 900px) {
+      .nav-links { display: none; }
+      .nav-toggle { display: flex; }
+      .page-title { font-size: 22px; }
+      .container { padding: 36px 20px; }
+      .back-top { bottom: 90px; right: 20px; width: 42px; height: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="index.html" class="logo" id="nav-logo">我的博客</a>
+      <div class="nav-right">
+        <ul class="nav-links">
+          <li><a href="index.html">首页</a></li>
+          <li><a href="blog.html">博客</a></li>
+          <li><a href="album.html">相册</a></li>
+          <li><a href="timeline.html" class="active">时间线</a></li>
+          <li><a href="guestbook.html">留言</a></li>
+          <li><a href="games.html">游戏</a></li>
+          <li><a href="links.html">友链</a></li>
+        </ul>
+        <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+        <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
+      </div>
+    </div>
+  </nav>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="index.html">首页</a>
+    <a href="blog.html">博客</a>
+    <a href="album.html">相册</a>
+    <a href="timeline.html" class="active">时间线</a>
+    <a href="guestbook.html">留言</a>
+    <a href="games.html">游戏</a>
+    <a href="links.html">友链</a>
+  </div>
+
+  <div class="container">
+    <h1 class="page-title">📅 成长时间线</h1>
+    <div class="timeline" id="timeline"></div>
+  </div>
+
+  <div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+
+  <script>
+    // HTML 转义（防 XSS）
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str == null ? "" : String(str);
+      return div.innerHTML;
+    }
+
+    // 安全的 localStorage 读写（隐私模式/存储被禁用的浏览器不抛错）
+    const safeStorage = {
+      get(key) { try { return localStorage.getItem(key); } catch(e) { return null; } },
+      set(key, val) { try { localStorage.setItem(key, val); } catch(e) {} }
+    };
+
+    function toggleTheme() {
+      document.body.classList.toggle("dark");
+      safeStorage.set("theme", document.body.classList.contains("dark") ? "dark" : "light");
+      document.querySelector(".theme-btn").textContent = document.body.classList.contains("dark") ? "☀️" : "🌙";
+    }
+    (function() {
+      const s = safeStorage.get("theme");
+      const d = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (s === "dark" || (!s && d)) { document.body.classList.add("dark"); document.querySelector(".theme-btn").textContent = "☀️"; }
+    })();
+
+    // 移动端菜单
+    (function() {
+      const t = document.getElementById("navToggle"), m = document.getElementById("mobileMenu");
+      if (!t || !m) return;
+      t.addEventListener("click", () => { t.classList.toggle("active"); m.classList.toggle("active"); });
+      m.querySelectorAll("a").forEach(a => a.addEventListener("click", () => { t.classList.remove("active"); m.classList.remove("active"); }));
+      document.addEventListener("click", e => {
+        if (!e.target.closest(".nav-right") && !e.target.closest("#mobileMenu")) { t.classList.remove("active"); m.classList.remove("active"); }
+      });
+    })();
+
+    const DEFAULT_TIMELINE = [
+      { id: "t1", date: "2026-09-01", title: "升入七年级", desc: "进入松滋市金松初级中学七年级6班" }
+    ];
+
+    function renderTimeline(items) {
+      const el = document.getElementById("timeline");
+      if (items.length === 0) { el.innerHTML = '<div class="empty">还没有记录</div>'; return; }
+      el.innerHTML = items.map((t, i) => `
+        <div class="timeline-item" data-delay="${i}">
+          <div class="timeline-date">${escapeHtml(t.date)}</div>
+          <div class="timeline-title">${escapeHtml(t.title)}</div>
+          ${t.desc ? `<div class="timeline-desc">${escapeHtml(t.desc)}</div>` : ""}
+        </div>
+      `).join("");
+
+      // 滚动渐入
+      if ("IntersectionObserver" in window) {
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              const delay = parseInt(entry.target.dataset.delay || "0", 10);
+              entry.target.style.transitionDelay = (delay * 0.08) + "s";
+              entry.target.classList.add("visible");
+              observer.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.1 });
+        el.querySelectorAll(".timeline-item").forEach(item => observer.observe(item));
+      } else {
+        el.querySelectorAll(".timeline-item").forEach(item => item.classList.add("visible"));
+      }
+    }
+
+    async function init() {
+      renderTimeline(DEFAULT_TIMELINE);
+      try {
+        const res = await fetch("/api/timeline");
+        if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
+          const items = await res.json();
+          if (Array.isArray(items)) renderTimeline(items);
+        }
+      } catch(e) {}
+      try {
+        const sRes = await fetch("/api/site");
+        if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {
+          const s = await sRes.json();
+          if (s && typeof s.title === "string") {
+            document.title = `时间线 - ${s.title}`;
+            document.getElementById("nav-logo").textContent = s.title;
+            document.getElementById("footer-text").textContent = s.footer;
+          }
+        }
+      } catch(e) {}
+    }
+    init();
+
+    function scrollToTop() {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    function handleNavScroll() {
+      const navbar = document.querySelector(".navbar");
+      if (window.scrollY > 10) navbar.classList.add("scrolled");
+      else navbar.classList.remove("scrolled");
+    }
+    let backTopTicking = false;
+    window.addEventListener("scroll", () => {
+      if (!backTopTicking) {
+        requestAnimationFrame(() => {
+          handleNavScroll();
+          const btn = document.getElementById("backTop");
+          btn.classList.toggle("show", window.scrollY > 300);
+          backTopTicking = false;
+        });
+        backTopTicking = true;
+      }
+    });
+    handleNavScroll();
+  </script>
+  <button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
+<script src="music-player.js" defer></script>
+</body>
+</html>

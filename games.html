@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>游戏大厅 - 我的博客</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
+    --text-mute: #999; --border: #eaecef; --primary: #4f46e5;
+    --primary-2: #7c3aed;
+    --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
+    --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
+    --nav-bg: rgba(255,255,255,0.85);
+    --item-bg: rgba(79,70,229,0.06);
+  }
+  body.dark {
+    --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
+    --text-mute: #6b7280; --border: #2a2a40;
+    --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
+    --nav-bg: rgba(15,15,26,0.85);
+    --item-bg: rgba(99,102,241,0.12);
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+    transition: background 0.3s, color 0.3s; padding-bottom: 70px;
+  }
+  .navbar {
+    background: var(--nav-bg); position: sticky; top: 0; z-index: 100;
+    border-bottom: 1px solid transparent; transition: all 0.3s ease;
+  }
+  .navbar.scrolled {
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border); box-shadow: 0 2px 20px rgba(0,0,0,0.04);
+  }
+  body.dark .navbar.scrolled { box-shadow: 0 2px 20px rgba(0,0,0,0.2); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 4px; }
+
+  .nav-inner { max-width: 1100px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; justify-content: space-between; }
+  .logo { font-size: 19px; font-weight: 700; color: var(--text); text-decoration: none; }
+  .nav-right { display: flex; align-items: center; gap: 14px; }
+  .nav-links { display: flex; gap: 22px; list-style: none; }
+  .nav-links a { color: var(--text-light); text-decoration: none; font-size: 15px; transition: color 0.2s; }
+  .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+  .theme-btn {
+    width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--card-bg); cursor: pointer; font-size: 16px; transition: all 0.2s;
+  }
+  .theme-btn:hover { transform: rotate(20deg); }
+  .nav-toggle { display: none; flex-direction: column; gap: 5px; background: none; border: none; cursor: pointer; padding: 6px; }
+  .nav-toggle span { width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+  .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+  .nav-toggle.active span:nth-child(2) { opacity: 0; }
+  .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+  .mobile-menu {
+    display: none; flex-direction: column; background: var(--card-bg);
+    border-bottom: 1px solid var(--border); padding: 10px 24px 16px;
+  }
+  .mobile-menu.active { display: flex; }
+  .mobile-menu a { color: var(--text-light); text-decoration: none; padding: 10px 0; font-size: 15px; border-bottom: 1px solid var(--border); }
+  .mobile-menu a:last-child { border-bottom: none; }
+  .mobile-menu a.active { color: var(--primary); font-weight: 600; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+
+  /* ---------- 页头 ---------- */
+  .page-header { text-align: center; margin-bottom: 34px; animation: fadeUp 0.5s ease both; }
+  .page-title {
+    font-size: 32px; font-weight: 800; letter-spacing: 0.5px;
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .page-sub { color: var(--text-light); margin-top: 8px; font-size: 15px; }
+  .page-sub b { color: var(--primary); }
+
+  /* ---------- 游戏卡片 ---------- */
+  .game-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 14px; margin-bottom: 26px;
+  }
+  .game-card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 18px;
+    padding: 20px 14px 16px; text-align: center; cursor: pointer;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    box-shadow: var(--card-shadow); position: relative; overflow: hidden;
+    animation: fadeUp 0.5s ease both;
+    outline: none;
+  }
+  .game-card::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+    background: linear-gradient(90deg, var(--primary), var(--primary-2));
+    opacity: 0; transition: opacity 0.25s;
+  }
+  .game-card:hover, .game-card:focus-visible {
+    transform: translateY(-5px); box-shadow: var(--card-shadow-hover); border-color: rgba(79,70,229,0.35);
+  }
+  .game-card:hover::before, .game-card:focus-visible::before { opacity: 1; }
+  .game-card.active { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.15), var(--card-shadow); }
+  .game-card.active::before { opacity: 1; }
+  .game-icon {
+    width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 16px;
+    display: flex; align-items: center; justify-content: center; font-size: 30px;
+    background: linear-gradient(135deg, rgba(79,70,229,0.12), rgba(124,58,237,0.12));
+    transition: transform 0.25s ease;
+  }
+  .game-card:hover .game-icon { transform: scale(1.1) rotate(-6deg); }
+  .game-name { font-weight: 700; font-size: 15px; }
+  .game-desc { font-size: 12px; color: var(--text-mute); margin-top: 4px; line-height: 1.5; min-height: 36px; }
+  .game-best {
+    margin-top: 10px; font-size: 11px; color: var(--text-mute);
+    background: var(--item-bg); border-radius: 999px; padding: 3px 10px; display: inline-flex; gap: 5px;
+  }
+  .game-best b { color: var(--primary); font-variant-numeric: tabular-nums; }
+
+  /* ---------- 舞台 ---------- */
+  .stage {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 22px;
+    box-shadow: var(--card-shadow); overflow: hidden;
+    display: none; animation: stageIn 0.35s ease both;
+  }
+  .stage.open { display: block; }
+  @keyframes stageIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  .stage-head {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 16px 22px; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+    background: linear-gradient(135deg, rgba(79,70,229,0.05), rgba(124,58,237,0.05));
+  }
+  .stage-title { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+  .stage-title span:first-child { font-size: 24px; }
+  .stage-score {
+    display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--text-mute);
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 999px; padding: 6px 16px;
+  }
+  .stage-score b { color: var(--primary); font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stage-body { display: flex; gap: 20px; padding: 22px; }
+  .board-wrap {
+    flex: 1; min-width: 0; position: relative; border-radius: 16px;
+    background: var(--item-bg); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center; padding: 18px; min-height: 380px;
+  }
+  /* 游戏挂载容器（HTML 中为 <div id="board">，无 class，故用 ID 选择器）
+     明确宽度基准：board-wrap 是 flex:1 项，宽度确定；
+     子元素（grid-board / canvas）的 100% 与 max-width 才能正确解析，
+     否则按内容收缩，记忆卡/扫雷格会坍缩成 0 */
+  #board {
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    width: 100%;
+  }
+  .game-canvas { border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); touch-action: none; display: block; }
+  body.dark .game-canvas { box-shadow: 0 4px 20px rgba(0,0,0,0.35); }
+
+  /* 覆盖层（开始 / 暂停 / 结束） */
+  .board-overlay {
+    position: absolute; inset: 0; border-radius: 16px; z-index: 5;
+    background: rgba(248,249,255,0.72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 24px; gap: 8px;
+  }
+  body.dark .board-overlay { background: rgba(15,15,26,0.75); }
+  .board-overlay.show { display: flex; animation: overlayIn 0.3s ease both; }
+  @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+  .board-overlay h3 { font-size: 24px; font-weight: 800; }
+  .overlay-score { font-size: 34px; font-weight: 800; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .overlay-score:empty { display: none; }
+  .board-overlay p { color: var(--text-light); font-size: 14px; }
+
+  /* ---------- 按钮 ---------- */
+  .btn {
+    border: none; border-radius: 12px; padding: 10px 20px; font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: inherit; transition: all 0.2s ease; white-space: nowrap;
+  }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--primary), var(--primary-2)); color: #fff;
+    box-shadow: 0 4px 14px rgba(79,70,229,0.35);
+  }
+  .btn.primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(79,70,229,0.45); }
+  .btn.ghost { background: transparent; color: var(--text-light); border: 1px solid var(--border); }
+  .btn.ghost:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ---------- 侧栏 ---------- */
+  .stage-side { width: 230px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; }
+  .tips {
+    background: var(--item-bg); border-radius: 14px; padding: 14px 16px;
+    font-size: 13px; color: var(--text-light); line-height: 1.9;
+  }
+  .tips b { color: var(--text); display: block; margin-bottom: 2px; }
+  .tips kbd {
+    background: var(--card-bg); border: 1px solid var(--border); border-bottom-width: 2px;
+    border-radius: 5px; padding: 1px 6px; font-size: 11px; font-family: inherit;
+    color: var(--text); box-shadow: 0 1px 0 rgba(0,0,0,0.04);
+  }
+
+  /* ---------- 游戏自定义控件（贪吃蛇速度档位等） ---------- */
+  .opt-box { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+  .opt-title { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+  .opt-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .opt-btn {
+    border: 1px solid var(--border); background: transparent; color: var(--text-light);
+    border-radius: 999px; padding: 5px 14px; font-size: 13px; cursor: pointer;
+    font-family: inherit; transition: all 0.2s;
+  }
+  .opt-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .opt-btn.active {
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    border-color: transparent; color: #fff; font-weight: 600;
+  }
+
+  /* ---------- 虚拟方向键 ---------- */
+  .dpad {
+    display: grid; grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(3, 46px);
+    gap: 5px; touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .dpad-btn {
+    border: 1px solid var(--border); background: var(--card-bg); color: var(--primary);
+    border-radius: 12px; font-size: 17px; cursor: pointer; font-family: inherit;
+    transition: all 0.12s ease; box-shadow: var(--card-shadow); touch-action: none;
+  }
+  .dpad-btn:hover { border-color: var(--primary); }
+  .dpad-btn:active { transform: scale(0.9); background: var(--item-bg); }
+  .dpad-btn[data-dir="up"] { grid-column: 2; grid-row: 1; }
+  .dpad-btn[data-dir="left"] { grid-column: 1; grid-row: 2; }
+  .dpad-btn[data-dir="right"] { grid-column: 3; grid-row: 2; }
+  .dpad-btn[data-dir="down"] { grid-column: 2; grid-row: 3; }
+
+  /* ---------- 2048 ---------- */
+  .grid-board {
+    display: grid; gap: 8px; background: rgba(79,70,229,0.1);
+    border-radius: 12px; padding: 8px; touch-action: none; user-select: none;
+    /* 必须给明确宽度：记忆卡/扫雷格的内容不参与布局（span 绝对定位/空单元格），
+       1fr 列会坍缩成 0，整板消失 */
+    width: min(340px, 100%);
+  }
+  .grid-board .tile {
+    aspect-ratio: 1; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 1.05em; background: var(--card-bg); color: var(--text);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05); transition: background 0.15s;
+    font-variant-numeric: tabular-nums;
+  }
+  .grid-board .tile.pop { animation: tilePop 0.22s ease both; }
+  .grid-board .tile.new { animation: tileNew 0.2s ease both; }
+  .grid-board .tile.merge { animation: tileMerge 0.25s ease both; }
+  @keyframes tilePop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  @keyframes tileNew { 0% { transform: scale(0.2); } 70% { transform: scale(1.08); } 100% { transform: scale(1); } }
+  @keyframes tileMerge { 0% { transform: scale(1); } 45% { transform: scale(1.18); } 100% { transform: scale(1); } }
+  .tile.v2 { background:#eee4da; color:#776e65; }
+  .tile.v4 { background:#ede0c8; color:#776e65; }
+  .tile.v8 { background:#f2b179; color:#fff; }
+  .tile.v16 { background:#f59563; color:#fff; }
+  .tile.v32 { background:#f67c5f; color:#fff; }
+  .tile.v64 { background:#f65e3b; color:#fff; }
+  .tile.v128 { background:#edcf72; color:#fff; font-size: 0.9em; }
+  .tile.v256 { background:#edcc61; color:#fff; font-size: 0.9em; }
+  .tile.v512 { background:#edc850; color:#fff; font-size: 0.9em; }
+  .tile.v1024 { background:#edc53f; color:#fff; font-size: 0.75em; }
+  .tile.v2048 { background:#edc22e; color:#fff; font-size: 0.75em; box-shadow: 0 0 18px rgba(237,194,46,0.55); }
+  .tile.vbig { background:#3c3a32; color:#fff; font-size: 0.6em; }
+
+  /* ---------- 记忆翻牌（3D 翻转） ---------- */
+  .mem-card {
+    aspect-ratio: 1; border-radius: 12px; cursor: pointer; position: relative;
+    transform-style: preserve-3d; transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.1);
+    user-select: none; -webkit-user-select: none;
+  }
+  .mem-card.flipped, .mem-card.done { transform: rotateY(180deg); }
+  .mem-card::before, .mem-card::after {
+    content: ""; position: absolute; inset: 0; border-radius: 12px;
+    backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .mem-card::before {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    box-shadow: 0 3px 10px rgba(102,126,234,0.35);
+    content: "?"; color: rgba(255,255,255,0.9); font-size: 24px; font-weight: 800;
+  }
+  .mem-card::after {
+    background: var(--card-bg); border: 1px solid var(--border);
+    transform: rotateY(180deg); font-size: 26px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.06);
+  }
+  .mem-card.done { opacity: 0.6; }
+  .mem-card.done::after { box-shadow: 0 0 0 2px #22c55e inset; }
+  .mem-card span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 26px; transform: rotateY(180deg); backface-visibility: hidden; -webkit-backface-visibility: hidden; z-index: 1; }
+  .mem-card:not(.flipped):not(.done):hover { filter: brightness(1.12); }
+  .mem-card:not(.flipped):not(.done):active { filter: brightness(0.95); }
+
+  /* ---------- 扫雷 ---------- */
+  .mine-cell {
+    aspect-ratio: 1; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 800; cursor: pointer; background: var(--item-bg); color: var(--text);
+    border: 1px solid var(--border); user-select: none; -webkit-user-select: none;
+    transition: background 0.15s, transform 0.15s;
+  }
+  .mine-cell:hover { filter: brightness(0.96); }
+  .mine-cell.open { background: var(--card-bg); cursor: default; animation: cellReveal 0.25s ease both; }
+  @keyframes cellReveal { from { transform: scale(0.75); opacity: 0.4; } to { transform: scale(1); opacity: 1; } }
+  .mine-cell.flag { background: rgba(239,68,68,0.14); animation: flagPop 0.25s ease both; }
+  @keyframes flagPop { 0% { transform: scale(1); } 50% { transform: scale(1.22); } 100% { transform: scale(1); } }
+  .mine-cell.boom { background: #ef4444; color: #fff; animation: boomShake 0.4s ease both; }
+  @keyframes boomShake { 0%,100% { transform: translate(0,0); } 25% { transform: translate(-2px,1px); } 50% { transform: translate(2px,-1px); } 75% { transform: translate(-1px,-1px); } }
+  .mine-cell.wrong { background: rgba(239,68,68,0.25); }
+  .n1{color:#3b82f6}.n2{color:#22c55e}.n3{color:#ef4444}.n4{color:#8b5cf6}
+  .n5{color:#f97316}.n6{color:#06b6d4}.n7{color:#374151}.n8{color:#9ca3af}
+
+  /* ---------- 排行榜 ---------- */
+  .rank-panel {
+    margin-top: 26px; background: var(--card-bg); border: 1px solid var(--border);
+    border-radius: 22px; padding: 22px; box-shadow: var(--card-shadow);
+  }
+  .rank-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+  .rank-title { font-size: 18px; font-weight: 700; }
+  .rank-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .rank-tab {
+    border: 1px solid var(--border); background: transparent; color: var(--text-light);
+    border-radius: 999px; padding: 5px 14px; font-size: 13px; cursor: pointer; font-family: inherit; transition: all 0.2s;
+  }
+  .rank-tab:hover { border-color: var(--primary); color: var(--primary); }
+  .rank-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .rank-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .rank-table th, .rank-table td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+  .rank-table th { font-size: 12px; color: var(--text-mute); font-weight: 600; }
+  .rank-table tbody tr { transition: background 0.15s; }
+  .rank-table tbody tr:hover { background: var(--item-bg); }
+  .rank-table td:last-child, .rank-table th:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .rank-medal { font-size: 15px; }
+  .rank-empty { text-align: center; color: var(--text-mute); padding: 30px 0; font-size: 14px; }
+
+  .footer { text-align: center; padding: 40px 24px; color: var(--text-mute); font-size: 13px; border-top: 1px solid var(--border); }
+  .back-top {
+    position: fixed; bottom: 30px; right: 30px; width: 48px; height: 48px; border-radius: 50%;
+    background: var(--primary); color: white; border: none; cursor: pointer; font-size: 20px;
+    box-shadow: 0 4px 16px rgba(79,70,229,0.4); opacity: 0; transform: translateY(20px);
+    transition: all 0.3s; z-index: 99;
+  }
+  .back-top.show { opacity: 1; transform: translateY(0); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(20px);
+    background: var(--text); color: var(--bg); padding: 10px 20px; border-radius: 999px;
+    font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.3s; z-index: 200;
+    max-width: 86vw; text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+  @media (max-width: 900px) {
+    .nav-links { display: none; }
+    .nav-toggle { display: flex; }
+    .container { padding: 30px 18px; }
+    .page-title { font-size: 26px; }
+  }
+  @media (max-width: 720px) {
+    .stage-body { flex-direction: column; }
+    .stage-side { width: 100%; }
+    .board-wrap { min-height: 320px; }
+  }
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <div class="nav-inner">
+    <a href="index.html" class="logo" id="nav-logo">我的博客</a>
+    <div class="nav-right">
+      <ul class="nav-links">
+        <li><a href="index.html">首页</a></li>
+        <li><a href="blog.html">博客</a></li>
+        <li><a href="album.html">相册</a></li>
+        <li><a href="timeline.html">时间线</a></li>
+        <li><a href="guestbook.html">留言</a></li>
+        <li><a href="games.html" class="active">游戏</a></li>
+        <li><a href="links.html">友链</a></li>
+      </ul>
+      <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+      <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="index.html">首页</a>
+  <a href="blog.html">博客</a>
+  <a href="album.html">相册</a>
+  <a href="timeline.html">时间线</a>
+  <a href="guestbook.html">留言</a>
+  <a href="games.html" class="active">游戏</a>
+  <a href="links.html">友链</a>
+</div>
+
+<div class="container">
+  <div class="page-header">
+    <h1 class="page-title">🎮 游戏大厅</h1>
+    <p class="page-sub">学习之余放松一下，共 <b>5</b> 款小游戏 · 支持键盘 / 鼠标 / 触屏 · 成绩可上传全站排行榜</p>
+  </div>
+
+  <div class="game-grid" id="game-grid"></div>
+
+  <!-- 游戏舞台 -->
+  <section class="stage" id="stage">
+    <div class="stage-head">
+      <div class="stage-title"><span id="stage-icon">🎮</span><span id="stage-name">选择一款游戏</span></div>
+      <div class="stage-score" id="stage-score"></div>
+    </div>
+    <div class="stage-body">
+      <div class="board-wrap" id="board-wrap">
+        <div class="board-overlay" id="overlay">
+          <h3 id="overlay-title">准备好了吗？</h3>
+          <div class="overlay-score" id="overlay-score"></div>
+          <p id="overlay-text">点击下方按钮开始游戏</p>
+          <button class="btn primary" id="overlay-btn">开始游戏</button>
+        </div>
+        <div id="board"></div>
+      </div>
+      <div class="stage-side">
+        <div class="btn-row">
+          <button class="btn primary" id="btn-start">▶ 开始</button>
+          <button class="btn ghost" id="btn-pause" disabled>⏸ 暂停</button>
+          <button class="btn ghost" id="btn-restart">↻ 重开</button>
+        </div>
+        <div class="tips" id="tips"></div>
+        <div id="stage-extra"></div>
+        <div class="btn-row">
+          <button class="btn" id="btn-submit" disabled>🏆 提交成绩</button>
+          <button class="btn ghost" id="btn-nickname">✏️ 设置昵称</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 排行榜 -->
+  <section class="rank-panel">
+    <div class="rank-head">
+      <div class="rank-title">🏆 全站排行榜</div>
+      <div class="rank-tabs" id="rank-tabs"></div>
+    </div>
+    <div id="rank-body"></div>
+  </section>
+</div>
+
+<div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+<button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
+<div class="toast" id="toast"></div>
+
+<script src="game-core.js"></script>
+<script src="games/snake.js"></script>
+<script src="games/breakout.js"></script>
+<script src="games/g2048.js"></script>
+<script src="games/memory.js"></script>
+<script src="games/mines.js"></script>
+<script src="music-player.js" defer></script>
+<script>
+"use strict";
+const Core = window.GameCore;
+const $ = Core.$;
+
+/* ---------- 主题 ---------- */
+// 安全的 localStorage 读写（隐私模式/存储被禁用的浏览器不抛错）
+const safeStorage = {
+  get(key) { try { return localStorage.getItem(key); } catch(e) { return null; } },
+  set(key, val) { try { localStorage.setItem(key, val); } catch(e) {} }
+};
+function toggleTheme() {
+  document.body.classList.toggle("dark");
+  safeStorage.set("theme", document.body.classList.contains("dark") ? "dark" : "light");
+  document.querySelector(".theme-btn").textContent = document.body.classList.contains("dark") ? "☀️" : "🌙";
+}
+(function initTheme() {
+  const s = safeStorage.get("theme");
+  const d = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  if (s === "dark" || (!s && d)) {
+    document.body.classList.add("dark");
+    document.querySelector(".theme-btn").textContent = "☀️";
+  }
+})();
+
+/* ---------- 移动端菜单 ---------- */
+(function initMenu() {
+  const t = $("navToggle"), m = $("mobileMenu");
+  if (!t || !m) return;
+  t.addEventListener("click", (e) => { e.stopPropagation(); t.classList.toggle("active"); m.classList.toggle("active"); });
+  m.querySelectorAll("a").forEach(a => a.addEventListener("click", () => { t.classList.remove("active"); m.classList.remove("active"); }));
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".nav-right") && !e.target.closest("#mobileMenu")) {
+      t.classList.remove("active"); m.classList.remove("active");
+    }
+  });
+})();
+
+function scrollToTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }
+let scrollTicking = false;
+window.addEventListener("scroll", () => {
+  if (scrollTicking) return;
+  scrollTicking = true;
+  requestAnimationFrame(() => {
+    document.querySelector(".navbar").classList.toggle("scrolled", window.scrollY > 10);
+    $("backTop").classList.toggle("show", window.scrollY > 300);
+    scrollTicking = false;
+  });
+});
+
+/* ---------- 启动 ---------- */
+Core.renderGameGrid();
+Core.loadRanks();
+Core.bindStageButtons();
+
+/* ---------- 站点信息（标题 / 页脚） ---------- */
+fetch("/api/site")
+  .then(r => (r.headers.get("content-type") || "").includes("json") ? r.json() : null)
+  .then(s => {
+    if (!s) return;
+    document.title = `游戏大厅 - ${s.title}`;
+    $("nav-logo").textContent = s.title;
+    $("footer-text").textContent = s.footer;
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文章 - 我的博客</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #f8f9ff;
+      --card-bg: #ffffff;
+      --text: #333;
+      --text-light: #666;
+      --text-mute: #999;
+      --border: #eaecef;
+      --primary: #4f46e5;
+      --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
+      --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
+      --nav-bg: rgba(255, 255, 255, 0.85);
+      --item-bg: #f9fafb;
+    }
+    body.dark {
+      --bg: #0f0f1a;
+      --card-bg: #1a1a2e;
+      --text: #e5e7eb;
+      --text-light: #9ca3af;
+      --text-mute: #6b7280;
+      --border: #2a2a40;
+      --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
+      --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
+      --nav-bg: rgba(15, 15, 26, 0.85);
+      --item-bg: #16162a;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.8;
+      transition: background 0.3s, color 0.3s;
+      padding-bottom: 70px;
+    }
+    /* 阅读进度条 */
+    .progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      z-index: 200;
+      width: 0%;
+      transition: width 0.1s;
+    }
+    /* 导航 */
+    .navbar {
+      background: var(--nav-bg);
+      position: sticky;
+      top: 3px;
+      z-index: 100;
+      border-bottom: 1px solid transparent;
+      transition: all 0.3s ease;
+    }
+    .navbar.scrolled {
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      box-shadow: 0 2px 20px rgba(0,0,0,0.04);
+    }
+    body.dark .navbar.scrolled { box-shadow: 0 2px 20px rgba(0,0,0,0.2); }
+
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 4px; transition: background 0.2s; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
+    body.dark::-webkit-scrollbar-thumb { background: rgba(99,102,241,0.3); }
+    body.dark::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,0.5); }
+
+    /* 文字选中样式 */
+    ::selection { background: rgba(79,70,229,0.3); color: #fff; }
+    ::-moz-selection { background: rgba(79,70,229,0.3); color: #fff; }
+    body.dark ::selection { background: rgba(99,102,241,0.4); color: #fff; }
+    body.dark ::-moz-selection { background: rgba(99,102,241,0.4); color: #fff; }
+    .nav-inner {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+    }
+    .logo {
+      font-weight: 700;
+      font-size: 17px;
+      color: var(--text);
+      text-decoration: none;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .nav-right { display: flex; align-items: center; gap: 16px; }
+    .nav-links { display: flex; gap: 24px; list-style: none; }
+    .nav-links a {
+      color: var(--text-light);
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--primary); }
+    .theme-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: none;
+      background: var(--card-bg);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 15px;
+      transition: all 0.2s;
+      box-shadow: var(--card-shadow);
+    }
+    .theme-btn:hover { transform: scale(1.1); }
+    .theme-btn:active { transform: scale(0.97); }
+    .back-top:active { transform: scale(0.92); }
+    .action-btn:active { transform: scale(0.97); }
+    .comment-submit-btn:active { transform: scale(0.97); }
+
+    .container { max-width: 800px; margin: 0 auto; padding: 40px 24px; }
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--primary);
+      text-decoration: none;
+      margin-bottom: 24px;
+      font-size: 14px;
+      transition: gap 0.2s;
+    }
+    .back-link:hover { gap: 10px; }
+
+    .article {
+      background: var(--card-bg);
+      border-radius: 20px;
+      padding: 48px;
+      box-shadow: var(--card-shadow);
+      border: 1px solid var(--border);
+      animation: fadeUp 0.6s ease;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .article-title {
+      font-size: 30px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 16px;
+      line-height: 1.3;
+    }
+    .article-meta {
+      display: flex;
+      gap: 20px;
+      font-size: 14px;
+      color: var(--text-mute);
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .article-content {
+      font-size: 16px;
+      color: var(--text);
+      line-height: 2;
+      word-wrap: break-word;
+    }
+    .article-content p { margin-bottom: 16px; }
+    .article-content h2 {
+      font-size: 22px; font-weight: 700; margin: 28px 0 16px;
+      color: var(--text); padding-bottom: 8px;
+      border-bottom: 2px solid var(--border);
+    }
+    .article-content h3 {
+      font-size: 18px; font-weight: 600; margin: 24px 0 12px;
+      color: var(--text);
+    }
+    .article-content strong { color: var(--primary); font-weight: 600; }
+    .article-content ul { margin: 12px 0 16px 24px; }
+    .article-content li { margin-bottom: 6px; }
+    .article-content blockquote {
+      border-left: 4px solid var(--primary);
+      padding: 12px 16px;
+      margin: 16px 0;
+      background: var(--item-bg);
+      border-radius: 0 8px 8px 0;
+      color: var(--text-light);
+    }
+    .article-content code {
+      background: var(--item-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 14px;
+    }
+    .article-content a {
+      color: var(--primary);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.2s;
+    }
+    .article-content a:hover {
+      border-bottom-color: var(--primary);
+    }
+    .article-content img {
+      max-width: 100%;
+      border-radius: 12px;
+      margin: 16px 0;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+    .article-content hr {
+      border: none;
+      height: 1px;
+      background: var(--border);
+      margin: 28px 0;
+    }
+    .article-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 14px;
+    }
+    .article-content th, .article-content td {
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+    }
+    .article-content th {
+      background: var(--item-bg);
+      font-weight: 600;
+    }
+
+    /* 文章底部操作栏 */
+    .article-actions {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 40px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border: 2px solid var(--border);
+      border-radius: 14px;
+      background: var(--card-bg);
+      color: var(--text-light);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .action-btn:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      transform: translateY(-2px);
+    }
+    .action-btn.liked {
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border-color: transparent;
+      color: white;
+    }
+    .action-btn.liked:hover { transform: scale(1.05); }
+
+    /* 上下篇导航 */
+    .post-nav {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 40px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+    .post-nav-card {
+      padding: 18px 22px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      text-decoration: none;
+      color: var(--text-light);
+      transition: all 0.2s;
+      display: block;
+    }
+    .post-nav-card:hover {
+      border-color: var(--primary);
+      transform: translateY(-2px);
+      box-shadow: var(--card-shadow);
+    }
+    .post-nav-label {
+      font-size: 12px;
+      color: var(--text-mute);
+      margin-bottom: 6px;
+    }
+    .post-nav-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .post-nav-next { text-align: right; }
+    .post-nav-empty {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .not-found {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-mute);
+    }
+    .not-found h2 { color: var(--text); margin-bottom: 10px; font-size: 24px; }
+
+    .footer {
+      text-align: center;
+      padding: 40px 24px;
+      color: var(--text-mute);
+      font-size: 13px;
+    }
+
+    /* 分享提示 */
+    .share-toast {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      background: rgba(0,0,0,0.8);
+      color: white;
+      padding: 16px 28px;
+      border-radius: 12px;
+      font-size: 14px;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.3s;
+      z-index: 999;
+    }
+    .share-toast.show {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    /* 评论区 */
+    .comments-section {
+      margin-top: 40px;
+      padding-top: 32px;
+      border-top: 1px solid var(--border);
+    }
+    .comments-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .comments-title .count {
+      font-size: 14px;
+      font-weight: 400;
+      color: var(--text-mute);
+    }
+    .comment-form {
+      background: var(--item-bg);
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 24px;
+      border: 1px solid var(--border);
+    }
+    .comment-form-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .comment-form-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border 0.2s;
+      background: var(--card-bg);
+      color: var(--text);
+    }
+    .comment-form-row input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+    }
+    .comment-form textarea {
+      width: 100%;
+      padding: 12px 14px;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      resize: vertical;
+      min-height: 80px;
+      transition: border 0.2s;
+      background: var(--card-bg);
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+    .comment-form textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(79,70,229,0.1);
+    }
+    .comment-form-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .comment-char-count {
+      font-size: 12px;
+      color: var(--text-mute);
+    }
+    .comment-submit-btn {
+      padding: 8px 20px;
+      border: none;
+      border-radius: 10px;
+      background: var(--primary);
+      color: white;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+    .comment-submit-btn:hover {
+      background: #4338ca;
+      transform: translateY(-1px);
+    }
+    .comment-submit-btn:disabled {
+      background: #a5b4fc;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .comment-alert {
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .comment-alert.show { display: block; }
+    .comment-alert.success { background: #dcfce7; color: #166534; }
+    .comment-alert.error { background: #fee2e2; color: #991b1b; }
+
+    .comment-list { margin-top: 8px; }
+    .comment-item {
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      animation: commentIn 0.3s ease;
+    }
+    .comment-item:last-child { border-bottom: none; }
+    @keyframes commentIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .comment-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .comment-name {
+      font-weight: 600;
+      color: var(--primary);
+      font-size: 14px;
+    }
+    .comment-date {
+      font-size: 12px;
+      color: var(--text-mute);
+    }
+    .comment-content {
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .comments-empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-mute);
+      font-size: 14px;
+    }
+
+    /* 回到顶部 */
+    .back-top {
+      position: fixed;
+      bottom: 30px;
+      right: 30px;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--primary);
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-size: 20px;
+      box-shadow: 0 4px 16px rgba(79,70,229,0.4);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s;
+      z-index: 99;
+    }
+    .back-top.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .back-top:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 8px 24px rgba(79,70,229,0.5);
+    }
+
+    /* 目录导航 TOC */
+    .toc-sidebar {
+      position: fixed;
+      top: 100px;
+      right: calc(50% - 520px);
+      width: 200px;
+      max-height: calc(100vh - 140px);
+      overflow-y: auto;
+      padding: 16px;
+      background: var(--card-bg);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      box-shadow: var(--card-shadow);
+      z-index: 50;
+      opacity: 0;
+      transform: translateX(10px);
+      transition: all 0.3s;
+      pointer-events: none;
+    }
+    .toc-sidebar.show {
+      opacity: 1;
+      transform: translateX(0);
+      pointer-events: auto;
+    }
+    .toc-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text-mute);
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toc-list { list-style: none; }
+    .toc-item {
+      margin-bottom: 2px;
+    }
+    .toc-link {
+      display: block;
+      padding: 6px 10px;
+      font-size: 13px;
+      color: var(--text-light);
+      text-decoration: none;
+      border-radius: 8px;
+      transition: all 0.15s;
+      line-height: 1.4;
+      border-left: 2px solid transparent;
+      margin-left: -2px;
+    }
+    .toc-link:hover {
+      color: var(--primary);
+      background: var(--item-bg);
+    }
+    .toc-link.active {
+      color: var(--primary);
+      font-weight: 600;
+      background: rgba(79,70,229,0.08);
+      border-left-color: var(--primary);
+    }
+    .toc-item.level-3 .toc-link {
+      padding-left: 22px;
+      font-size: 12px;
+      color: var(--text-mute);
+    }
+    .toc-item.level-3 .toc-link.active {
+      color: var(--primary);
+    }
+    .toc-toggle {
+      display: none;
+      position: fixed;
+      top: 80px;
+      right: 16px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      font-size: 16px;
+      box-shadow: var(--card-shadow);
+      z-index: 60;
+      align-items: center;
+      justify-content: center;
+    }
+    @media (max-width: 1400px) {
+      .toc-sidebar {
+        right: 20px;
+      }
+    }
+    @media (max-width: 1024px) {
+      .toc-sidebar {
+        display: none;
+      }
+      .toc-sidebar.mobile-open {
+        display: block;
+        right: 16px;
+        top: 120px;
+        width: 240px;
+        z-index: 90;
+        animation: tocSlideIn 0.2s ease;
+      }
+      @keyframes tocSlideIn {
+        from { opacity: 0; transform: translateX(20px); }
+        to { opacity: 1; transform: translateX(0); }
+      }
+      .toc-toggle {
+        display: flex;
+      }
+    }
+
+    .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
+    .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s; }
+    .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+    .nav-toggle.active span:nth-child(2) { opacity: 0; }
+    .nav-toggle.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+    .mobile-menu { display: none; position: fixed; top: 60px; left: 0; right: 0; background: var(--nav-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); padding: 12px 0; z-index: 99; animation: slideDown 0.25s ease; }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    .mobile-menu.active { display: block; }
+    .mobile-menu a { display: block; padding: 14px 24px; color: var(--text-light); text-decoration: none; font-size: 16px; transition: all 0.2s; }
+    .mobile-menu a:hover { color: var(--primary); background: var(--item-bg, rgba(79,70,229,0.06)); }
+    @media (max-width: 900px) {
+      .article { padding: 28px 24px; }
+      .article-title { font-size: 24px; }
+      .nav-links { display: none; }
+      .nav-toggle { display: flex; }
+      .article-actions { flex-wrap: wrap; }
+      .action-btn { flex: 1; justify-content: center; }
+      .back-top { bottom: 90px; right: 20px; width: 42px; height: 42px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="progress-bar" id="progressBar"></div>
+
+  <nav class="navbar">
+    <div class="nav-inner">
+      <a href="index.html" class="logo" id="nav-logo">我的博客</a>
+      <div class="nav-right">
+        <ul class="nav-links">
+          <li><a href="index.html">首页</a></li>
+          <li><a href="blog.html">博客</a></li>
+          <li><a href="album.html">相册</a></li>
+          <li><a href="timeline.html">时间线</a></li>
+          <li><a href="guestbook.html">留言</a></li>
+          <li><a href="games.html">游戏</a></li>
+          <li><a href="links.html">友链</a></li>
+        </ul>
+        <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+        <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
+      </div>
+    </div>
+  </nav>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="index.html">首页</a>
+    <a href="blog.html">博客</a>
+    <a href="album.html">相册</a>
+    <a href="timeline.html">时间线</a>
+    <a href="guestbook.html">留言</a>
+    <a href="games.html">游戏</a>
+    <a href="links.html">友链</a>
+  </div>
+
+  <div class="container">
+    <a href="blog.html" class="back-link">← 返回文章列表</a>
+    <div id="article-container"></div>
+  </div>
+
+  <div class="footer" id="footer-text">© 2026 Lei Yihan</div>
+  <div class="share-toast" id="shareToast">链接已复制到剪贴板</div>
+
+  <script>
+    // HTML 转义（防 XSS）
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str == null ? "" : String(str);
+      return div.innerHTML;
+    }
+
+    // URL 协议白名单：只允许 http/https/mailto/tel 与相对路径，拒绝 javascript: 等伪协议
+    // （GitHub 同步的文章不过 Worker 的 sanitizeUserContent，必须在此拦截）
+    function isSafeMarkdownUrl(url) {
+      if (!url || typeof url !== "string") return false;
+      const u = url.trim();
+      if (!u) return false;
+      if (/^(#|mailto:|tel:|\.\/|\.\.\/|\/|\?)/.test(u)) return true; // 相对路径/锚点
+      try {
+        const parsed = new URL(u);
+        return parsed.protocol === "http:" || parsed.protocol === "https:";
+      } catch (e) { return false; }
+    }
+
+    // 简易 Markdown 渲染
+    function renderMarkdown(text) {
+      if (!text) return "";
+      // 先转义 HTML
+      const div = document.createElement("div");
+      div.textContent = text;
+      let html = div.innerHTML;
+
+      const lines = html.split("\n");
+      let result = [];
+      let inList = false;
+      let inQuote = false;
+      let paraBuffer = [];
+
+      function inlineFormat(text) {
+        return text
+          .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+          .replace(/`([^`]+)`/g, "<code>$1</code>")
+          .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, url) =>
+            isSafeMarkdownUrl(url) ? `<img src="${url}" alt="${alt}" loading="lazy">` : alt || "")
+          .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label, url) =>
+            isSafeMarkdownUrl(url) ? `<a href="${url}" target="_blank" rel="noopener">${label}</a>` : label);
+      }
+
+      function flushPara() {
+        if (paraBuffer.length) {
+          result.push("<p>" + inlineFormat(paraBuffer.join(" ")) + "</p>");
+          paraBuffer = [];
+        }
+      }
+      function closeList() { if (inList) { result.push("</ul>"); inList = false; } }
+      function closeQuote() { if (inQuote) { result.push("</blockquote>"); inQuote = false; } }
+      
+      for (let line of lines) {
+        const trimmed = line.trim();
+        if (trimmed === "") { flushPara(); closeList(); closeQuote(); continue; }
+        
+        // 标题
+        if (trimmed.startsWith("### ")) {
+          flushPara(); closeList(); closeQuote();
+          result.push("<h3>" + inlineFormat(trimmed.slice(4)) + "</h3>");
+          continue;
+        }
+        if (trimmed.startsWith("## ")) {
+          flushPara(); closeList(); closeQuote();
+          result.push("<h2>" + inlineFormat(trimmed.slice(3)) + "</h2>");
+          continue;
+        }
+        if (trimmed.startsWith("# ")) {
+          flushPara(); closeList(); closeQuote();
+          result.push("<h2>" + inlineFormat(trimmed.slice(2)) + "</h2>");
+          continue;
+        }
+        // 水平分隔线
+        if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+          flushPara(); closeList(); closeQuote();
+          result.push("<hr>");
+          continue;
+        }
+        // 列表
+        if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+          flushPara(); closeQuote();
+          if (!inList) { result.push("<ul>"); inList = true; }
+          result.push("<li>" + inlineFormat(trimmed.slice(2)) + "</li>");
+          continue;
+        }
+        // 引用
+        if (trimmed.startsWith("> ")) {
+          flushPara(); closeList();
+          if (!inQuote) { result.push("<blockquote>"); inQuote = true; }
+          result.push(inlineFormat(trimmed.slice(2)) + "<br>");
+          continue;
+        }
+        // 普通段落
+        closeList(); closeQuote();
+        paraBuffer.push(trimmed);
+      }
+      flushPara(); closeList(); closeQuote();
+      
+      return result.join("\n");
+    }
+
+    // 主题切换
+    // 安全的 localStorage 读写（隐私模式/存储被禁用的浏览器不抛错）
+    const safeStorage = {
+      get(key) { try { return localStorage.getItem(key); } catch(e) { return null; } },
+      set(key, val) { try { localStorage.setItem(key, val); } catch(e) {} }
+    };
+    function toggleTheme() {
+      document.body.classList.toggle("dark");
+      const isDark = document.body.classList.contains("dark");
+      safeStorage.set("theme", isDark ? "dark" : "light");
+      document.querySelector(".theme-btn").textContent = isDark ? "☀️" : "🌙";
+    }
+    (function() {
+      const saved = safeStorage.get("theme");
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (saved === "dark" || (!saved && prefersDark)) {
+        document.body.classList.add("dark");
+        setTimeout(() => document.querySelector(".theme-btn").textContent = "☀️", 0);
+      }
+    })();
+
+    // 移动端菜单
+    (function() {
+      const t = document.getElementById("navToggle"), m = document.getElementById("mobileMenu");
+      if (!t || !m) return;
+      t.addEventListener("click", () => { t.classList.toggle("active"); m.classList.toggle("active"); });
+      m.querySelectorAll("a").forEach(a => a.addEventListener("click", () => { t.classList.remove("active"); m.classList.remove("active"); }));
+      document.addEventListener("click", e => {
+        if (!e.target.closest(".nav-right") && !e.target.closest("#mobileMenu")) { t.classList.remove("active"); m.classList.remove("active"); }
+      });
+    })();
+
+    // 阅读进度 - 使用 requestAnimationFrame 更流畅
+    let ticking = false;
+    function updateProgress() {
+      const progressBar = document.getElementById("progressBar");
+      if (!progressBar) return;
+      const scrollTop = window.scrollY;
+      const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+      if (docHeight <= 0) {
+        progressBar.style.width = "100%";
+      } else {
+        const progress = Math.min(100, (scrollTop / docHeight) * 100);
+        progressBar.style.width = progress + "%";
+      }
+      ticking = false;
+    }
+    window.addEventListener("scroll", () => {
+      if (!ticking) {
+        requestAnimationFrame(updateProgress);
+        ticking = true;
+      }
+    });
+    // 初始更新一次
+    setTimeout(updateProgress, 500);
+
+    function getPostId() {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("id");
+      // 安全验证：只允许安全字符
+      if (id && /^[a-zA-Z0-9_.-]+$/.test(id) && id.length <= 100) {
+        return id;
+      }
+      return null;
+    }
+
+    function renderPost(post, prev, next) {
+      const el = document.getElementById("article-container");
+      const liked = safeStorage.get(`liked_${post.id}`) === "1";
+      // 字数统计：中文按字符，英文按单词
+      const content = post.content || "";
+      const charCount = content.replace(/\s/g, "").length;
+      const readingTime = Math.max(1, Math.ceil(charCount / 300));
+      el.innerHTML = `
+        <article class="article">
+          <h1 class="article-title">${escapeHtml(post.title)}</h1>
+          <div class="article-meta">
+            <span>📅 ${escapeHtml(post.date)}</span>
+            <span>📝 ${charCount.toLocaleString()} 字</span>
+            <span>📖 ${readingTime} 分钟阅读</span>
+            <span>👁️ ${(post.views || 0).toLocaleString()} 阅读</span>
+            <span>❤️ ${post.likes || 0} 赞</span>
+          </div>
+          <div class="article-content" id="articleContent">${renderMarkdown(content)}</div>
+          <div class="article-actions">
+            <button class="action-btn ${liked ? "liked" : ""}" id="likeBtn">
+              <span>${liked ? "❤️" : "🤍"}</span>
+              <span>${liked ? "已赞" : "点赞"}</span>
+              <span id="likeCount">${post.likes || 0}</span>
+            </button>
+            <button class="action-btn" onclick="sharePost()">
+              <span>🔗</span>
+              <span>分享</span>
+            </button>
+          </div>
+          <div class="post-nav">
+            ${prev ? `<a href="post.html?id=${escapeHtml(prev.id)}" class="post-nav-card">
+              <div class="post-nav-label">← 上一篇</div>
+              <div class="post-nav-title">${escapeHtml(prev.title)}</div>
+            </a>` : '<div class="post-nav-card post-nav-empty"><div class="post-nav-label">← 上一篇</div><div class="post-nav-title">没有了</div></div>'}
+            ${next ? `<a href="post.html?id=${escapeHtml(next.id)}" class="post-nav-card post-nav-next">
+              <div class="post-nav-label">下一篇 →</div>
+              <div class="post-nav-title">${escapeHtml(next.title)}</div>
+            </a>` : '<div class="post-nav-card post-nav-empty post-nav-next"><div class="post-nav-label">下一篇 →</div><div class="post-nav-title">没有了</div></div>'}
+          </div>
+
+          <!-- 评论区 -->
+          <div class="comments-section">
+            <h3 class="comments-title">💬 评论 <span class="count" id="commentCount">0</span></h3>
+            <div class="comment-form">
+              <div class="comment-alert" id="comment-alert"></div>
+              <div class="comment-form-row">
+                <input type="text" id="comment-name" placeholder="你的昵称（最多20字）" maxlength="20">
+              </div>
+              <textarea id="comment-content" placeholder="写下你的评论...（最多500字）" maxlength="500"></textarea>
+              <div class="comment-form-footer">
+                <span class="comment-char-count" id="comment-char-count">0 / 500</span>
+                <button class="comment-submit-btn" id="comment-submit" onclick="submitComment()">发表评论</button>
+              </div>
+            </div>
+            <div class="comment-list" id="comment-list">
+              <div class="comments-empty">加载中...</div>
+            </div>
+          </div>
+        </article>
+      `;
+      document.title = `${post.title} - 我的博客`;
+      // 绑定点赞按钮事件
+      const likeBtn = document.getElementById("likeBtn");
+      if (likeBtn) likeBtn.addEventListener("click", likePost);
+
+      // 评论区初始化
+      initComments(post.id);
+
+      // 生成目录
+      setTimeout(generateToc, 50);
+    }
+
+    function renderNotFound() {
+      document.getElementById("article-container").innerHTML = `
+        <div class="not-found">
+          <h2>😕 文章不存在</h2>
+          <p>这篇文章可能已被删除或链接有误</p>
+        </div>
+      `;
+    }
+
+    async function likePost() {
+      const id = getPostId();
+      if (!id) return;
+      const btn = document.getElementById("likeBtn");
+      if (btn.classList.contains("liked")) {
+        showToast("你已经赞过了~");
+        return;
+      }
+      try {
+        const res = await fetch(`/api/like/${encodeURIComponent(id)}`, { method: "POST" });
+        if (!res.ok) { showToast("点赞失败，请稍后重试"); return; }
+        const result = await res.json();
+        if (result && result.success && result.liked) {
+          btn.classList.add("liked");
+          // 如果后端返回了 likes 就用后端的，否则保持原来的数字不变
+          const likeCountEl = document.getElementById("likeCount");
+          if (result.likes !== undefined) {
+            likeCountEl.textContent = result.likes;
+          }
+          btn.querySelector("span:first-child").textContent = "❤️";
+          btn.querySelector("span:nth-child(2)").textContent = "已赞";
+          safeStorage.set(`liked_${id}`, "1");
+          // 点赞动画
+          btn.style.transform = "scale(1.2)";
+          setTimeout(() => btn.style.transform = "", 200);
+          if (result.alreadyLiked) {
+            showToast("你已经赞过了~");
+          }
+        } else {
+          showToast(result.message || "点赞失败");
+        }
+      } catch(e) {
+        showToast("网络错误");
+      }
+    }
+
+    function sharePost() {
+      const url = window.location.href;
+      const title = document.querySelector(".article-title")?.textContent || "";
+      if (navigator.share) {
+        navigator.share({ title, url }).catch(() => {});
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(() => {
+          showToast("链接已复制到剪贴板");
+        }).catch(() => {
+          prompt("复制链接：", url);
+        });
+      } else {
+        prompt("复制链接：", url);
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById("shareToast");
+      toast.textContent = msg;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2000);
+    }
+
+    // ========== 评论系统 ==========
+    let currentPostId = "";
+
+    function formatCommentDate(dateStr) {
+      const d = new Date(dateStr);
+      const now = new Date();
+      const diff = now - d;
+      if (diff < 60000) return "刚刚";
+      if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
+      if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
+      if (diff < 259200000) return Math.floor(diff / 86400000) + " 天前";
+      return d.toLocaleDateString() + " " + d.toTimeString().slice(0, 5);
+    }
+
+    function showCommentAlert(msg, type) {
+      const el = document.getElementById("comment-alert");
+      if (!el) return;
+      el.textContent = msg;
+      el.className = "comment-alert " + type + " show";
+      clearTimeout(el._timer);
+      el._timer = setTimeout(() => { el.classList.remove("show"); }, 3000);
+    }
+
+    function renderComments(comments) {
+      const listEl = document.getElementById("comment-list");
+      const countEl = document.getElementById("commentCount");
+      if (!listEl || !countEl) return;
+      countEl.textContent = comments.length;
+
+      if (comments.length === 0) {
+        listEl.innerHTML = '<div class="comments-empty">还没有评论，来抢沙发吧~ ✨</div>';
+        return;
+      }
+
+      listEl.innerHTML = comments.map((c, i) => `
+        <div class="comment-item" style="animation-delay:${i * 0.03}s">
+          <div class="comment-header">
+            <span class="comment-name">${escapeHtml(c.name)}</span>
+            <span class="comment-date">${formatCommentDate(c.date)}</span>
+          </div>
+          <div class="comment-content">${escapeHtml(c.content)}</div>
+        </div>
+      `).join("");
+    }
+
+    async function loadComments(postId) {
+      try {
+        const res = await fetch(`/api/comments/${postId}`);
+        if (res.ok && res.headers.get("content-type")?.includes("json")) {
+          const comments = await res.json();
+          renderComments(comments);
+          return;
+        }
+      } catch(e) {}
+      renderComments([]);
+    }
+
+    async function submitComment() {
+      const nameEl = document.getElementById("comment-name");
+      const contentEl = document.getElementById("comment-content");
+      const btn = document.getElementById("comment-submit");
+      if (!nameEl || !contentEl || !btn) return;
+
+      const name = nameEl.value.trim();
+      const content = contentEl.value.trim();
+
+      if (!name) { showCommentAlert("请输入昵称", "error"); return; }
+      if (name.length > 20) { showCommentAlert("昵称不能超过20字", "error"); return; }
+      if (!/[\u4e00-\u9fa5a-zA-Z0-9]/.test(name)) {
+        showCommentAlert("昵称需要包含文字或数字", "error"); return;
+      }
+      if (!content) { showCommentAlert("请输入评论内容", "error"); return; }
+      if (content.length > 500) { showCommentAlert("评论不能超过500字", "error"); return; }
+      if (/\n{6,}/.test(content)) {
+        showCommentAlert("连续换行太多了，请精简一下", "error"); return;
+      }
+      if (btn.disabled) return;
+
+      btn.disabled = true;
+      btn.textContent = "发送中...";
+
+      try {
+        const res = await fetch(`/api/comments/${currentPostId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, content })
+        });
+        const result = await res.json();
+
+        if (result.success) {
+          showCommentAlert("评论成功！", "success");
+          contentEl.value = "";
+          document.getElementById("comment-char-count").textContent = "0 / 500";
+          // 记住昵称
+          try { localStorage.setItem("comment_name", name); } catch(e) {}
+          // 刷新评论列表
+          loadComments(currentPostId);
+        } else {
+          showCommentAlert(result.error || "发送失败", "error");
+        }
+      } catch(e) {
+        showCommentAlert("网络错误，请稍后重试", "error");
+      }
+
+      btn.disabled = false;
+      btn.textContent = "发表评论";
+    }
+
+    function initComments(postId) {
+      currentPostId = postId;
+
+      // 恢复昵称
+      try {
+        const savedName = localStorage.getItem("comment_name");
+        if (savedName) {
+          const nameEl = document.getElementById("comment-name");
+          if (nameEl) nameEl.value = savedName;
+        }
+      } catch(e) {}
+
+      // 字符计数
+      const contentEl = document.getElementById("comment-content");
+      const charCountEl = document.getElementById("comment-char-count");
+      if (contentEl && charCountEl) {
+        contentEl.addEventListener("input", () => {
+          charCountEl.textContent = contentEl.value.length + " / 500";
+        });
+      }
+
+      // 加载评论
+      loadComments(postId);
+    }
+
+    // ========== 目录导航 TOC ==========
+    let tocHeadings = [];
+    let tocScrollTimer = null;
+    let tocObserver = null;
+
+    function slugify(text, index) {
+      return "heading-" + index + "-" + text.replace(/\s+/g, "-").replace(/[^\w\u4e00-\u9fa5-]/g, "").slice(0, 30);
+    }
+
+    function generateToc() {
+      const contentEl = document.getElementById("articleContent");
+      const tocListEl = document.getElementById("tocList");
+      const sidebar = document.getElementById("tocSidebar");
+      if (!contentEl || !tocListEl || !sidebar) return;
+
+      const headings = contentEl.querySelectorAll("h2, h3");
+      if (headings.length < 2) {
+        sidebar.classList.remove("show");
+        return;
+      }
+
+      tocHeadings = [];
+      let html = "";
+
+      headings.forEach((h, i) => {
+        const level = h.tagName === "H2" ? 2 : 3;
+        const id = slugify(h.textContent, i);
+        h.id = id;
+        tocHeadings.push({ id, level, element: h });
+
+        html += `
+          <li class="toc-item level-${level}">
+            <a href="#${id}" class="toc-link" data-target="${id}" onclick="scrollToHeading('${id}', event)">
+              ${escapeHtml(h.textContent)}
+            </a>
+          </li>
+        `;
+      });
+
+      tocListEl.innerHTML = html;
+      sidebar.classList.add("show");
+
+      // 设置滚动监听
+      setupTocScrollSpy();
+    }
+
+    function scrollToHeading(id, event) {
+      if (event) event.preventDefault();
+      const el = document.getElementById(id);
+      if (!el) return;
+
+      const offset = 80; // 导航栏高度
+      const top = el.getBoundingClientRect().top + window.pageYOffset - offset;
+
+      window.scrollTo({ top, behavior: "smooth" });
+
+      // 移动端点击后关闭目录
+      if (window.innerWidth <= 1024) {
+        document.getElementById("tocSidebar").classList.remove("mobile-open");
+      }
+    }
+
+    function setupTocScrollSpy() {
+      if (!tocHeadings.length) return;
+
+      // 清理旧的 observer
+      if (tocObserver) {
+        tocObserver.disconnect();
+      }
+
+      // 使用 IntersectionObserver 检测当前可见标题
+      tocObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const id = entry.target.id;
+            updateTocActive(id);
+          }
+        });
+      }, {
+        rootMargin: "-80px 0px -60% 0px",
+        threshold: 0
+      });
+
+      tocHeadings.forEach(h => {
+        tocObserver.observe(h.element);
+      });
+    }
+
+    function updateTocActive(activeId) {
+      const links = document.querySelectorAll(".toc-link");
+      links.forEach(link => {
+        const target = link.getAttribute("data-target");
+        if (target === activeId) {
+          link.classList.add("active");
+          // 滚动到可见区域
+          const sidebar = document.getElementById("tocSidebar");
+          if (sidebar) {
+            const linkRect = link.getBoundingClientRect();
+            const sidebarRect = sidebar.getBoundingClientRect();
+            if (linkRect.top < sidebarRect.top + 40 || linkRect.bottom > sidebarRect.bottom - 20) {
+              link.scrollIntoView({ block: "nearest", behavior: "smooth" });
+            }
+          }
+        } else {
+          link.classList.remove("active");
+        }
+      });
+    }
+
+    function toggleTocMobile() {
+      const sidebar = document.getElementById("tocSidebar");
+      if (sidebar) {
+        sidebar.classList.toggle("mobile-open");
+      }
+    }
+
+    // 点击外部关闭移动端目录
+    document.addEventListener("click", function(e) {
+      const sidebar = document.getElementById("tocSidebar");
+      const toggle = document.getElementById("tocToggle");
+      if (sidebar && toggle && window.innerWidth <= 1024) {
+        if (!sidebar.contains(e.target) && !toggle.contains(e.target)) {
+          sidebar.classList.remove("mobile-open");
+        }
+      }
+    });
+
+    // ========== 键盘快捷键 ==========
+    document.addEventListener("keydown", function(e) {
+      // 如果焦点在输入框中，不触发快捷键
+      const tag = document.activeElement.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      switch(e.key) {
+        case "t":
+        case "T":
+          // T - 回到顶部
+          e.preventDefault();
+          scrollToTop();
+          break;
+        case "j":
+        case "J":
+          // J - 向下滚动
+          e.preventDefault();
+          window.scrollBy({ top: 100, behavior: "smooth" });
+          break;
+        case "k":
+        case "K":
+          // K - 向上滚动
+          e.preventDefault();
+          window.scrollBy({ top: -100, behavior: "smooth" });
+          break;
+        case "b":
+        case "B":
+          // B - 跳转到文章底部
+          e.preventDefault();
+          window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+          break;
+        case "Escape":
+          // ESC - 关闭移动端目录
+          if (window.innerWidth <= 1024) {
+            const sidebar = document.getElementById("tocSidebar");
+            if (sidebar && sidebar.classList.contains("mobile-open")) {
+              sidebar.classList.remove("mobile-open");
+            }
+          }
+          break;
+        case "?":
+          // ? - 显示快捷键提示
+          e.preventDefault();
+          showShortcutsHelp();
+          break;
+      }
+    });
+
+    function showShortcutsHelp() {
+      const shortcuts = [
+        ["T", "回到顶部"],
+        ["J / ↓", "向下滚动"],
+        ["K / ↑", "向上滚动"],
+        ["B", "跳转到底部"],
+        ["ESC", "关闭弹窗/目录"],
+        ["?", "显示快捷键帮助"]
+      ];
+      showToast("快捷键：" + shortcuts.map(s => s[0] + " " + s[1]).join("，"));
+    }
+
+    // 主题跟随系统变化
+    if (window.matchMedia) {
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function(e) {
+        const saved = safeStorage.get("theme");
+        if (!saved) { // 只有用户没有手动设置过才跟随系统
+          if (e.matches) {
+            document.body.classList.add("dark");
+            document.querySelector(".theme-btn").textContent = "☀️";
+          } else {
+            document.body.classList.remove("dark");
+            document.querySelector(".theme-btn").textContent = "🌙";
+          }
+        }
+      });
+    }
+
+    async function init() {
+      const id = getPostId();
+
+      // 加载站点信息（后台加载，不阻塞）
+      fetch("/api/site").then(async sRes => {
+        if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {
+          const s = await sRes.json();
+          if (s && typeof s.title === "string") {
+            document.getElementById("nav-logo").textContent = s.title;
+            document.getElementById("footer-text").textContent = s.footer;
+          }
+        }
+      }).catch(() => {});
+
+      if (!id) { renderNotFound(); return; }
+
+      const DEFAULT_POSTS = [
+        { id: "welcome", title: "欢迎来到我的博客！",
+          content: "这是我的第一篇文章。\n\n我是一名七年级的学生，喜欢编程和游戏。\n以后会在这里分享我的学习笔记和生活日常。",
+          date: new Date().toISOString().split("T")[0], likes: 0 }
+      ];
+
+      // 并行请求：单篇文章（快）+ 文章列表（用于上下篇导航）
+      // 用 rendered 标志保证只渲染一次，避免列表先返回后被单篇的 (null,null) 重渲染冲掉导航
+      let postData = null;
+      let postsData = null;
+      let rendered = false;
+
+      const postPromise = fetch(`/api/post/${id}`).then(async res => {
+        if (res.ok && res.headers.get("content-type")?.includes("json")) {
+          const post = await res.json();
+          if (post && post.id) {
+            postData = post;
+            // 若列表已先到并渲染过，则不重渲染（列表项已含 content，避免副作用重复 + 导航被冲掉）
+            if (!rendered) {
+              let prev = null, next = null;
+              if (postsData) {
+                const idx = postsData.findIndex(p => p.id === id);
+                if (idx >= 0) { prev = postsData[idx + 1] || null; next = postsData[idx - 1] || null; }
+              }
+              renderPost(post, prev, next);
+              rendered = true;
+            }
+            return true;
+          }
+        }
+        return false;
+      }).catch(() => false);
+
+      const listPromise = fetch("/api/posts").then(async res => {
+        if (res.ok && res.headers.get("content-type")?.includes("json")) {
+          postsData = await res.json();
+          return true;
+        }
+        return false;
+      }).catch(() => false);
+
+      // 等待列表加载完成，补上下篇导航
+      listPromise.then(listOk => {
+        if (listOk && postsData && Array.isArray(postsData)) {
+          const idx = postsData.findIndex(p => p.id === id);
+          if (idx >= 0) {
+            const current = postsData[idx];
+            const prev = postsData[idx + 1] || null;
+            const next = postsData[idx - 1] || null;
+            // 单篇还没回来：用列表项完整渲染（带导航）
+            if (!rendered && !postData) {
+              renderPost(current, prev, next);
+              rendered = true;
+              return;
+            }
+            // 已经渲染了，只更新上下篇导航
+            if (rendered) updatePostNav(prev, next);
+          }
+        }
+      });
+
+      // 等待单篇文章的结果
+      const postOk = await postPromise;
+
+      // 阅读量上报：后端按 IP+文章去重（24 小时内重复访问只计一次）
+      if (postOk) reportView(id);
+
+      // 如果单篇接口失败了，等列表加载后用列表兜底
+      if (!postOk) {
+        await listPromise;
+        if (postsData && Array.isArray(postsData)) {
+          const idx = postsData.findIndex(p => p.id === id);
+          if (idx >= 0) {
+            if (!rendered) {
+              renderPost(postsData[idx], postsData[idx + 1] || null, postsData[idx - 1] || null);
+              rendered = true;
+            }
+            reportView(id);
+            return;
+          }
+        }
+        // 兜底
+        if (!rendered) {
+          const post = DEFAULT_POSTS.find(p => p.id === id);
+          if (post) renderPost(post, null, null);
+          else renderNotFound();
+        }
+      }
+    }
+
+    /** 上报一次阅读，成功后把最新阅读量同步到页面上 */
+    async function reportView(id) {
+      try {
+        const res = await fetch(`/api/view/${id}`, { method: "POST" });
+        if (!res.ok || !res.headers.get("content-type")?.includes("json")) return;
+        const data = await res.json();
+        if (data && typeof data.views === "number") {
+          const el = document.querySelector(".article-meta span:nth-child(4)");
+          if (el) el.textContent = `👁️ ${data.views.toLocaleString()} 阅读`;
+        }
+      } catch (e) { /* 阅读量失败不影响阅读 */ }
+    }
+
+    function updatePostNav(prev, next) {
+      const navEl = document.querySelector(".post-nav");
+      if (!navEl) return;
+      navEl.innerHTML = `
+        ${prev ? `<a href="post.html?id=${escapeHtml(prev.id)}" class="post-nav-card">
+          <div class="post-nav-label">← 上一篇</div>
+          <div class="post-nav-title">${escapeHtml(prev.title)}</div>
+        </a>` : '<div class="post-nav-card post-nav-empty"><div class="post-nav-label">← 上一篇</div><div class="post-nav-title">没有了</div></div>'}
+        ${next ? `<a href="post.html?id=${escapeHtml(next.id)}" class="post-nav-card post-nav-next">
+          <div class="post-nav-label">下一篇 →</div>
+          <div class="post-nav-title">${escapeHtml(next.title)}</div>
+        </a>` : '<div class="post-nav-card post-nav-empty post-nav-next"><div class="post-nav-label">下一篇 →</div><div class="post-nav-title">没有了</div></div>'}
+      `;
+    }
+    init();
+
+    function scrollToTop() {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    function handleNavScroll() {
+      const navbar = document.querySelector(".navbar");
+      if (window.scrollY > 10) navbar.classList.add("scrolled");
+      else navbar.classList.remove("scrolled");
+    }
+    let backTopTicking = false;
+    window.addEventListener("scroll", () => {
+      if (!backTopTicking) {
+        requestAnimationFrame(() => {
+          handleNavScroll();
+          const btn = document.getElementById("backTop");
+          btn.classList.toggle("show", window.scrollY > 300);
+          backTopTicking = false;
+        });
+        backTopTicking = true;
+      }
+    });
+    handleNavScroll();
+  </script>
+
+  <button class="back-top" onclick="scrollToTop()" id="backTop" title="回到顶部">↑</button>
+
+  <!-- 目录导航 -->
+  <button class="toc-toggle" id="tocToggle" onclick="toggleTocMobile()" title="目录">📑</button>
+  <nav class="toc-sidebar" id="tocSidebar" aria-label="文章目录">
+    <div class="toc-title">📑 目录</div>
+    <ul class="toc-list" id="tocList"></ul>
+  </nav>
+<script src="music-player.js" defer></script>
+</body>
+</html>
