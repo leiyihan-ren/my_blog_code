@@ -428,6 +428,7 @@
   let currentIdx = 0;
   let loadToken = 0;            // 切歌竞态防护
   let consecutiveErrors = 0;    // 连续加载失败计数，防止全部失效时无限切换
+  let pendingSwitch = null;     // 加载失败后的"自动切下一首"定时器（手动切歌时取消）
   let seeking = false;          // 进度条拖动中（拖动期间忽略 timeupdate）
   let lastProgressUpdate = 0;
   let volumeBeforeMute = 0.7;   // 静音前音量，用于恢复
@@ -477,6 +478,10 @@
     }
     const cover = $("mpCover");
     if (cover) cover.classList.toggle("mp-cover-playing", playing);
+    // 同步系统媒体中心状态（锁屏/通知栏的播放状态图标）
+    if ("mediaSession" in navigator) {
+      try { navigator.mediaSession.playbackState = playing ? "playing" : "paused"; } catch (e) { /* 忽略 */ }
+    }
   }
 
   function syncProgressUI() {
@@ -528,6 +533,8 @@
   // ---- 播放核心 ----
   function loadSong(idx, autoplay) {
     if (!playlist.length) return;
+    // 手动/自动切歌：取消尚未触发的"失败后自动切换"，避免连跳两首
+    if (pendingSwitch) { clearTimeout(pendingSwitch); pendingSwitch = null; }
     const myToken = ++loadToken;
     currentIdx = ((idx % playlist.length) + playlist.length) % playlist.length;
     const song = playlist[currentIdx];
@@ -755,6 +762,9 @@
   // audio 状态事件：以元素自身状态为准，避免竞态
   audio.addEventListener("play", syncPlayUI);
   audio.addEventListener("pause", syncPlayUI);
+  // 真正开始播放即认为加载链路恢复：清零连续失败计数，
+  // 否则手动切歌成功后残留计数会叠加，最终误判"全部失败"
+  audio.addEventListener("playing", () => { consecutiveErrors = 0; });
   audio.addEventListener("ended", () => {
     consecutiveErrors = 0;
     if (playMode === "singleLoop") {
@@ -787,6 +797,7 @@
     consecutiveErrors++;
     if (consecutiveErrors >= Math.max(2, playlist.length)) {
       // 全部歌曲都加载失败：停止切换，给出明确提示
+      if (pendingSwitch) { clearTimeout(pendingSwitch); pendingSwitch = null; }
       audio.pause();
       syncPlayUI();
       $("mpArtist").textContent = "歌曲加载失败，请检查网络或后台音乐链接";
@@ -794,7 +805,12 @@
       return;
     }
     $("mpArtist").textContent = `加载失败，自动切换下一首（${consecutiveErrors}/${playlist.length}）`;
-    setTimeout(() => { if (consecutiveErrors > 0) nextSong(); }, 1500);
+    // 登记定时器：用户在此期间手动切歌/操作时取消，避免跳两首
+    if (pendingSwitch) clearTimeout(pendingSwitch);
+    pendingSwitch = setTimeout(() => {
+      pendingSwitch = null;
+      if (consecutiveErrors > 0) nextSong();
+    }, 1500);
   });
 
   $("mpToggle").addEventListener("click", togglePlayer);
@@ -806,7 +822,7 @@
 
   // 进度条：点击 + 拖动（pointer events，兼容触摸）
   const progressEl = $("mpProgress");
-  let pendingSeek = 0;
+  let pendingSeek = null;      // null = 本次拖动尚未产生有效目标位置
   progressEl.addEventListener("pointerdown", (e) => {
     if (!isFinite(audio.duration) || audio.duration <= 0) return;
     e.preventDefault();
@@ -825,10 +841,11 @@
     if (!seeking) return;
     seeking = false;
     progressEl.classList.remove("mp-seeking");
-    if (pendingSeek > 0) {
+    // 判 null 而非 > 0：允许拖到 0 秒（开头）
+    if (pendingSeek !== null) {
       try { audio.currentTime = pendingSeek; } catch (e) {}
     }
-    pendingSeek = 0;
+    pendingSeek = null;
     syncProgressUI();
   };
   progressEl.addEventListener("pointerup", endSeek);
@@ -862,9 +879,11 @@
     }
   });
 
-  // 键盘快捷键（避开输入类元素与聚焦中的按钮；游戏进行中时让位给游戏）
+  // 键盘快捷键（避开输入类元素与聚焦中的按钮；游戏进行中时让位给游戏；
+  // 相册灯箱打开时让位给灯箱导航，否则方向键会同时切图和拖动音乐进度）
   document.addEventListener("keydown", (e) => {
     if (window.GameCore && window.GameCore.isGameRunning && window.GameCore.isGameRunning()) return;
+    if (document.querySelector(".lightbox.active")) return;
     const tag = e.target.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
     if (e.target.isContentEditable) return;

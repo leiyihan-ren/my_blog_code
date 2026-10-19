@@ -647,7 +647,7 @@
           </div>
 
           <div class="btn-row">
-            <button class="btn btn-primary" onclick="saveSite()">保存设置</button>
+            <button class="btn btn-primary" id="btn-save-site" onclick="saveSite()">保存设置</button>
           </div>
         </div>
 
@@ -845,7 +845,23 @@
       set(key, val) { try { localStorage.setItem(key, val); } catch(e) {} },
       remove(key) { try { localStorage.removeItem(key); } catch(e) {} }
     };
-    let token = safeStorage.get("admin_token") || "";
+    // 登录口令是敏感信息：只存 sessionStorage（关闭标签页即失效），
+    // 不再长期驻留 localStorage；旧版本曾写在 localStorage，这里做一次性迁移兼容
+    const tokenStorage = {
+      get(key) {
+        try { const v = sessionStorage.getItem(key); if (v !== null) return v; } catch(e) {}
+        return safeStorage.get(key);
+      },
+      set(key, val) {
+        try { sessionStorage.setItem(key, val); } catch(e) {}
+        safeStorage.remove(key); // 清掉旧版本可能残留的 localStorage 副本
+      },
+      remove(key) {
+        try { sessionStorage.removeItem(key); } catch(e) {}
+        safeStorage.remove(key);
+      }
+    };
+    let token = tokenStorage.get("admin_token") || "";
     let editingPostId = null;
     let editingTimelineId = null;
 
@@ -884,7 +900,7 @@
 
         // 登录成功
         token = pwd;
-        safeStorage.set("admin_token", pwd);
+        tokenStorage.set("admin_token", pwd);
         document.getElementById("login-page").style.display = "none";
         document.getElementById("admin-page").style.display = "block";
         showAlert("admin-alert", "登录成功", "success");
@@ -898,7 +914,7 @@
 
     function logout() {
       token = "";
-      safeStorage.remove("admin_token");
+      tokenStorage.remove("admin_token");
       document.getElementById("login-page").style.display = "block";
       document.getElementById("admin-page").style.display = "none";
       document.getElementById("password").value = "";
@@ -921,7 +937,7 @@
         }
       } catch(e) {}
       token = "";
-      safeStorage.remove("admin_token");
+      tokenStorage.remove("admin_token");
       return false;
     }
 
@@ -980,12 +996,14 @@
     }
 
     // ========== 站点设置 ==========
+    let siteLoadedOnce = false; // 是否成功加载过站点设置
     async function loadSite() {
+      const saveBtn = document.getElementById("btn-save-site");
       try {
         const res = await fetch("/api/site");
         if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
           const s = await res.json();
-          if (!s || typeof s !== "object") return;
+          if (!s || typeof s !== "object") throw new Error("bad payload");
           document.getElementById("site-title").value = s.title || "";
           document.getElementById("site-name").value = s.name || "";
           document.getElementById("site-bio").value = s.bio || "";
@@ -1005,9 +1023,21 @@
           document.getElementById("site-githubAlbumPath").value = s.githubAlbumPath || "photos";
           document.getElementById("site-githubTimelineFile").value = s.githubTimelineFile || "timeline.json";
           document.getElementById("site-githubMusicListFile").value = s.githubMusicListFile || "music.json";
+          siteLoadedOnce = true;
+          if (saveBtn) { saveBtn.disabled = false; saveBtn.title = ""; }
           toggleAutoMode();
+          return;
         }
-      } catch(e) {}
+        throw new Error("HTTP " + res.status);
+      } catch(e) {
+        // 加载失败：若从未成功加载过，禁用保存按钮——
+        // 否则用户可能把空表单当成现有设置，一键覆盖写坏站点配置
+        if (!siteLoadedOnce && saveBtn) {
+          saveBtn.disabled = true;
+          saveBtn.title = "站点设置加载失败，请刷新页面后重试";
+        }
+        showAlert("admin-alert", "站点设置加载失败，请刷新重试", "error");
+      }
     }
 
     function toggleAutoMode() {
@@ -1171,7 +1201,7 @@
         return;
       }
       el.innerHTML = posts.map((p, i) => `
-        <div class="list-item" data-id="${escapeHtml(p.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+        <div class="list-item" data-id="${escapeAttr(p.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
           <div class="list-item-info">
             <div class="list-item-title">${escapeHtml(p.title)}${ghPostIds.has(p.id)
               ? '<span class="src-badge" title="来自 GitHub 仓库同步">GitHub</span>'
@@ -1309,7 +1339,7 @@
         return;
       }
       el.innerHTML = items.map((t, i) => `
-        <div class="list-item" data-id="${escapeHtml(t.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+        <div class="list-item" data-id="${escapeAttr(t.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
           <div class="list-item-info">
             <div class="list-item-title">${escapeHtml(t.title)}${ghTimelineIds.has(t.id)
               ? '<span class="src-badge" title="来自 GitHub 仓库同步">GitHub</span>'
@@ -1427,7 +1457,7 @@
         return;
       }
       el.innerHTML = msgs.map((m, i) => `
-        <div class="list-item" data-id="${escapeHtml(m.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+        <div class="list-item" data-id="${escapeAttr(m.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
           <div class="list-item-info">
             <div class="list-item-title">${escapeHtml(m.name)}</div>
             <div class="list-item-meta">${formatDate(m.date)}</div>
@@ -1451,6 +1481,11 @@
       const div = document.createElement("div");
       div.textContent = str == null ? "" : String(str);
       return div.innerHTML;
+    }
+
+    // 属性上下文转义：escapeHtml 不转义引号，拼进 HTML 属性有注入风险
+    function escapeAttr(str) {
+      return escapeHtml(str).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
     async function deleteMsg(id) {
@@ -1532,7 +1567,7 @@
         return;
       }
       el.innerHTML = comments.map((c, i) => `
-        <div class="list-item" data-id="${escapeHtml(c.id)}" data-post-id="${escapeHtml(c.postId)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+        <div class="list-item" data-id="${escapeAttr(c.id)}" data-post-id="${escapeAttr(c.postId)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
           <div class="list-item-info">
             <div class="list-item-title">${escapeHtml(c.name)}</div>
             <div class="list-item-meta">📅 ${formatDate(c.date)}</div>
@@ -1600,7 +1635,7 @@
         return;
       }
       el.innerHTML = list.map((m, i) => `
-        <div class="list-item" data-id="${escapeHtml(m.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+        <div class="list-item" data-id="${escapeAttr(m.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
           <div class="list-item-info">
             <div class="list-item-title">${escapeHtml(m.title)}${ghMusicIds.has(m.id)
               ? '<span class="src-badge" title="来自 GitHub 仓库同步">GitHub</span>'
@@ -1719,7 +1754,7 @@
         return;
       }
       el.innerHTML = list.map((l, i) => `
-        <div class="list-item" data-id="${escapeHtml(l.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
+        <div class="list-item" data-id="${escapeAttr(l.id)}" style="animation:fadeInUp 0.3s ease ${i * 0.04}s both">
           <div class="list-item-info">
             <div class="list-item-title">${escapeHtml(l.name)}</div>
             <div class="list-item-meta">🔗 ${escapeHtml(l.url)}${l.order ? ` · 排序 ${l.order}` : ""}</div>

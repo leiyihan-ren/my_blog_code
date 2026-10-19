@@ -247,6 +247,7 @@
     }
     .hero-stats {
       display: flex;
+      flex-wrap: wrap;          /* 窄屏允许换行，杜绝 5 项统计横向溢出 */
       justify-content: center;
       gap: 40px;
       margin-top: 32px;
@@ -263,6 +264,7 @@
       font-size: 13px;
       opacity: 0.8;
       margin-top: 4px;
+      white-space: nowrap;
     }
 
     /* 主体内容 */
@@ -509,9 +511,16 @@
       .nav-toggle { display: flex; }
       .container { padding: 36px 20px; }
       .section-title { font-size: 20px; }
-      .hero-stats { gap: 24px; }
+      .hero-stats { gap: 24px; row-gap: 16px; }
       .hero-stat-num { font-size: 22px; }
       .back-top { bottom: 20px; right: 20px; width: 42px; height: 42px; }
+    }
+    @media (max-width: 400px) {
+      /* 小屏手机：统计项收紧间距与最小宽度，配合 flex-wrap 排成两行也不溢出 */
+      .hero-stats { gap: 16px; row-gap: 14px; }
+      .hero-stat { min-width: 52px; }
+      .hero-stat-num { font-size: 20px; }
+      .hero-stat-label { font-size: 12px; }
     }
   </style>
 </head>

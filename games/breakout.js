@@ -93,6 +93,7 @@
       p.x = Math.max(0, Math.min(this.w - p.w, p.x));
 
       const b = this.ball;
+      const prevY = b.y;
       b.x += b.dx;
       b.y += b.dy;
 
@@ -108,16 +109,24 @@
       // 挡板碰撞
       const overlapY = b.y + b.r >= p.y && b.y - b.r <= p.y + p.h;
       const overlapX = b.x >= p.x - b.r && b.x <= p.x + p.w + b.r;
-      if (overlapY && overlapX && b.dy > 0) {
+      // 上一帧球底还在挡板顶之上：只响应"从上方落下"的碰撞。
+      // 否则挡板横向扫到球时会把球瞬移到挡板上方，观感上是跳帧。
+      const fromAbove = prevY + b.r <= p.y + 1;
+      if (overlapY && overlapX && b.dy > 0 && fromAbove) {
         const hit = Math.max(-1, Math.min(1, (b.x - (p.x + p.w / 2)) / (p.w / 2)));
         const angle = hit * (Math.PI / 3); // 最大 60°
         let speed = Math.min(5.5, Math.hypot(b.dx, b.dy) + 0.06);
         b.dx = Math.sin(angle) * speed;
         b.dy = -Math.cos(angle) * speed;
-        // 防“水平死循环”：保证足够的垂直分量
-        if (Math.abs(b.dy) < speed * 0.35) {
-          b.dy = -speed * 0.35;
-          b.dx = Math.sign(b.dx || 1) * Math.sqrt(Math.max(0.01, speed * speed - b.dy * b.dy));
+        // 防呆：sin²+cos²=1 保证两分量至少一个较大，这里两个方向都要保底，
+        // 否则正中命中推出 dx=0，球会垂直往返死循环，只能等玩家移动挡板才能脱出
+        const MIN_RATIO = 0.35;
+        if (Math.abs(b.dy) < speed * MIN_RATIO) {
+          b.dy = -speed * MIN_RATIO;
+          b.dx = (b.dx >= 0 ? 1 : -1) * Math.sqrt(Math.max(0.01, speed * speed - b.dy * b.dy));
+        } else if (Math.abs(b.dx) < speed * MIN_RATIO) {
+          b.dx = (b.dx >= 0 ? 1 : -1) * speed * MIN_RATIO;
+          b.dy = -(b.dy >= 0 ? 1 : -1) * Math.sqrt(Math.max(0.01, speed * speed - b.dx * b.dx));
         }
         b.y = p.y - b.r;
       }

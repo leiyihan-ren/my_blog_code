@@ -31,6 +31,16 @@ window.GameCore = (function () {
     return d.innerHTML;
   }
 
+  /**
+   * 属性上下文转义：escapeHtml 不转义引号，直接拼进 HTML 属性会被注入闭合
+   * （如 data-id="x" onmouseover="..."）。属性位置一律用本函数。
+   */
+  function escapeAttr(str) {
+    return escapeHtml(str)
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   /* =========================================================
    * Toast（页面级提示）
    * =======================================================*/
@@ -245,17 +255,19 @@ window.GameCore = (function () {
         const fire = (e) => { e.preventDefault(); handler(d.dir); };
         b.addEventListener("click", fire);
         // 长按连续移动（贪吃蛇/俄罗斯方块手感）
+        // 计时器必须登记到框架（this.after/this.every）：否则切游戏/销毁后
+        // 仍会向已废弃的实例派发方向，出现"幽灵操作"
         let holdTimer = null, repeatTimer = null;
         b.addEventListener("touchstart", (e) => {
           e.preventDefault();
           handler(d.dir);
-          holdTimer = setTimeout(() => {
-            repeatTimer = setInterval(() => handler(d.dir), 120);
-          }, 300);
+          holdTimer = this.after(300, () => {
+            repeatTimer = this.every(120, () => handler(d.dir));
+          });
         }, { passive: false });
         const stopHold = () => {
-          clearTimeout(holdTimer); clearInterval(repeatTimer);
-          holdTimer = null; repeatTimer = null;
+          if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+          if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = null; }
         };
         b.addEventListener("touchend", stopHold);
         b.addEventListener("touchcancel", stopHold);
@@ -399,7 +411,7 @@ window.GameCore = (function () {
 
   function renderGameGrid() {
     $("game-grid").innerHTML = allGames().map((g) => `
-      <div class="game-card" data-id="${g.id}" tabindex="0" role="button" aria-label="${escapeHtml(g.name)}">
+      <div class="game-card${currentMeta && currentMeta.id === g.id ? " active" : ""}" data-id="${escapeAttr(g.id)}" tabindex="0" role="button" aria-label="${escapeHtml(g.name)}">
         <div class="game-icon">${g.icon}</div>
         <div class="game-name">${escapeHtml(g.name)}</div>
         <div class="game-desc">${escapeHtml(g.desc)}</div>
@@ -430,7 +442,7 @@ window.GameCore = (function () {
 
   function renderRankTabs() {
     $("rank-tabs").innerHTML = allGames().map((g) =>
-      `<button class="rank-tab ${rankTab === g.id ? "active" : ""}" data-id="${g.id}">${g.icon} ${escapeHtml(g.name)}</button>`
+      `<button class="rank-tab ${rankTab === g.id ? "active" : ""}" data-id="${escapeAttr(g.id)}">${g.icon} ${escapeHtml(g.name)}</button>`
     ).join("");
     $("rank-tabs").querySelectorAll("button").forEach((b) =>
       b.addEventListener("click", () => { rankTab = b.dataset.id; renderRankTabs(); renderRankBody(); })

@@ -222,6 +222,15 @@
       background: var(--border);
       margin: 28px 0;
     }
+    /* 表格外层容器：窄屏下横向滚动，避免撑破文章卡片导致整页横向滚动 */
+    .article-content .table-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 16px 0;
+    }
+    .article-content .table-wrap table {
+      margin: 0;
+    }
     .article-content table {
       width: 100%;
       border-collapse: collapse;
@@ -709,6 +718,18 @@
       return div.innerHTML;
     }
 
+    /**
+     * 属性上下文转义。
+     * escapeHtml 只转义 & < >，引号会原样保留——直接拼进 HTML 属性时，
+     * `![x" onmouseover="alert(1)](https://a.png)` 就能闭合引号注入事件处理器。
+     * 凡是拼进 "..." / '...' 的用户数据，必须用这个函数。
+     */
+    function escapeAttr(str) {
+      return escapeHtml(str)
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     // URL 协议白名单：只允许 http/https/mailto/tel 与相对路径，拒绝 javascript: 等伪协议
     // （GitHub 同步的文章不过 Worker 的 sanitizeUserContent，必须在此拦截）
     function isSafeMarkdownUrl(url) {
@@ -735,15 +756,20 @@
       let inList = false;
       let inQuote = false;
       let paraBuffer = [];
+      let tableBuffer = [];
 
       function inlineFormat(text) {
         return text
           .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
           .replace(/`([^`]+)`/g, "<code>$1</code>")
           .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, url) =>
-            isSafeMarkdownUrl(url) ? `<img src="${url}" alt="${alt}" loading="lazy">` : alt || "")
+            isSafeMarkdownUrl(url)
+              ? `<img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}" loading="lazy">`
+              : escapeHtml(alt))
           .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label, url) =>
-            isSafeMarkdownUrl(url) ? `<a href="${url}" target="_blank" rel="noopener">${label}</a>` : label);
+            isSafeMarkdownUrl(url)
+              ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`
+              : escapeHtml(label));
       }
 
       function flushPara() {
@@ -754,11 +780,48 @@
       }
       function closeList() { if (inList) { result.push("</ul>"); inList = false; } }
       function closeQuote() { if (inQuote) { result.push("</blockquote>"); inQuote = false; } }
-      
+
+      /**
+       * GFM 管道表格：
+       *   | 名称 | 说明 |
+       *   | --- | --- |
+       *   | a   | b   |
+       * 第二行是分隔行则视为表头。单元格内容统一走 inlineFormat（已转义）。
+       * 外层包 .table-wrap，窄屏下横向滚动而不撑破文章卡片。
+       */
+      function flushTable() {
+        if (!tableBuffer.length) return;
+        const rows = tableBuffer.map((r) =>
+          r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim())
+        );
+        let bodyStart = 0;
+        if (rows.length >= 2 && rows[1].every((c) => /^:?-{1,}:?$/.test(c))) bodyStart = 2;
+
+        let html = '<div class="table-wrap"><table><thead><tr>';
+        rows[0].forEach((c) => { html += "<th>" + inlineFormat(c) + "</th>"; });
+        html += "</tr></thead><tbody>";
+        for (let r = bodyStart; r < rows.length; r++) {
+          html += "<tr>";
+          rows[r].forEach((c) => { html += "<td>" + inlineFormat(c) + "</td>"; });
+          html += "</tr>";
+        }
+        html += "</tbody></table></div>";
+        result.push(html);
+        tableBuffer = [];
+      }
+
       for (let line of lines) {
         const trimmed = line.trim();
-        if (trimmed === "") { flushPara(); closeList(); closeQuote(); continue; }
-        
+        if (trimmed === "") { flushPara(); closeList(); closeQuote(); flushTable(); continue; }
+
+        // 表格行（以 | 开头）：先结束其他块，累积到 tableBuffer
+        if (trimmed.startsWith("|")) {
+          flushPara(); closeList(); closeQuote();
+          tableBuffer.push(trimmed);
+          continue;
+        }
+        flushTable();
+
         // 标题
         if (trimmed.startsWith("### ")) {
           flushPara(); closeList(); closeQuote();
@@ -799,7 +862,7 @@
         closeList(); closeQuote();
         paraBuffer.push(trimmed);
       }
-      flushPara(); closeList(); closeQuote();
+      flushPara(); closeList(); closeQuote(); flushTable();
       
       return result.join("\n");
     }
@@ -1097,7 +1160,14 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, content })
         });
-        const result = await res.json();
+        // 先判状态码与内容类型：后端 500/502 可能返回非 JSON，
+        // 直接 res.json() 会抛错走 catch，把真实原因吞成"网络错误"
+        let result = null;
+        if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
+          result = await res.json();
+        } else {
+          result = { error: res.status >= 500 ? "服务器开小差了，请稍后再试" : "发送失败，请稍后再试" };
+        }
 
         if (result.success) {
           showCommentAlert("评论成功！", "success");

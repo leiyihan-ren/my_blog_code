@@ -29,6 +29,41 @@
         const el = e.target.closest(".mem-card");
         if (el) this.flip(el);
       });
+      // 键盘操作：方向键移动焦点（roving tabindex），Enter/空格翻牌
+      this.bindKeys({
+        ArrowUp: () => this.moveFocus(-4),
+        ArrowDown: () => this.moveFocus(4),
+        ArrowLeft: () => this.moveFocus(-1),
+        ArrowRight: () => this.moveFocus(1),
+        Enter: () => this.flipFocused(),
+        " ": () => this.flipFocused(),
+      });
+    }
+
+    /** 4x4 网格内移动焦点（不循环出界），同步 roving tabindex */
+    moveFocus(delta) {
+      if (!this.running) return;
+      const n = this.cards.length;
+      const next = Math.min(n - 1, Math.max(0, this.focusIdx + delta));
+      if (next === this.focusIdx) return;
+      this.focusIdx = next;
+      this.syncFocus();
+    }
+
+    flipFocused() {
+      if (!this.running) return;
+      const el = this.board.children[this.focusIdx];
+      if (el) this.flip(el);
+    }
+
+    /** roving tabindex：只有当前焦点卡可 Tab 进入，其余 -1 */
+    syncFocus() {
+      const cards = this.board.children;
+      for (let i = 0; i < cards.length; i++) {
+        cards[i].tabIndex = i === this.focusIdx ? 0 : -1;
+      }
+      const el = cards[this.focusIdx];
+      if (el) el.focus();
     }
 
     reset() {
@@ -37,6 +72,7 @@
       this.busy = false;
       this.first = null;
       this.pair = null;
+      this.focusIdx = 0;
       this.cards = [...this.emojis, ...this.emojis]
         .map((v) => ({ v, sort: Math.random() }))
         .sort((a, b) => a.sort - b.sort)
@@ -50,7 +86,7 @@
       // span 常驻 emoji：未翻面时被 rotateY(180deg)+backface-visibility 隐藏，
       // 翻面/配对后自然显示，无需任何文本操作
       this.board.innerHTML = this.cards
-        .map((c) => `<div class="mem-card" data-id="${c.id}" data-v="${c.v}"><span>${c.v}</span></div>`)
+        .map((c, i) => `<div class="mem-card" data-id="${c.id}" data-v="${c.v}" tabindex="${i === this.focusIdx ? 0 : -1}" role="button" aria-label="卡片 ${i + 1}"><span>${c.v}</span></div>`)
         .join("");
     }
 

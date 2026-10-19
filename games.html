@@ -511,7 +511,7 @@ Core.bindStageButtons();
 
 /* ---------- 站点信息（标题 / 页脚） ---------- */
 fetch("/api/site")
-  .then(r => (r.headers.get("content-type") || "").includes("json") ? r.json() : null)
+  .then(r => (r.ok && (r.headers.get("content-type") || "").includes("json")) ? r.json() : null)
   .then(s => {
     if (!s) return;
     document.title = `游戏大厅 - ${s.title}`;

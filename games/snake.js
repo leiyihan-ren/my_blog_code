@@ -110,12 +110,26 @@
       this.draw();
     }
 
+    /**
+     * 放置食物。
+     * 旧实现用 do...while 随机重试：蛇占满全部格子时永远找不到空格，
+     * 主线程死循环把整个标签页卡死。改为先收集空格再随机取，
+     * 无空格时判定通关。
+     */
     placeFood() {
-      let p;
-      do {
-        p = { x: Math.floor(Math.random() * this.cols), y: Math.floor(Math.random() * this.rows) };
-      } while (this.snake.some((s) => s.x === p.x && s.y === p.y));
-      this.food = p;
+      const occupied = new Set(this.snake.map((s) => s.y * this.cols + s.x));
+      const empty = [];
+      for (let i = 0; i < this.cols * this.rows; i++) {
+        if (!occupied.has(i)) empty.push(i);
+      }
+      if (empty.length === 0) {
+        this.food = null;
+        this.dead = true;
+        this.draw();
+        return this.gameOver("恭喜通关！🎉");
+      }
+      const idx = empty[Math.floor(Math.random() * empty.length)];
+      this.food = { x: idx % this.cols, y: Math.floor(idx / this.cols) };
     }
 
     loop() {
@@ -135,13 +149,17 @@
         this.draw();
         return this.gameOver("撞墙了！");
       }
-      if (this.snake.some((s) => s.x === head.x && s.y === head.y)) {
+      // 自撞判定：未进食时尾格会在本回合让出，蛇头追入是合法移动，
+      // 必须先把尾格排除，否则盘成一团追尾时会被误判"咬到自己"
+      const willGrow = this.food && head.x === this.food.x && head.y === this.food.y;
+      const body = willGrow ? this.snake : this.snake.slice(0, -1);
+      if (body.some((s) => s.x === head.x && s.y === head.y)) {
         this.dead = true;
         this.draw();
         return this.gameOver("咬到自己了！");
       }
       this.snake.unshift(head);
-      if (head.x === this.food.x && head.y === this.food.y) {
+      if (willGrow) {
         this.setScore(this.score + 10);
         this.placeFood();
         const min = SPEEDS[this.speedKey].min;
@@ -169,17 +187,19 @@
       for (let i = 0; i <= this.cols; i++) { c.beginPath(); c.moveTo(i * s, 0); c.lineTo(i * s, this.h); c.stroke(); }
       for (let i = 0; i <= this.rows; i++) { c.beginPath(); c.moveTo(0, i * s); c.lineTo(this.w, i * s); c.stroke(); }
 
-      // 食物（发光 + 呼吸脉冲）
-      const fx = this.food.x * s + s / 2, fy = this.food.y * s + s / 2;
-      const pulse = 1 + Math.sin(Date.now() / 180) * 0.08;
-      c.save();
-      c.shadowColor = "rgba(239,68,68,0.65)";
-      c.shadowBlur = 14;
-      c.font = `${(s - 2) * pulse}px serif`;
-      c.textAlign = "center";
-      c.textBaseline = "middle";
-      c.fillText("🍎", fx, fy + 1);
-      c.restore();
+      // 食物（发光 + 呼吸脉冲）；通关时 food 为 null，跳过绘制
+      if (this.food) {
+        const fx = this.food.x * s + s / 2, fy = this.food.y * s + s / 2;
+        const pulse = 1 + Math.sin(Date.now() / 180) * 0.08;
+        c.save();
+        c.shadowColor = "rgba(239,68,68,0.65)";
+        c.shadowBlur = 14;
+        c.font = `${(s - 2) * pulse}px serif`;
+        c.textAlign = "center";
+        c.textBaseline = "middle";
+        c.fillText("🍎", fx, fy + 1);
+        c.restore();
+      }
 
       // 蛇身（头亮尾透的渐变圆角段）
       const n = this.snake.length;

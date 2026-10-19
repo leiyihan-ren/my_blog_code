@@ -65,12 +65,26 @@
 
     move(dir) {
       const before = this.grid.map((row) => row.slice());
+      this.mergedCells = new Set(); // 本步真实发生合并的格子 "r,c"
+      // line 的方向 → 把线性索引 j 映射回棋盘坐标 [r, c]
+      const idxOf = {
+        left: (i, j) => [i, j],
+        right: (i, j) => [i, this.size - 1 - j],
+        up: (i, j) => [j, i],
+        down: (i, j) => [this.size - 1 - j, i],
+      }[dir];
       const line = (get, set) => {
         for (let i = 0; i < this.size; i++) {
           const cells = [];
           for (let j = 0; j < this.size; j++) cells.push(get(i, j));
-          const merged = this.merge(cells);
-          for (let j = 0; j < this.size; j++) set(i, j, merged[j]);
+          const { values, merged } = this.merge(cells);
+          for (let j = 0; j < this.size; j++) {
+            set(i, j, values[j]);
+            if (merged[j]) {
+              const [r, c] = idxOf(i, j);
+              this.mergedCells.add(r + "," + c);
+            }
+          }
         }
       };
       if (dir === "left") line((r, c) => this.grid[r][c], (r, c, v) => { this.grid[r][c] = v; });
@@ -86,20 +100,32 @@
       if (this.isOver()) this.gameOver("无处可走了！");
     }
 
+    /**
+     * 合并一行/一列。返回 { values, merged }：
+     * - values：合并后的值序列
+     * - merged：与 values 等长的布尔序列，标记哪些位置发生了真实合并
+     *   （供渲染做脉冲动画，避免把"滑入的更高值格子"误标为合并）
+     */
     merge(cells) {
       const filtered = cells.filter((v) => v);
       const out = [];
+      const merged = [];
       for (let i = 0; i < filtered.length; i++) {
         if (filtered[i] === filtered[i + 1]) {
           out.push(filtered[i] * 2);
+          merged.push(true);
           this.setScore(this.score + filtered[i] * 2);
           i++;
         } else {
           out.push(filtered[i]);
+          merged.push(false);
         }
       }
-      while (out.length < this.size) out.push(0);
-      return out;
+      while (out.length < this.size) {
+        out.push(0);
+        merged.push(false);
+      }
+      return { values: out, merged };
     }
 
     isOver() {
@@ -116,7 +142,7 @@
     /**
      * 渲染。before 为移动前的棋盘快照：
      * - 本步新落下的方块 → .new（弹出）
-     * - 合并增值的方块（现值 > 原值）→ .merge（脉冲）
+     * - 本步真实合并的方块（mergedCells 记录的位置）→ .merge（脉冲）
      * - 其余方块无动画类，避免每次移动整板乱跳
      */
     render(before) {
@@ -127,9 +153,8 @@
           const r = Math.floor(idx / this.size), c = idx % this.size;
           let anim = "";
           if (before) {
-            const pv = before[r][c];
             if (this.lastNew && this.lastNew.r === r && this.lastNew.c === c) anim = "new";
-            else if (pv > 0 && v > pv) anim = "merge";
+            else if (this.mergedCells && this.mergedCells.has(r + "," + c)) anim = "merge";
           } else {
             anim = "new"; // 初始/重开：整板轻轻弹出
           }

@@ -88,7 +88,7 @@
       this.revealed = 0;
       this.flags = 0;
       this.dead = false;
-      this.startTime = Date.now();
+      this.startTime = null;  // 首击时才开表（符合扫雷惯例：摆棋时间不计入用时）
       this.setScore(0);
       this.render();
       this.drawStatus();
@@ -118,6 +118,7 @@
         }
       }
       this.planted = true;
+      this.startTime = Date.now(); // 首击开表
     }
 
     neighbors(r, c) {
@@ -132,7 +133,7 @@
       return out;
     }
 
-    elapsed() { return Math.floor((Date.now() - this.startTime) / 1000); }
+    elapsed() { return this.startTime ? Math.floor((Date.now() - this.startTime) / 1000) : 0; }
 
     drawStatus() {
       const left = Math.max(0, this.mines - this.flags);
