@@ -256,7 +256,7 @@
         <li><a href="games.html">游戏</a></li>
         <li><a href="links.html" class="active">友链</a></li>
       </ul>
-      <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+      <button class="theme-btn" onclick="toggleTheme()" title="切换主题" aria-label="切换主题">🌙</button>
       <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
     </div>
   </div>
@@ -278,7 +278,7 @@
   </div>
 
   <div class="link-grid" id="link-grid">
-    <div class="empty"><span class="ico">⏳</span>正在加载友链…</div>
+    <div class="empty"><span class="ico" aria-hidden="true">⏳</span>正在加载友链…</div>
   </div>
 
   <section class="apply">
@@ -378,7 +378,7 @@ window.addEventListener("scroll", () => {
 function renderLinks(links) {
   const grid = $("link-grid");
   if (!links.length) {
-    grid.innerHTML = `<div class="empty"><span class="ico">🌱</span>还没有友链，成为第一个吧！</div>`;
+    grid.innerHTML = `<div class="empty"><span class="ico" aria-hidden="true">🌱</span>还没有友链，成为第一个吧！</div>`;
   } else {
     grid.innerHTML = links.map(l => {
       const name = escapeHtml(l.name || "未命名");

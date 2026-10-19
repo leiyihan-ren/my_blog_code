@@ -377,7 +377,7 @@
     <button class="mp-toggle-btn" id="mpToggle" title="收起/展开播放器" aria-label="收起或展开播放器">
       <span class="mp-toggle-icon">▾</span>
     </button>
-    <div class="mp-cover" id="mpCover">🎵</div>
+    <div class="mp-cover" id="mpCover" aria-hidden="true">🎵</div>
     <div class="mp-info">
       <div class="mp-title" id="mpTitle">暂无歌曲</div>
       <div class="mp-artist" id="mpArtist">去管理后台添加音乐吧</div>

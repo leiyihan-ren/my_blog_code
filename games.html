@@ -237,7 +237,7 @@
   body.dark .board-overlay { background: rgba(15,15,26,0.75); }
   .board-overlay.show { display: flex; animation: overlayIn 0.3s var(--ease) both; }
   @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
-  .board-overlay h3 { font-size: 24px; font-weight: 800; }
+  .board-overlay h2 { font-size: 24px; font-weight: 800; }
   .overlay-score { font-size: 34px; font-weight: 800; color: var(--primary-text); font-variant-numeric: tabular-nums; line-height: 1.2; }
   .overlay-score:empty { display: none; }
   .board-overlay p { color: var(--text-light); font-size: 14px; }
@@ -486,7 +486,7 @@
         <li><a href="games.html" class="active">游戏</a></li>
         <li><a href="links.html">友链</a></li>
       </ul>
-      <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+      <button class="theme-btn" onclick="toggleTheme()" title="切换主题" aria-label="切换主题">🌙</button>
       <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
     </div>
   </div>
@@ -512,13 +512,13 @@
   <!-- 游戏舞台 -->
   <section class="stage" id="stage">
     <div class="stage-head">
-      <div class="stage-title"><span id="stage-icon">🎮</span><span id="stage-name">选择一款游戏</span></div>
+      <div class="stage-title"><span id="stage-icon" aria-hidden="true">🎮</span><span id="stage-name">选择一款游戏</span></div>
       <div class="stage-score" id="stage-score"></div>
     </div>
     <div class="stage-body">
       <div class="board-wrap" id="board-wrap">
         <div class="board-overlay" id="overlay">
-          <h3 id="overlay-title">准备好了吗？</h3>
+          <h2 id="overlay-title">准备好了吗？</h2>
           <div class="overlay-score" id="overlay-score"></div>
           <p id="overlay-text">点击下方按钮开始游戏</p>
           <button class="btn primary" id="overlay-btn">开始游戏</button>

@@ -155,7 +155,10 @@
       cursor: pointer;
       font-size: 14px;
       font-weight: 500;
+      font-family: inherit;
       color: var(--text-light);
+      background: none;
+      border: none;
       border-bottom: 2px solid transparent;
       margin-bottom: -2px;
       transition: all 0.2s var(--ease);
@@ -541,7 +544,7 @@
     }
   } catch (e) {}
 </script>
-  <div class="container">
+  <main class="container">
     <a href="index.html" class="back-link">← 返回网站</a>
 
     <!-- 登录页面 -->
@@ -551,7 +554,7 @@
       <p class="subtitle">请输入管理密码登录</p>
       <div class="alert" id="login-alert"></div>
       <div class="form-group">
-        <input type="password" id="password" placeholder="管理密码" autofocus>
+        <input type="password" id="password" placeholder="管理密码" aria-label="管理密码" autofocus>
       </div>
       <button class="btn btn-primary" style="width:100%" onclick="login()">登录</button>
     </div>
@@ -563,15 +566,15 @@
 
       <div class="card">
         <div class="tabs">
-          <div class="tab active" onclick="switchTab('site')">站点设置</div>
-          <div class="tab" onclick="switchTab('posts')">文章管理</div>
-          <div class="tab" onclick="switchTab('music')">音乐管理</div>
-          <div class="tab" onclick="switchTab('timeline')">时间线</div>
-          <div class="tab" onclick="switchTab('comments')">评论管理</div>
-          <div class="tab" onclick="switchTab('messages')">留言管理</div>
-          <div class="tab" onclick="switchTab('links')">友链管理</div>
-          <div class="tab" onclick="switchTab('games')">游戏管理</div>
-          <div class="tab" onclick="switchTab('backup')">数据备份</div>
+          <button type="button" class="tab active" onclick="switchTab('site')">站点设置</button>
+          <button type="button" class="tab" onclick="switchTab('posts')">文章管理</button>
+          <button type="button" class="tab" onclick="switchTab('music')">音乐管理</button>
+          <button type="button" class="tab" onclick="switchTab('timeline')">时间线</button>
+          <button type="button" class="tab" onclick="switchTab('comments')">评论管理</button>
+          <button type="button" class="tab" onclick="switchTab('messages')">留言管理</button>
+          <button type="button" class="tab" onclick="switchTab('links')">友链管理</button>
+          <button type="button" class="tab" onclick="switchTab('games')">游戏管理</button>
+          <button type="button" class="tab" onclick="switchTab('backup')">数据备份</button>
         </div>
 
         <div class="alert" id="admin-alert"></div>
@@ -625,41 +628,41 @@
             </div>
 
             <div class="form-group">
-              <label>GitHub 仓库地址</label>
+              <label for="site-githubRepo">GitHub 仓库地址</label>
               <input type="text" id="site-githubRepo" placeholder="如：username/my-blog-content">
               <small style="color:var(--text-mute);font-size:12px">格式：用户名/仓库名，所有内容都从这个仓库读取</small>
             </div>
             <div class="form-group">
-              <label>分支名</label>
+              <label for="site-githubBranch">分支名</label>
               <input type="text" id="site-githubBranch" placeholder="main">
               <small style="color:var(--text-mute);font-size:12px">默认 main，旧仓库可能是 master</small>
             </div>
             <div class="row">
               <div class="form-group">
-                <label>文章文件夹</label>
+                <label for="site-githubPostsPath">文章文件夹</label>
                 <input type="text" id="site-githubPostsPath" placeholder="posts">
                 <small style="color:var(--text-mute);font-size:12px">默认：posts</small>
               </div>
               <div class="form-group">
-                <label>音乐文件夹</label>
+                <label for="site-githubMusicPath">音乐文件夹</label>
                 <input type="text" id="site-githubMusicPath" placeholder="music">
                 <small style="color:var(--text-mute);font-size:12px">默认：music</small>
               </div>
             </div>
             <div class="row">
               <div class="form-group">
-                <label>相册文件夹</label>
+                <label for="site-githubAlbumPath">相册文件夹</label>
                 <input type="text" id="site-githubAlbumPath" placeholder="photos">
                 <small style="color:var(--text-mute);font-size:12px">默认：photos</small>
               </div>
               <div class="form-group">
-                <label>时间线文件名</label>
+                <label for="site-githubTimelineFile">时间线文件名</label>
                 <input type="text" id="site-githubTimelineFile" placeholder="timeline.json">
                 <small style="color:var(--text-mute);font-size:12px">默认：timeline.json</small>
               </div>
             </div>
             <div class="form-group">
-              <label>音乐列表文件名（可选）</label>
+              <label for="site-githubMusicListFile">音乐列表文件名（可选）</label>
               <input type="text" id="site-githubMusicListFile" placeholder="music.json">
               <small style="color:var(--text-mute);font-size:12px">提供更详细的歌曲信息（歌名、歌手、封面），默认 music.json</small>
             </div>
@@ -671,25 +674,25 @@
           <h3 style="font-size:16px;margin:24px 0 12px;color:var(--text)">👤 基本信息</h3>
           <div class="row">
             <div class="form-group">
-              <label>站点标题</label>
+              <label for="site-title">站点标题</label>
               <input type="text" id="site-title" placeholder="网站标题">
             </div>
             <div class="form-group">
-              <label>你的名字</label>
+              <label for="site-name">你的名字</label>
               <input type="text" id="site-name" placeholder="显示在主页的名字">
             </div>
           </div>
           <div class="form-group">
-            <label>个人简介</label>
+            <label for="site-bio">个人简介</label>
             <textarea id="site-bio" placeholder="一句话介绍自己"></textarea>
           </div>
           <div class="row">
             <div class="form-group">
-              <label>头像文字</label>
+              <label for="site-avatar">头像文字</label>
               <input type="text" id="site-avatar" placeholder="如：LY" maxlength="2">
             </div>
             <div class="form-group">
-              <label>头像颜色</label>
+              <label for="site-avatarBg">头像颜色</label>
               <div class="color-row">
                 <input type="color" id="site-avatarBg" value="var(--primary)">
                 <span style="font-size:13px;color:var(--text-mute)">选个你喜欢的颜色</span>
@@ -698,26 +701,26 @@
           </div>
           <div class="row">
             <div class="form-group">
-              <label>学校</label>
+              <label for="site-school">学校</label>
               <input type="text" id="site-school">
             </div>
           </div>
           <div class="row">
             <div class="form-group">
-              <label>年级</label>
+              <label for="site-grade">年级</label>
               <input type="text" id="site-grade">
             </div>
             <div class="form-group">
-              <label>班级</label>
+              <label for="site-className">班级</label>
               <input type="text" id="site-className">
             </div>
           </div>
           <div class="form-group">
-            <label>邮箱</label>
+            <label for="site-email">邮箱</label>
             <input type="email" id="site-email">
           </div>
           <div class="form-group">
-            <label>页脚文字</label>
+            <label for="site-footer">页脚文字</label>
             <input type="text" id="site-footer" placeholder="如：© 2026 Lei Yihan">
           </div>
 
@@ -790,7 +793,7 @@
           <div class="btn-row" style="margin-top:16px">
             <button class="btn btn-primary" onclick="exportBackup()">⬇️ 导出备份</button>
             <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">⬆️ 导入备份</button>
-            <input type="file" id="import-file" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
+            <input type="file" id="import-file" aria-label="选择备份文件" accept=".json,application/json" style="display:none" onchange="importBackup(this)">
           </div>
           <div id="backup-status" style="margin-top:14px;font-size:13px;color:var(--text-mute)"></div>
         </div>
@@ -800,27 +803,27 @@
         </div>
       </div>
     </div>
-  </div>
+  </main>
 
   <!-- 文章编辑模态框 -->
-  <div class="modal-overlay" id="post-modal">
+  <div class="modal-overlay" id="post-modal" role="dialog" aria-modal="true" aria-labelledby="post-modal-title">
     <div class="modal">
       <h2 id="post-modal-title">写新文章</h2>
       <div class="modal-hint" id="post-modal-hint" style="display:none"></div>
       <div class="form-group">
-        <label>文章标题</label>
+        <label for="post-title">文章标题</label>
         <input type="text" id="post-title" placeholder="给文章起个标题">
       </div>
       <div class="form-group">
-        <label>日期</label>
+        <label for="post-date">日期</label>
         <input type="date" id="post-date">
       </div>
       <div class="form-group">
-        <label>文章摘要（可选）</label>
+        <label for="post-desc">文章摘要（可选）</label>
         <input type="text" id="post-desc" placeholder="简短描述，显示在文章列表中" maxlength="500">
       </div>
       <div class="form-group">
-        <label>文章内容</label>
+        <label for="post-content">文章内容</label>
         <textarea id="post-content" placeholder="写点什么..." style="min-height:250px"></textarea>
       </div>
       <div class="btn-row">
@@ -831,19 +834,19 @@
   </div>
 
   <!-- 时间线编辑模态框 -->
-  <div class="modal-overlay" id="timeline-modal">
+  <div class="modal-overlay" id="timeline-modal" role="dialog" aria-modal="true" aria-labelledby="timeline-modal-title">
     <div class="modal">
       <h2 id="timeline-modal-title">添加记录</h2>
       <div class="form-group">
-        <label>日期</label>
+        <label for="tl-date">日期</label>
         <input type="date" id="tl-date">
       </div>
       <div class="form-group">
-        <label>标题</label>
+        <label for="tl-title">标题</label>
         <input type="text" id="tl-title" placeholder="例如：升入七年级">
       </div>
       <div class="form-group">
-        <label>描述（可选）</label>
+        <label for="tl-desc">描述（可选）</label>
         <input type="text" id="tl-desc" placeholder="简短描述">
       </div>
       <div class="btn-row">
@@ -854,24 +857,24 @@
   </div>
 
   <!-- 音乐编辑模态框 -->
-  <div class="modal-overlay" id="music-modal">
+  <div class="modal-overlay" id="music-modal" role="dialog" aria-modal="true" aria-labelledby="music-modal-title">
     <div class="modal">
       <h2 id="music-modal-title">添加歌曲</h2>
       <div class="form-group">
-        <label>歌曲名</label>
+        <label for="music-title">歌曲名</label>
         <input type="text" id="music-title" placeholder="如：稻香">
       </div>
       <div class="form-group">
-        <label>歌手</label>
+        <label for="music-artist">歌手</label>
         <input type="text" id="music-artist" placeholder="如：周杰伦">
       </div>
       <div class="form-group">
-        <label>歌曲链接 (mp3)</label>
+        <label for="music-url">歌曲链接 (mp3)</label>
         <input type="text" id="music-url" placeholder="https://...">
         <small style="color:var(--text-mute);font-size:12px">可以放 GitHub 原始链接或其他直链</small>
       </div>
       <div class="form-group">
-        <label>封面图片链接（可选）</label>
+        <label for="music-cover">封面图片链接（可选）</label>
         <input type="text" id="music-cover" placeholder="https://...">
       </div>
       <div class="btn-row">
@@ -882,27 +885,27 @@
   </div>
 
   <!-- 友链编辑模态框 -->
-  <div class="modal-overlay" id="link-modal">
+  <div class="modal-overlay" id="link-modal" role="dialog" aria-modal="true" aria-labelledby="link-modal-title">
     <div class="modal">
       <h2 id="link-modal-title">添加友链</h2>
       <div class="form-group">
-        <label>站点名称</label>
+        <label for="link-name">站点名称</label>
         <input type="text" id="link-name" placeholder="如：小明的前端笔记" maxlength="30">
       </div>
       <div class="form-group">
-        <label>站点链接</label>
+        <label for="link-url">站点链接</label>
         <input type="text" id="link-url" placeholder="https://...">
       </div>
       <div class="form-group">
-        <label>站点简介（可选）</label>
+        <label for="link-desc">站点简介（可选）</label>
         <input type="text" id="link-desc" placeholder="一句话介绍这个站点" maxlength="100">
       </div>
       <div class="form-group">
-        <label>头像/图标链接（可选）</label>
+        <label for="link-icon">头像/图标链接（可选）</label>
         <input type="text" id="link-icon" placeholder="https://... 留空则用首字母">
       </div>
       <div class="form-group">
-        <label>排序（可选）</label>
+        <label for="link-order">排序（可选）</label>
         <input type="number" id="link-order" placeholder="0" min="0" max="9999">
         <small style="color:var(--text-mute);font-size:12px">数字越小越靠前，默认 0</small>
       </div>
@@ -1042,6 +1045,41 @@
       if (isNaN(d.getTime())) return escapeHtml(String(dateStr));
       return d.toLocaleString();
     }
+
+
+    /* ===== 模态对话框键盘支持：焦点移入/陷阱/归还 + Esc 关闭 ===== */
+    let modalLastFocus = null;
+    function focusModal(id) {
+      const modal = document.getElementById(id);
+      if (!modal) return;
+      modalLastFocus = document.activeElement;
+      const first = modal.querySelector("input, textarea, select, button");
+      if (first) first.focus();
+    }
+    function restoreModalFocus() {
+      if (modalLastFocus && modalLastFocus.focus) modalLastFocus.focus();
+      modalLastFocus = null;
+    }
+    document.addEventListener("keydown", e => {
+      const active = document.querySelector(".modal-overlay.active");
+      if (!active) return;
+      if (e.key === "Escape") {
+        // 直接移除激活态并还焦（各 close 函数逻辑一致）
+        active.classList.remove("active");
+        restoreModalFocus();
+        return;
+      }
+      // 焦点陷阱：Tab 在对话框内循环
+      if (e.key === "Tab") {
+        const focusables = active.querySelectorAll("input, textarea, select, button, a[href]");
+        if (!focusables.length) return;
+        const list = [...focusables].filter(f => f.offsetParent !== null);
+        if (!list.length) return;
+        const first = list[0], last = list[list.length - 1];
+        if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+        else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+      }
+    });
 
     function showAlert(id, msg, type) {
       const el = document.getElementById(id);
@@ -1322,10 +1360,12 @@
         hint.textContent = "";
       }
       document.getElementById("post-modal").classList.add("active");
+      focusModal("post-modal");
     }
 
     function closePostModal() {
       document.getElementById("post-modal").classList.remove("active");
+      restoreModalFocus();
     }
 
     async function editPost(id) {
@@ -1449,10 +1489,12 @@
       document.getElementById("tl-title").value = item ? item.title : "";
       document.getElementById("tl-desc").value = item ? item.desc : "";
       document.getElementById("timeline-modal").classList.add("active");
+      focusModal("timeline-modal");
     }
 
     function closeTimelineModal() {
       document.getElementById("timeline-modal").classList.remove("active");
+      restoreModalFocus();
     }
 
     async function editTimeline(id) {
@@ -1746,11 +1788,13 @@
       document.getElementById("music-url").value = song ? song.url : "";
       document.getElementById("music-cover").value = song ? song.cover || "" : "";
       document.getElementById("music-modal").classList.add("active");
+      focusModal("music-modal");
     }
 
     function closeMusicModal() {
       document.getElementById("music-modal").classList.remove("active");
       editingMusicId = null;
+      restoreModalFocus();
     }
 
     async function saveMusic() {
@@ -1861,11 +1905,13 @@
       document.getElementById("link-icon").value = link ? link.icon || "" : "";
       document.getElementById("link-order").value = link && link.order ? link.order : "";
       document.getElementById("link-modal").classList.add("active");
+      focusModal("link-modal");
     }
 
     function closeLinkModal() {
       document.getElementById("link-modal").classList.remove("active");
       editingLinkId = null;
+      restoreModalFocus();
     }
 
     async function saveLink() {
@@ -2083,6 +2129,7 @@
       btn.onclick = toggleTheme;
       btn.textContent = document.body.classList.contains("dark") ? "☀️" : "🌙";
       btn.title = "切换主题";
+      btn.setAttribute("aria-label", "切换主题");
       document.body.appendChild(btn);
     })();
 

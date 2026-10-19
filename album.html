@@ -423,7 +423,7 @@
           <li><a href="games.html">游戏</a></li>
           <li><a href="links.html">友链</a></li>
         </ul>
-        <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+        <button class="theme-btn" onclick="toggleTheme()" title="切换主题" aria-label="切换主题">🌙</button>
         <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
       </div>
     </div>
@@ -453,12 +453,12 @@
   <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
 
   <!-- 灯箱 -->
-  <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
-    <button class="lightbox-close" onclick="closeLightbox()">✕</button>
-    <button class="lightbox-prev" onclick="prevPhoto(event)">‹</button>
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="照片查看器" onclick="closeLightbox(event)">
+    <button class="lightbox-close" onclick="closeLightbox()" aria-label="关闭照片查看器">✕</button>
+    <button class="lightbox-prev" onclick="prevPhoto(event)" aria-label="上一张">‹</button>
     <img class="lightbox-img" id="lightbox-img" src="" alt="">
-    <button class="lightbox-next" onclick="nextPhoto(event)">›</button>
-    <div class="lightbox-caption" id="lightbox-caption"></div>
+    <button class="lightbox-next" onclick="nextPhoto(event)" aria-label="下一张">›</button>
+    <div class="lightbox-caption" id="lightbox-caption" aria-live="polite"></div>
   </div>
 
   <script>
@@ -614,6 +614,9 @@
       img.src = mirrors[idx];
     }
 
+    // 灯箱打开前最后聚焦的元素（关闭后归还焦点）
+    let lightboxLastFocus = null;
+
     function openLightbox(idx) {
       currentPhotoIdx = idx;
       const p = photos[idx];
@@ -621,16 +624,23 @@
       img.dataset.mirrors = JSON.stringify(p.mirrors || []);
       img.dataset.idx = "0";
       img.classList.remove("loaded");
+      img.alt = p.name || "照片";
       loadImgWithFallback(img);
       document.getElementById("lightbox-caption").textContent = `${idx + 1} / ${photos.length} · ${p.name}`;
       document.getElementById("lightbox").classList.add("active");
       document.body.style.overflow = "hidden";
+      // 焦点移入对话框并陷阱（键盘可用性）
+      lightboxLastFocus = document.activeElement;
+      document.querySelector(".lightbox-close").focus();
     }
 
     function closeLightbox(e) {
       if (e && e.target && !e.target.matches(".lightbox, .lightbox-close")) return;
       document.getElementById("lightbox").classList.remove("active");
       document.body.style.overflow = "";
+      // 焦点归还触发元素
+      if (lightboxLastFocus && lightboxLastFocus.focus) lightboxLastFocus.focus();
+      lightboxLastFocus = null;
     }
 
     function prevPhoto(e) {
@@ -645,12 +655,20 @@
       openLightbox(currentPhotoIdx);
     }
 
-    // 键盘导航
+    // 键盘导航 + 焦点陷阱
     document.addEventListener("keydown", e => {
       if (!document.getElementById("lightbox").classList.contains("active")) return;
       if (e.key === "Escape") closeLightbox();
       if (e.key === "ArrowLeft") prevPhoto(e);
       if (e.key === "ArrowRight") nextPhoto(e);
+      // Tab 焦点陷阱：对话框内循环
+      if (e.key === "Tab") {
+        const focusables = document.querySelectorAll(".lightbox button");
+        if (!focusables.length) return;
+        const first = focusables[0], last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+        else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+      }
     });
 
     async function init() {

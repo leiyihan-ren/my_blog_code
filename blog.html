@@ -286,7 +286,7 @@
           <li><a href="games.html">游戏</a></li>
           <li><a href="links.html">友链</a></li>
         </ul>
-        <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌙</button>
+        <button class="theme-btn" onclick="toggleTheme()" title="切换主题" aria-label="切换主题">🌙</button>
         <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
       </div>
     </div>
@@ -307,7 +307,7 @@
       <span class="post-count" id="post-count">0 篇</span>
     </div>
     <div class="search-box">
-      <input type="text" id="search" placeholder="搜索文章..." oninput="doSearch()">
+      <input aria-label="搜索文章" type="text" id="search" placeholder="搜索文章..." oninput="doSearch()">
     </div>
     <div id="post-list" class="reveal"></div>
   </div>
