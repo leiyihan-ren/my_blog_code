@@ -81,8 +81,7 @@
       color: var(--text);
       line-height: 1.8;
       transition: background 0.3s, color 0.3s;
-      padding-bottom: 70px;
-    }
+      padding-bottom: 70px; overflow-wrap: break-word;}
     /* 阅读进度条 */
     .progress-bar {
       position: fixed;
@@ -534,10 +533,13 @@
       font-weight: 600;
       color: var(--primary);
       font-size: 14px;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .comment-date {
       font-size: 12px;
       color: var(--text-mute);
+      flex-shrink: 0;
     }
     .comment-content {
       color: var(--text);
