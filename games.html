@@ -15,7 +15,7 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
     --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
-    --text-mute: #6b7280; --border: #eaecef; --primary: #4f46e5;
+    --text-mute: #6b7280; --border: #eaecef; --primary: #4f46e5; --primary-text: #4f46e5;
     --primary-2: #7c3aed;
     --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
     --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
@@ -24,9 +24,9 @@
 
     --primary-rgb: 79,70,229;
     --accent-rgb: 99,102,241;
-    --brand-from: #667eea;
+    --brand-from: #5a67d8;
     --brand-to: #764ba2;
-    --brand-rgb: 102,126,234;
+    --brand-rgb: 90,103,216;
     --success-rgb: 22,163,74;
     --warning-rgb: 245,158,11;
     --danger-rgb: 239,68,68;
@@ -74,6 +74,7 @@
     --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
   }
   body.dark {
+    --primary-text: #818cf8;
     --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
     --text-mute: #9ca3af; --border: #2a2a40;
     --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
@@ -117,7 +118,7 @@
   .nav-right { display: flex; align-items: center; gap: 14px; }
   .nav-links { display: flex; gap: 22px; list-style: none; }
   .nav-links a { color: var(--text-light); text-decoration: none; font-size: 15px; transition: color 0.2s var(--ease); }
-  .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+  .nav-links a:hover, .nav-links a.active { color: var(--primary-text); }
   .theme-btn {
     width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border);
     background: var(--card-bg); cursor: pointer; font-size: 16px; transition: all 0.2s var(--ease);
@@ -135,8 +136,8 @@
   .mobile-menu.active { display: flex; }
   .mobile-menu a { color: var(--text-light); text-decoration: none; padding: 10px 0; font-size: 15px; border-bottom: 1px solid var(--border); transition: color 0.2s var(--ease), background 0.2s var(--ease); }
   .mobile-menu a:last-child { border-bottom: none; }
-  .mobile-menu a.active { color: var(--primary); font-weight: 600; }
-  .mobile-menu a:hover { color: var(--primary); background: var(--item-bg, rgba(var(--primary-rgb), 0.06)); }
+  .mobile-menu a.active { color: var(--primary-text); font-weight: 600; }
+  .mobile-menu a:hover { color: var(--primary-text); background: var(--item-bg, rgba(var(--primary-rgb), 0.06)); }
 
   .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
 
@@ -148,7 +149,7 @@
     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   }
   .page-sub { color: var(--text-light); margin-top: 8px; font-size: 15px; }
-  .page-sub b { color: var(--primary); }
+  .page-sub b { color: var(--primary-text); }
 
   /* ---------- 游戏卡片 ---------- */
   .game-grid {
@@ -172,7 +173,7 @@
     transform: translateY(-5px); box-shadow: var(--card-shadow-hover); border-color: rgba(var(--primary-rgb),0.35);
   }
   .game-card:hover::before, .game-card:focus-visible::before { opacity: 1; }
-  .game-card.active { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(var(--primary-rgb),0.15), var(--card-shadow); }
+  .game-card.active { border-color: var(--primary-text); box-shadow: 0 0 0 3px rgba(var(--primary-rgb),0.15), var(--card-shadow); }
   .game-card.active::before { opacity: 1; }
   .game-icon {
     width: 58px; height: 58px; margin: 0 auto 12px; border-radius: 16px;
@@ -187,7 +188,7 @@
     margin-top: 10px; font-size: 11px; color: var(--text-mute);
     background: var(--item-bg); border-radius: var(--radius-pill); padding: 3px 10px; display: inline-flex; gap: 5px;
   }
-  .game-best b { color: var(--primary); font-variant-numeric: tabular-nums; }
+  .game-best b { color: var(--primary-text); font-variant-numeric: tabular-nums; }
 
   /* ---------- 舞台 ---------- */
   .stage {
@@ -208,7 +209,7 @@
     display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--text-mute);
     background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 6px 16px;
   }
-  .stage-score b { color: var(--primary); font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stage-score b { color: var(--primary-text); font-size: 16px; font-variant-numeric: tabular-nums; }
   .stage-body { display: flex; gap: 20px; padding: 22px; }
   .board-wrap {
     flex: 1; min-width: 0; position: relative; border-radius: 16px;
@@ -237,7 +238,7 @@
   .board-overlay.show { display: flex; animation: overlayIn 0.3s var(--ease) both; }
   @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
   .board-overlay h3 { font-size: 24px; font-weight: 800; }
-  .overlay-score { font-size: 34px; font-weight: 800; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .overlay-score { font-size: 34px; font-weight: 800; color: var(--primary-text); font-variant-numeric: tabular-nums; line-height: 1.2; }
   .overlay-score:empty { display: none; }
   .board-overlay p { color: var(--text-light); font-size: 14px; }
 
@@ -254,7 +255,7 @@
   }
   .btn.primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(var(--primary-rgb),0.45); }
   .btn.ghost { background: transparent; color: var(--text-light); border: 1px solid var(--border); }
-  .btn.ghost:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+  .btn.ghost:hover:not(:disabled) { border-color: var(--primary-text); color: var(--primary-text); }
   .btn:active:not(:disabled) { transform: scale(0.97); }
   .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -280,7 +281,7 @@
     border-radius: var(--radius-pill); padding: 5px 14px; font-size: 13px; cursor: pointer;
     font-family: inherit; transition: all 0.2s var(--ease);
   }
-  .opt-btn:hover { border-color: var(--primary); color: var(--primary); }
+  .opt-btn:hover { border-color: var(--primary-text); color: var(--primary-text); }
   .opt-btn.active {
     background: linear-gradient(135deg, var(--primary), var(--primary-2));
     border-color: transparent; color: var(--on-accent); font-weight: 600;
@@ -292,11 +293,11 @@
     gap: 5px; touch-action: none; user-select: none; -webkit-user-select: none;
   }
   .dpad-btn {
-    border: 1px solid var(--border); background: var(--card-bg); color: var(--primary);
+    border: 1px solid var(--border); background: var(--card-bg); color: var(--primary-text);
     border-radius: 12px; font-size: 17px; cursor: pointer; font-family: inherit;
     transition: all 0.12s var(--ease); box-shadow: var(--card-shadow); touch-action: none;
   }
-  .dpad-btn:hover { border-color: var(--primary); }
+  .dpad-btn:hover { border-color: var(--primary-text); }
   .dpad-btn:active { transform: scale(0.9); background: var(--item-bg); }
   .dpad-btn[data-dir="up"] { grid-column: 2; grid-row: 1; }
   .dpad-btn[data-dir="left"] { grid-column: 1; grid-row: 2; }
@@ -394,8 +395,8 @@
     border: 1px solid var(--border); background: transparent; color: var(--text-light);
     border-radius: var(--radius-pill); padding: 5px 14px; font-size: 13px; cursor: pointer; font-family: inherit; transition: all 0.2s var(--ease);
   }
-  .rank-tab:hover { border-color: var(--primary); color: var(--primary); }
-  .rank-tab.active { background: var(--primary); border-color: var(--primary); color: var(--on-accent); }
+  .rank-tab:hover { border-color: var(--primary-text); color: var(--primary-text); }
+  .rank-tab.active { background: var(--primary); border-color: var(--primary-text); color: var(--on-accent); }
   .rank-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .rank-table th, .rank-table td { padding: 10px 8px; text-align: left; border-bottom: 1px solid var(--border); }
   .rank-table th { font-size: 12px; color: var(--text-mute); font-weight: 600; }

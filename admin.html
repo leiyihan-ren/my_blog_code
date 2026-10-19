@@ -9,16 +9,16 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
       --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
-      --text-mute: #6b7280; --border: #e5e7eb; --primary: #4f46e5;
+      --text-mute: #6b7280; --border: #e5e7eb; --primary: #4f46e5; --primary-text: #4f46e5;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
       --item-bg: #f9fafb;
 
       --primary-rgb: 79,70,229;
       --accent-rgb: 99,102,241;
-      --brand-from: #667eea;
+      --brand-from: #5a67d8;
       --brand-to: #764ba2;
-      --brand-rgb: 102,126,234;
+      --brand-rgb: 90,103,216;
       --success-rgb: 22,163,74;
       --warning-rgb: 245,158,11;
       --danger-rgb: 239,68,68;
@@ -47,6 +47,7 @@
       --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
     }
     body.dark {
+      --primary-text: #818cf8;
       --bg: #0f0f1a; --card-bg: #1a1a2e; --text: #e5e7eb; --text-light: #9ca3af;
       --text-mute: #9ca3af; --border: #2a2a40;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
@@ -159,10 +160,10 @@
       margin-bottom: -2px;
       transition: all 0.2s var(--ease);
     }
-    .tab:hover { color: var(--primary); }
+    .tab:hover { color: var(--primary-text); }
     .tab.active {
-      color: var(--primary);
-      border-bottom-color: var(--primary);
+      color: var(--primary-text);
+      border-bottom-color: var(--primary-text);
     }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
@@ -189,7 +190,7 @@
       color: var(--text);
     }
     input:focus, textarea:focus, select:focus {
-      border-color: var(--primary);
+      border-color: var(--primary-text);
       box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
     }
     input:hover, textarea:hover, select:hover {
@@ -329,7 +330,7 @@
       margin-bottom: 16px;
       line-height: 1.6;
     }
-    .auto-notice strong { color: var(--primary); }
+    .auto-notice strong { color: var(--primary-text); }
 
     .gh-status-box {
       border: 1px solid var(--border);
@@ -366,7 +367,7 @@
       font-weight: 600;
       vertical-align: middle;
       background: rgba(var(--primary-rgb), 0.12);
-      color: var(--primary);
+      color: var(--primary-text);
       border: 1px solid rgba(var(--primary-rgb), 0.25);
     }
     .src-badge.src-local {
@@ -495,7 +496,7 @@
     }
     .back-link {
       display: inline-block;
-      color: var(--primary);
+      color: var(--primary-text);
       text-decoration: none;
       margin-bottom: 20px;
       font-size: 14px;
@@ -762,7 +763,7 @@
         <div class="tab-content" id="tab-links">
           <h2>友链管理</h2>
           <p style="color:var(--text-mute);font-size:13px;margin-bottom:14px">
-            添加后会展示在 <a href="links.html" target="_blank" class="help-link" style="color:var(--primary)">友情链接页</a>，「排序」数字越小越靠前。
+            添加后会展示在 <a href="links.html" target="_blank" class="help-link" style="color:var(--primary-text)">友情链接页</a>，「排序」数字越小越靠前。
           </p>
           <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openLinkModal()">+ 添加友链</button>
           <div id="links-list"></div>
@@ -772,7 +773,7 @@
         <div class="tab-content" id="tab-games">
           <h2>游戏管理</h2>
           <p style="color:var(--text-mute);font-size:13px;margin-bottom:14px">
-            查看 <a href="games.html" target="_blank" class="help-link" style="color:var(--primary)">游戏大厅</a> 的各游戏排行榜，可清空单个游戏的全部成绩。
+            查看 <a href="games.html" target="_blank" class="help-link" style="color:var(--primary-text)">游戏大厅</a> 的各游戏排行榜，可清空单个游戏的全部成绩。
           </p>
           <div id="games-list"></div>
         </div>
@@ -1944,7 +1945,7 @@
           <div class="list-item-info">
             <div class="list-item-title">${meta.icon} ${meta.name}</div>
             <div class="list-item-meta">
-              ${list.length ? `上榜 ${list.length} 人 · 最高 <b style="color:var(--primary)">${escapeHtml(String(top.score))}</b> ${meta.unit}（${escapeHtml(top.name)}）` : "暂无成绩"}
+              ${list.length ? `上榜 ${list.length} 人 · 最高 <b style="color:var(--primary-text)">${escapeHtml(String(top.score))}</b> ${meta.unit}（${escapeHtml(top.name)}）` : "暂无成绩"}
             </div>
           </div>
           <div class="list-item-actions">

@@ -41,7 +41,7 @@
     align-items: center;
     justify-content: center;
     font-size: 12px;
-    color: var(--primary, #4f46e5);
+    color: var(--primary-text, #4f46e5);
     border-top: 1px solid var(--border, #eaecef);
     border-left: 1px solid var(--border, #eaecef);
     border-right: 1px solid var(--border, #eaecef);
@@ -60,7 +60,7 @@
   .mp-cover {
     width: 48px; height: 48px;
     border-radius: 10px;
-    background: var(--grad-brand, linear-gradient(135deg, #667eea, #764ba2));
+    background: var(--grad-brand, linear-gradient(135deg, #5a67d8, #764ba2));
     display: flex;
     align-items: center;
     justify-content: center;
@@ -201,7 +201,7 @@
   }
   /* 播放模式按钮激活态 */
   .mp-mode-btn.mp-mode-active {
-    color: var(--primary, #4f46e5);
+    color: var(--primary-text, #4f46e5);
     background: rgba(var(--primary-rgb, 79,70,229),0.12);
   }
   .mp-volume {
@@ -290,7 +290,7 @@
   .mp-playlist-item:hover { background: var(--item-bg, #f9fafb); }
   .mp-playlist-item.active {
     background: rgba(var(--primary-rgb, 79,70,229),0.1);
-    color: var(--primary, #4f46e5);
+    color: var(--primary-text, #4f46e5);
   }
   .mp-playlist-item-eq {
     width: 16px;
@@ -314,7 +314,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .mp-playlist-item.active .mp-playlist-item-artist { color: var(--primary, #4f46e5); }
+  .mp-playlist-item.active .mp-playlist-item-artist { color: var(--primary-text, #4f46e5); }
   /* 当前播放条目的均衡器跳动动画 */
   .mp-playlist-item.active .mp-eq-bar {
     display: inline-block;

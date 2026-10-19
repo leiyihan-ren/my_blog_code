@@ -21,6 +21,7 @@
       --text-mute: #6b7280;
       --border: #eaecef;
       --primary: #4f46e5;
+      --primary-text: #4f46e5;
       --primary-hover: #4338ca;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
@@ -28,9 +29,9 @@
 
       --primary-rgb: 79,70,229;
       --accent-rgb: 99,102,241;
-      --brand-from: #667eea;
+      --brand-from: #5a67d8;
       --brand-to: #764ba2;
-      --brand-rgb: 102,126,234;
+      --brand-rgb: 90,103,216;
       --success-rgb: 22,163,74;
       --warning-rgb: 245,158,11;
       --danger-rgb: 239,68,68;
@@ -56,6 +57,7 @@
       --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
     }
     body.dark {
+      --primary-text: #818cf8;
       --bg: #0f0f1a;
       --card-bg: #1a1a2e;
       --text: #e5e7eb;
@@ -152,7 +154,7 @@
       transition: color 0.2s var(--ease);
       position: relative;
     }
-    .nav-links a:hover, .nav-links a.active { color: var(--primary); }
+    .nav-links a:hover, .nav-links a.active { color: var(--primary-text); }
     .nav-links a.active::after {
       content: "";
       position: absolute;
@@ -329,7 +331,7 @@
     .section-title .more {
       font-size: 14px;
       font-weight: 400;
-      color: var(--primary);
+      color: var(--primary-text);
       text-decoration: none;
       margin-left: auto;
       transition: all 0.2s var(--ease);
@@ -364,7 +366,7 @@
     .info-card:hover .icon { transform: scale(1.2); }
     .info-card .label { font-size: 13px; color: var(--text-mute); margin-bottom: 6px; }
     .info-card .value { font-size: 16px; font-weight: 600; color: var(--text); }
-    .info-card .value a { color: var(--primary); text-decoration: none; transition: color 0.2s var(--ease); }
+    .info-card .value a { color: var(--primary-text); text-decoration: none; transition: color 0.2s var(--ease); }
     .info-card .value a:hover { color: var(--primary-hover); text-decoration: underline; }
 
     /* 文章卡片 */
@@ -394,7 +396,7 @@
     .post-card:hover {
       transform: translateY(-4px);
       box-shadow: var(--card-shadow-hover);
-      border-color: var(--primary);
+      border-color: var(--primary-text);
     }
     .post-card h3 {
       font-size: 19px;
@@ -406,7 +408,7 @@
       text-decoration: none;
       transition: color 0.2s var(--ease);
     }
-    .post-card:hover h3 a, .post-card h3 a:hover { color: var(--primary); }
+    .post-card:hover h3 a, .post-card h3 a:hover { color: var(--primary-text); }
     .post-meta {
       font-size: 13px;
       color: var(--text-mute);
@@ -441,7 +443,7 @@
     .rank-card:hover {
       transform: translateX(4px);
       box-shadow: var(--card-shadow-hover);
-      border-color: var(--primary);
+      border-color: var(--primary-text);
     }
     .rank-no {
       font-size: 22px;
@@ -460,7 +462,7 @@
       text-overflow: ellipsis;
     }
     .rank-title a { color: inherit; text-decoration: none; }
-    .rank-card:hover .rank-title a { color: var(--primary); }
+    .rank-card:hover .rank-title a { color: var(--primary-text); }
     .rank-meta {
       font-size: 12px;
       color: var(--text-mute);
@@ -548,7 +550,7 @@
       transition: all 0.2s var(--ease);
     }
     .mobile-menu a:hover, .mobile-menu a.active {
-      color: var(--primary);
+      color: var(--primary-text);
       background: var(--item-bg, rgba(var(--primary-rgb),0.06));
     }
 
