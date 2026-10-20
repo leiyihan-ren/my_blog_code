@@ -11,73 +11,20 @@
   <meta property="og:url" content="https://leiyihan.dpdns.org/index.html">
   <meta name="twitter:card" content="summary">
   <title>首页 - 我的博客</title>
-  <style>
+  <link rel="stylesheet" href="common.css">
+    <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
-      --bg: #f8f9ff;
-      --card-bg: #ffffff;
-      --text: #333;
-      --text-light: #666;
-      --text-mute: #6b7280;
-      --border: #eaecef;
-      --primary: #4f46e5;
-      --primary-text: #4f46e5;
-      --primary-hover: #4338ca;
-      --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
       --nav-bg: rgba(255, 255, 255, 0.85);
 
-      --primary-rgb: 79,70,229;
-      --accent-rgb: 99,102,241;
-      --brand-from: #5a67d8;
-      --brand-to: #764ba2;
-      --brand-rgb: 90,103,216;
-      --success-rgb: 22,163,74;
-      --warning-rgb: 245,158,11;
-      --danger-rgb: 239,68,68;
-      --on-accent: #fff;
-      --brand-deep: #5b21b6;
-      --grad-brand: linear-gradient(135deg, var(--brand-from), var(--brand-to));
-      --success: #16a34a;
-      --success-bg: #dcfce7;
-      --success-text: #166534;
-      --danger: #dc2626;
-      --danger-solid: #ef4444;
-      --danger-bg: #fee2e2;
-      --danger-text: #991b1b;
-      --warning: #d97706;
-      --warning-strong: #b45309;
-      --warning-bg: #fef3c7;
-      --warning-text: #92400e;
-      --radius-pill: 999px;
-      --primary-disabled: #a5b4fc;
       --grad-hero: linear-gradient(135deg, var(--brand-from) 0%, var(--brand-to) 50%, var(--brand-deep) 100%);
 
-      --ease: cubic-bezier(0.4, 0, 0.2, 1);
-      --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
     }
     body.dark {
-      --primary-text: #818cf8;
-      --bg: #0f0f1a;
-      --card-bg: #1a1a2e;
-      --text: #e5e7eb;
-      --text-light: #9ca3af;
-      --text-mute: #9ca3af;
-      --border: #2a2a40;
-      --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.5);
       --nav-bg: rgba(15, 15, 26, 0.85);
 
-      --success: #22c55e;
-      --success-bg: rgba(34,197,94,0.16);
-      --success-text: #86efac;
-      --danger: #fca5a5;
-      --danger-bg: rgba(239,68,68,0.16);
-      --danger-text: #fca5a5;
-      --warning: #fbbf24;
-      --warning-strong: #fbbf24;
-      --warning-bg: rgba(251,191,36,0.14);
-      --warning-text: #fcd34d;
     }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -595,6 +542,7 @@
     }
   } catch (e) {}
 </script>
+<script src="common.js"></script>
 <main>
   <nav class="navbar">
     <div class="nav-inner">
@@ -609,7 +557,7 @@
           <li><a href="games.html">游戏</a></li>
           <li><a href="links.html">友链</a></li>
         </ul>
-        <button class="theme-btn" onclick="toggleTheme()" title="切换主题" aria-label="切换主题">🌙</button>
+        <button class="theme-btn" title="切换主题" aria-label="切换主题">🌙</button>
         <button class="nav-toggle" id="navToggle" aria-label="菜单">
           <span></span><span></span><span></span>
         </button>
@@ -725,51 +673,6 @@
         date: new Date().toISOString().split("T")[0] }
     ];
 
-    // 安全的 localStorage 读写（隐私模式/存储被禁用的浏览器不抛错）
-    const safeStorage = {
-      get(key) { try { return localStorage.getItem(key); } catch(e) { return null; } },
-      set(key, val) { try { localStorage.setItem(key, val); } catch(e) {} }
-    };
-
-    // 主题切换
-    function toggleTheme() {
-      document.body.classList.toggle("dark");
-      const isDark = document.body.classList.contains("dark");
-      safeStorage.set("theme", isDark ? "dark" : "light");
-      document.querySelector(".theme-btn").textContent = isDark ? "☀️" : "🌙";
-    }
-    function initTheme() {
-      const saved = safeStorage.get("theme");
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      if (saved === "dark" || (!saved && prefersDark)) {
-        document.body.classList.add("dark");
-        document.querySelector(".theme-btn").textContent = "☀️";
-      }
-    }
-    initTheme();
-
-    // 移动端菜单
-    const navToggle = document.getElementById("navToggle");
-    const mobileMenu = document.getElementById("mobileMenu");
-    if (navToggle && mobileMenu) {
-      navToggle.addEventListener("click", () => {
-        navToggle.classList.toggle("active");
-        mobileMenu.classList.toggle("active");
-      });
-      mobileMenu.querySelectorAll("a").forEach(a => {
-        a.addEventListener("click", () => {
-          navToggle.classList.remove("active");
-          mobileMenu.classList.remove("active");
-        });
-      });
-      document.addEventListener("click", e => {
-        if (!e.target.closest(".nav-right") && !e.target.closest("#mobileMenu")) {
-          navToggle.classList.remove("active");
-          mobileMenu.classList.remove("active");
-        }
-      });
-    }
-
     function renderSite(s) {
       document.title = s.title;
       document.getElementById("nav-logo").textContent = s.title;
@@ -860,24 +763,6 @@
     function scrollToTop() {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
-    function handleNavScroll() {
-      const navbar = document.querySelector(".navbar");
-      if (window.scrollY > 10) navbar.classList.add("scrolled");
-      else navbar.classList.remove("scrolled");
-    }
-    let scrollTicking = false;
-    window.addEventListener("scroll", () => {
-      if (!scrollTicking) {
-        requestAnimationFrame(() => {
-          handleNavScroll();
-          const btn = document.getElementById("backTop");
-          btn.classList.toggle("show", window.scrollY > 300);
-          scrollTicking = false;
-        });
-        scrollTicking = true;
-      }
-    });
-    handleNavScroll();
 
     // 滚动渐入动画
     function setupReveal() {

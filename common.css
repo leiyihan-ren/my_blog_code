@@ -1,0 +1,101 @@
+/* ============================================================
+   common.css —— 全站公共基建（步骤 5 重构产物）
+   原 9 个页面各自重复的设计令牌（明/暗变量）与交互基元，
+   提取至此统一维护。级联顺序：本文件先行，页面 <style> 在后，
+   页面私有变量与样式可无缝覆盖同名项。
+   ============================================================ */
+
+/* ---- 设计令牌：明亮主题（9 页共有值） ---- */
+:root {
+  --bg: #f8f9ff;
+  --card-bg: #ffffff;
+  --text: #333;
+  --text-light: #666;
+  --text-mute: #6b7280;
+  --border: #eaecef;
+  --primary: #4f46e5;
+  --primary-text: #4f46e5;
+  --primary-hover: #4338ca;
+  --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  --primary-rgb: 79,70,229;
+  --accent-rgb: 99,102,241;
+  --brand-from: #5a67d8;
+  --brand-to: #764ba2;
+  --brand-rgb: 90,103,216;
+  --success-rgb: 22,163,74;
+  --warning-rgb: 245,158,11;
+  --danger-rgb: 239,68,68;
+  --on-accent: #fff;
+  --brand-deep: #5b21b6;
+  --grad-brand: linear-gradient(135deg, var(--brand-from), var(--brand-to));
+  --success: #16a34a;
+  --success-bg: #dcfce7;
+  --success-text: #166534;
+  --danger: #dc2626;
+  --danger-solid: #ef4444;
+  --danger-bg: #fee2e2;
+  --danger-text: #991b1b;
+  --warning: #d97706;
+  --warning-strong: #b45309;
+  --warning-bg: #fef3c7;
+  --warning-text: #92400e;
+  --radius-pill: 999px;
+  --primary-disabled: #a5b4fc;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.2, 0.8, 0.3, 1.1);
+}
+
+/* ---- 设计令牌：暗色主题（9 页共有值） ---- */
+body.dark {
+  --primary-text: #818cf8;
+  --bg: #0f0f1a;
+  --card-bg: #1a1a2e;
+  --text: #e5e7eb;
+  --text-light: #9ca3af;
+  --text-mute: #9ca3af;
+  --border: #2a2a40;
+  --card-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  --success: #22c55e;
+  --success-bg: rgba(34,197,94,0.16);
+  --success-text: #86efac;
+  --danger: #fca5a5;
+  --danger-bg: rgba(239,68,68,0.16);
+  --danger-text: #fca5a5;
+  --warning: #fbbf24;
+  --warning-strong: #fbbf24;
+  --warning-bg: rgba(251,191,36,0.14);
+  --warning-text: #fcd34d;
+}
+
+/* ---- 交互基元：键盘焦点环（明暗同式，主题色自适应） ---- */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ---- 交互基元：按下态缩放（opacity 方案，避免与组件既有 transform 冲突） ---- */
+a:active, button:active, [role="button"]:active,
+.game-card:active, .post-card:active, .link-card:active, .timeline-item:active,
+.rank-tab:active, .tab:active, .opt-btn:active { opacity: 0.85; }
+
+/* ---- 滚动条（细窄风格，主题色 thumb） ---- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--primary-rgb),0.3);
+  border-radius: 4px;
+  transition: background 0.2s var(--ease);
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(var(--primary-rgb),0.5); }
+body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
+body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
+
+/* ---- 尊重系统减弱动效偏好：关闭装饰性动画与过渡 ---- */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
