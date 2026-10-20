@@ -84,7 +84,7 @@ const CONFIG = {
     popularLimit: 5,
   },
   /** 允许上报成绩的游戏（防止脏数据写入） */
-  games: ["snake", "breakout", "2048", "memory", "mines"],
+  games: ["snake", "breakout", "2048", "memory", "mines", "reaction", "hanoi"],
 };
 
 /**

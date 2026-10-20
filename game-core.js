@@ -348,6 +348,7 @@ window.GameCore = (function () {
     $("stage-icon").textContent = def.icon;
     $("stage-name").textContent = def.name;
     $("board").innerHTML = "";
+    $("stage-score").innerHTML = ""; // 清空上一局计分板，避免残留旧分数/生命值
     $("stage-extra").innerHTML = ""; // 各游戏自定义控件（如贪吃蛇速度档位）
     $("overlay").classList.add("show");
     $("overlay-title").textContent = def.name;

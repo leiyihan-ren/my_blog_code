@@ -131,7 +131,10 @@
     .theme-btn:hover { transform: scale(1.1); }
     .theme-btn:active { transform: scale(0.97); }
     .back-top:active { transform: scale(0.92); }
-    .lightbox-close:active, .lightbox-prev:active, .lightbox-next:active { transform: scale(0.92); }
+    .lightbox-close:active { transform: scale(0.92); }
+    /* prev/next 基础样式带 translateY(-50%) 垂直居中，:active 缩放必须保留该位移——
+       否则按下瞬间按钮跳位半个身高，mouseup 落到背景上，点击关闭而非切换照片 */
+    .lightbox-prev:active, .lightbox-next:active { transform: translateY(-50%) scale(0.92); }
 
     .container { max-width: 1200px; margin: 0 auto; padding: 50px 24px; }
     .page-header {
@@ -208,6 +211,28 @@
     .lazy-img.loaded {
       opacity: 1;
     }
+    /* 弱网反馈：图片加载中显示微光骨架，而非空白 */
+    .photo-img-wrap.loading::after {
+      content: "";
+      position: absolute; inset: 0;
+      background: linear-gradient(100deg, transparent 20%, rgba(var(--primary-rgb),0.10) 50%, transparent 80%);
+      animation: imgShimmer 1.3s var(--ease) infinite;
+      pointer-events: none;
+    }
+    @keyframes imgShimmer {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(100%); }
+    }
+    /* 全部镜像加载失败：占位提示 + 点击重试 */
+    .photo-img-wrap.failed::before { padding-top: 62%; }
+    .photo-img-wrap.failed::after {
+      content: "⚠️ 加载失败，点击重试";
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; color: var(--text-mute); text-align: center; padding: 8px;
+    }
+    .photo-img-wrap.failed .lazy-img { display: none; }
+    .photo-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .photo-info {
       padding: 12px 14px;
     }
@@ -288,6 +313,22 @@
       text-align: center;
       max-width: 80%;
     }
+    /* 灯箱加载态（切换照片时的等待反馈） */
+    .lightbox-loading {
+      display: none;
+      position: absolute; inset: 0;
+      align-items: center; justify-content: center;
+      color: var(--on-accent);
+    }
+    .lightbox-loading.show { display: flex; }
+    /* 灯箱失败态（全部镜像不可用） */
+    .lightbox-error {
+      display: none;
+      position: absolute; inset: 0;
+      flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; color: var(--on-accent); font-size: 15px; text-align: center;
+    }
+    .lightbox-error.show { display: flex; }
 
     .loading, .empty {
       text-align: center;
@@ -457,6 +498,11 @@
     <button class="lightbox-close" onclick="closeLightbox()" aria-label="关闭照片查看器">✕</button>
     <button class="lightbox-prev" onclick="prevPhoto(event)" aria-label="上一张">‹</button>
     <img class="lightbox-img" id="lightbox-img" src="" alt="">
+    <div class="lightbox-loading" id="lightbox-loading" aria-hidden="true"><div class="loading-spinner"></div></div>
+    <div class="lightbox-error" id="lightbox-error" role="status">
+      <p>😵 图片加载失败</p>
+      <button class="album-retry" onclick="retryLightbox()">🔄 重试</button>
+    </div>
     <button class="lightbox-next" onclick="nextPhoto(event)" aria-label="下一张">›</button>
     <div class="lightbox-caption" id="lightbox-caption" aria-live="polite"></div>
   </div>
@@ -569,8 +615,8 @@
         return;
       }
       el.innerHTML = `<div class="masonry">${items.map((p, i) => `
-        <div class="photo-item" onclick="openLightbox(${i})" style="animation:fadeUp 0.5s ease ${i * 0.03}s both">
-          <div class="photo-img-wrap">
+        <div class="photo-item" data-idx="${i}" role="button" tabindex="0" aria-label="查看照片 ${escapeAttr(p.name)}" style="animation:fadeUp 0.5s ease ${i * 0.03}s both">
+          <div class="photo-img-wrap loading">
             <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name)}" class="lazy-img">
           </div>
           <div class="photo-info">
@@ -578,6 +624,30 @@
           </div>
         </div>
       `).join("")}</div>`;
+
+      // 照片项键盘可操作：Enter / 空格 打开灯箱（鼠标走 click）
+      el.querySelectorAll(".photo-item").forEach((item) => {
+        const open = () => {
+          const wrap = item.querySelector(".photo-img-wrap");
+          // 加载失败态：点击时双管齐下——重试网格缩略图，同时打开灯箱
+          // （灯箱有独立加载链路与错误态重试按钮，弱网下大图体验更完整；
+          //  只重试不开灯箱会违背「照片加载失败时 UI 仍可用」的交互契约）
+          if (wrap && wrap.classList.contains("failed")) {
+            wrap.classList.remove("failed");
+            wrap.classList.add("loading");
+            const img = item.querySelector(".lazy-img");
+            if (img) { img.dataset.idx = "0"; loadImgWithFallback(img); }
+          }
+          openLightbox(parseInt(item.dataset.idx, 10));
+        };
+        item.addEventListener("click", open);
+        item.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            open();
+          }
+        });
+      });
 
       // 使用 IntersectionObserver 实现懒加载
       if ("IntersectionObserver" in window) {
@@ -599,23 +669,59 @@
       }
     }
 
-    /** 图片多镜像兜底加载：当前镜像失败时自动切换下一个 */
+    /**
+     * 图片多镜像兜底加载：当前镜像失败时自动切换下一个。
+     * 首镜像是同源代理 /api/github/raw/*（边缘缓存 + 弱网下 Cloudflare 就近返回），
+     * 其后依次是 jsDelivr / raw / statically 三个公网 CDN。
+     * 全部失败时派发 imgallfailed 事件，由容器（网格/灯箱）决定呈现什么。
+     */
     function loadImgWithFallback(img) {
       let mirrors = [];
       try { mirrors = JSON.parse(img.dataset.mirrors || "[]"); } catch (e) { mirrors = []; }
       let idx = parseInt(img.dataset.idx || "0", 10);
       if (idx >= mirrors.length) {
-        img.classList.add("loaded"); // 全部镜像失败：保留占位，不卡死懒加载
+        // 全部镜像失败：保留占位，不卡死懒加载；通知容器呈现失败态
+        img.dispatchEvent(new CustomEvent("imgallfailed", { bubbles: true }));
         return;
       }
       img.dataset.idx = String(idx + 1);
-      img.onload = () => img.classList.add("loaded");
+      img.onload = () => {
+        img.classList.add("loaded");
+        const wrap = img.closest(".photo-img-wrap");
+        if (wrap) wrap.classList.remove("loading");
+        if (img.closest(".lightbox")) hideLightboxLoading();
+      };
       img.onerror = () => loadImgWithFallback(img);
       img.src = mirrors[idx];
     }
 
     // 灯箱打开前最后聚焦的元素（关闭后归还焦点）
     let lightboxLastFocus = null;
+
+    function showLightboxLoading() {
+      document.getElementById("lightbox-loading").classList.add("show");
+      document.getElementById("lightbox-error").classList.remove("show");
+    }
+    function hideLightboxLoading() {
+      document.getElementById("lightbox-loading").classList.remove("show");
+    }
+    function showLightboxError() {
+      document.getElementById("lightbox-loading").classList.remove("show");
+      document.getElementById("lightbox-error").classList.add("show");
+    }
+
+    /** 灯箱内图片全部镜像失败时呈现失败态（事件由 loadImgWithFallback 派发） */
+    document.getElementById("lightbox").addEventListener("imgallfailed", (e) => {
+      if (e.target.id === "lightbox-img") showLightboxError();
+    });
+    /** 网格内图片全部镜像失败时，占位格呈现失败态（点击可重试） */
+    document.getElementById("album-content").addEventListener("imgallfailed", (e) => {
+      const wrap = e.target.closest(".photo-img-wrap");
+      if (wrap) {
+        wrap.classList.remove("loading");
+        wrap.classList.add("failed");
+      }
+    });
 
     function openLightbox(idx) {
       currentPhotoIdx = idx;
@@ -625,21 +731,59 @@
       img.dataset.idx = "0";
       img.classList.remove("loaded");
       img.alt = p.name || "照片";
+      showLightboxLoading();
       loadImgWithFallback(img);
       document.getElementById("lightbox-caption").textContent = `${idx + 1} / ${photos.length} · ${p.name}`;
-      document.getElementById("lightbox").classList.add("active");
+      const lb = document.getElementById("lightbox");
+      const wasActive = lb.classList.contains("active");
+      lb.classList.add("active");
       document.body.style.overflow = "hidden";
-      // 焦点移入对话框并陷阱（键盘可用性）
-      lightboxLastFocus = document.activeElement;
-      document.querySelector(".lightbox-close").focus();
+      // 焦点移入对话框并陷阱（键盘可用性）。仅首次打开时记录触发元素——
+      // 照片切换时灯箱已激活，若重复记录会把对话框内的关闭按钮当成触发元素，
+      // 导致关闭后焦点无法归还到最初的照片项。
+      if (!wasActive) {
+        lightboxLastFocus = document.activeElement;
+        document.querySelector(".lightbox-close").focus();
+      }
+      preloadNeighbors(idx);
     }
 
+    /** 预加载相邻照片的首镜像：左右切换时弱网下也能较快呈现 */
+    function preloadNeighbors(idx) {
+      if (!photos.length) return;
+      for (const n of [(idx - 1 + photos.length) % photos.length, (idx + 1) % photos.length]) {
+        const m = photos[n] && photos[n].mirrors;
+        if (m && m[0]) { const pre = new Image(); pre.src = m[0]; }
+      }
+    }
+
+    function retryLightbox() {
+      const img = document.getElementById("lightbox-img");
+      img.dataset.idx = "0";
+      showLightboxLoading();
+      loadImgWithFallback(img);
+    }
+
+    // 记录按下点：仅当按下与松开都落在背景/关闭按钮上才允许关闭，
+    // 防御「按钮带按压动画导致按下后位移、释放在背景」类回归（mousedown 在按钮、mouseup 在背景时 click 目标为背景）。
+    // 按下点只对紧随其后的那一次 click 有效（用后即焚），避免残留拦截 Esc/程序化关闭。
+    let lightboxPressTarget = null;
+    document.getElementById("lightbox").addEventListener("mousedown", (e) => { lightboxPressTarget = e.target; });
+    document.getElementById("lightbox").addEventListener("click", () => {
+      setTimeout(() => { lightboxPressTarget = null; }, 0);
+    }, true); // capture：即使子按钮 stopPropagation 也能清理
+    document.addEventListener("mouseleave", () => { lightboxPressTarget = null; });
+    window.addEventListener("blur", () => { lightboxPressTarget = null; });
+
     function closeLightbox(e) {
+      const press = lightboxPressTarget;
+      lightboxPressTarget = null;
       if (e && e.target && !e.target.matches(".lightbox, .lightbox-close")) return;
+      if (press && !press.matches(".lightbox, .lightbox-close")) return;
+      // 先归还焦点再隐藏：灯箱隐藏后其中的按钮不可聚焦，focus() 会静默失败落到 body
+      if (lightboxLastFocus && lightboxLastFocus.focus) lightboxLastFocus.focus();
       document.getElementById("lightbox").classList.remove("active");
       document.body.style.overflow = "";
-      // 焦点归还触发元素
-      if (lightboxLastFocus && lightboxLastFocus.focus) lightboxLastFocus.focus();
       lightboxLastFocus = null;
     }
 

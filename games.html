@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="在线小游戏大厅：贪吃蛇、俄罗斯方块、2048、扫雷、记忆翻牌与打砖块，支持全站排行榜。">
+  <meta name="description" content="在线小游戏大厅：贪吃蛇、俄罗斯方块、2048、扫雷、记忆翻牌、打砖块、闪电靶场与汉诺塔大师，支持全站排行榜。">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="我的博客">
   <meta property="og:title" content="游戏大厅 - 我的博客">
-  <meta property="og:description" content="在线小游戏大厅：贪吃蛇、俄罗斯方块、2048、扫雷、记忆翻牌与打砖块，支持全站排行榜。">
+  <meta property="og:description" content="在线小游戏大厅：贪吃蛇、俄罗斯方块、2048、扫雷、记忆翻牌、打砖块、闪电靶场与汉诺塔大师，支持全站排行榜。">
   <meta property="og:url" content="https://leiyihan.dpdns.org/games.html">
   <meta name="twitter:card" content="summary">
 <title>游戏大厅 - 我的博客</title>
@@ -383,6 +383,71 @@
   .n1{color:var(--game-blue)}.n2{color:var(--game-green)}.n3{color:var(--danger-solid)}.n4{color:var(--game-purple)}
   .n5{color:var(--game-orange)}.n6{color:var(--game-cyan)}.n7{color:var(--game-gray)}.n8{color:var(--game-gray-light)}
 
+  /* ---------- 闪电靶场（反应类） ---------- */
+  .rt-board {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    width: min(340px, 100%); touch-action: manipulation;
+    user-select: none; -webkit-user-select: none;
+  }
+  .rt-cell {
+    aspect-ratio: 1; border-radius: 14px; border: 2px solid var(--border);
+    background: var(--card-bg); cursor: pointer; position: relative; padding: 0;
+    transition: transform 0.12s var(--ease), background 0.12s var(--ease), border-color 0.12s var(--ease);
+  }
+  .rt-cell:hover { border-color: var(--primary-text); }
+  .rt-cell:active { transform: scale(0.94); }
+  .rt-cell.target {
+    background: var(--grad-brand); border-color: transparent;
+    box-shadow: 0 0 0 4px rgba(var(--primary-rgb),0.25), 0 6px 18px rgba(var(--primary-rgb),0.35);
+    transform: scale(1.05); animation: rtPulse 0.55s var(--ease) infinite alternate;
+  }
+  .rt-cell.target::after { content: "🎯"; font-size: 26px; }
+  @keyframes rtPulse { from { filter: brightness(1); } to { filter: brightness(1.3); } }
+  .rt-cell.hit { background: var(--success); border-color: transparent; animation: rtHit 0.22s var(--ease) both; }
+  @keyframes rtHit { 0% { transform: scale(1.2); } 100% { transform: scale(1); } }
+  .rt-cell.wrong { background: var(--danger-bg); border-color: var(--danger-solid); animation: rtShake 0.3s var(--ease) both; }
+  @keyframes rtShake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+  .rt-cell.expire { background: var(--item-bg); border-color: var(--border); opacity: 0.5; }
+
+  /* ---------- 汉诺塔（策略/休闲） ---------- */
+  .hn-board { display: flex; gap: 12px; width: min(430px, 100%); touch-action: manipulation; }
+  .hn-rod {
+    flex: 1; position: relative; border: none; background: transparent; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+    height: 250px; padding: 0 4px 22px; font-family: inherit; color: var(--text);
+    border-radius: 12px; transition: background 0.15s var(--ease);
+  }
+  .hn-rod:hover { background: var(--item-bg); }
+  .hn-rod.picked { background: var(--item-bg); box-shadow: inset 0 0 0 2px rgba(var(--primary-rgb),0.4); }
+  .hn-pole {
+    position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    width: 8px; height: 200px; border-radius: 4px;
+    background: linear-gradient(180deg, rgba(var(--primary-rgb),0.4), rgba(var(--primary-rgb),0.12));
+  }
+  .hn-base {
+    position: absolute; bottom: 12px; left: 0; right: 0; height: 10px;
+    border-radius: 6px; background: var(--border);
+  }
+  .hn-disks {
+    position: relative; z-index: 1; display: flex; flex-direction: column-reverse;
+    align-items: center; gap: 3px; width: 100%;
+  }
+  .hn-disk {
+    height: 20px; border-radius: 10px; color: #fff; font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+    transition: transform 0.15s var(--ease-spring);
+  }
+  .hn-disk.lift { transform: translateY(-14px); box-shadow: 0 8px 16px rgba(0,0,0,0.25); }
+  .hn-tag {
+    position: absolute; top: 4px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; font-weight: 700; color: var(--text-mute);
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-pill);
+    padding: 1px 9px; font-variant-numeric: tabular-nums;
+  }
+  .hn-rod.shake { animation: hnShake 0.4s var(--ease) both; }
+  @keyframes hnShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+
   /* ---------- 排行榜 ---------- */
   .rank-panel {
     margin-top: 26px; background: var(--card-bg); border: 1px solid var(--border);
@@ -504,7 +569,7 @@
 <div class="container">
   <div class="page-header">
     <h1 class="page-title">🎮 游戏大厅</h1>
-    <p class="page-sub">学习之余放松一下，共 <b>5</b> 款小游戏 · 支持键盘 / 鼠标 / 触屏 · 成绩可上传全站排行榜</p>
+    <p class="page-sub">学习之余放松一下，共 <b>7</b> 款小游戏 · 支持键盘 / 鼠标 / 触屏 · 成绩可上传全站排行榜</p>
   </div>
 
   <div class="game-grid" id="game-grid"></div>
@@ -563,6 +628,8 @@
 <script src="games/g2048.js"></script>
 <script src="games/memory.js"></script>
 <script src="games/mines.js"></script>
+<script src="games/reaction.js"></script>
+<script src="games/hanoi.js"></script>
 <script src="music-player.js" defer></script>
 <script>
 "use strict";
