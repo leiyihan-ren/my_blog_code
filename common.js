@@ -73,10 +73,32 @@
     apply();
   }
 
+  /* ---- PWA：注册 Service Worker + 新版本自动接管刷新 ----
+     hadController=false 的首次注册不触发刷新，避免首访莫名 reload；
+     仅当「旧 SW → 新 SW」接管（发布了新版本）时自动刷新一次。 */
+  function initPwa() {
+    if (!("serviceWorker" in navigator)) return;
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || reloading) return;
+      reloading = true;
+      window.location.reload();
+    });
+    const register = () => {
+      navigator.serviceWorker.register("sw.js").catch((e) => {
+        console.warn("[pwa] Service Worker 注册失败：", e && e.message);
+      });
+    };
+    if (document.readyState === "complete") register();
+    else window.addEventListener("load", register);
+  }
+
   function boot() {
     initTheme();
     initMobileMenu();
     initScrollFx();
+    initPwa();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);

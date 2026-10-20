@@ -445,8 +445,10 @@ const CSP_POLICY =
   "style-src 'self' 'unsafe-inline'; " +
   "img-src 'self' data: https:; font-src 'self' data: https:; media-src https: data:; " +
   "connect-src 'self' https://static.cloudflareinsights.com https://cloudflareinsights.com; " +
+  // worker-src 必须放行 'self'：否则浏览器会以 CSP 为由拒绝注册 sw.js（PWA 直接失效）。
+  // sw.js 为同源静态文件，不引入任何外部脚本，放行同源是安全的。
   "frame-src 'none'; object-src 'none'; base-uri 'none'; " +
-  "form-action 'self'; worker-src 'none'";
+  "form-action 'self'; worker-src 'self'";
 
 /** 业务异常：抛出后由入口统一转成错误响应 */
 class HttpError extends Error {
@@ -508,7 +510,12 @@ function staticCacheControl(pathname) {
   if (
     pathname === "/" ||
     pathname.endsWith("/") ||
-    pathname.endsWith(".html")
+    pathname.endsWith(".html") ||
+    // PWA 关键文件禁止长缓存：
+    // sw.js 被 HTTP 缓存旧版本 → 浏览器发现不了新 SW，用户永远看旧页面；
+    // manifest.json 影响安装元数据（名称/图标/主题色），也保持实时。
+    pathname === "/sw.js" ||
+    pathname === "/manifest.json"
   ) {
     return "public, max-age=0, must-revalidate";
   }
