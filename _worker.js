@@ -935,6 +935,8 @@ function ghCacheSet(store, cacheKey, content, etag) {
 
 /** 同 isolate 内并发去重：cacheKey -> 进行中的拉取 Promise */
 const ghInflight = new Map();
+/** 代理路径（/api/github/*）并发去重：upstream URL -> 进行中的拉取 Promise */
+const ghProxyInflight = new Map();
 
 /** 记录最近一次拉取状态到 KV（供管理后台「GitHub 连接状态」排查问题） */
 function recordGhStatus(store, patch) {
@@ -1152,36 +1154,45 @@ async function refreshCacheEntry(cacheKey, cached) {
  */
 async function ghProxyRevalidate(cacheKey, cached, upstream, headers, opts) {
   opts = opts || {};
-  try {
-    const etag = cached ? cached.headers.get("ETag") : null;
-    let res;
-    if (opts.store) {
-      res = await ghApiRequest(upstream, opts.store, opts.env, etag);
-    } else {
-      const h = Object.assign({}, headers || {});
-      if (etag) h["If-None-Match"] = etag;
-      res = await fetchWithTimeout(upstream, { headers: h }, CONFIG.github.timeoutMs);
+  // 与前台拉取共享去重表：过期缓存 + 高并发时，N 个 STALE 响应只会触发 1 次真实重验，
+  // 避免后台重验本身被打成上游风暴（数据路径 ghRevalidate 同理）。
+  if (ghProxyInflight.has(cacheKey.url)) return;
+  const task = (async () => {
+    try {
+      const etag = cached ? cached.headers.get("ETag") : null;
+      let res;
+      if (opts.store) {
+        res = await ghApiRequest(upstream, opts.store, opts.env, etag);
+      } else {
+        const h = Object.assign({}, headers || {});
+        if (etag) h["If-None-Match"] = etag;
+        res = await fetchWithTimeout(upstream, { headers: h }, CONFIG.github.timeoutMs);
+      }
+      if (res.status === 304 && cached) {
+        await refreshCacheEntry(cacheKey, cached);
+        return;
+      }
+      if (!res.ok) return; // 上游故障：保留旧缓存
+      const body = await res.arrayBuffer();
+      const response = new Response(body, {
+        status: 200,
+        headers: {
+          "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
+          "Cache-Control": `public, max-age=${CONFIG.github.cacheTtlSeconds}`,
+          "X-Cache-Time": String(Date.now()),
+        },
+      });
+      const newEtag = res.headers.get("ETag");
+      if (newEtag) response.headers.set("ETag", newEtag);
+      await ghProxyCachePut(cacheKey, response);
+    } catch (e) {
+      /* 保留旧缓存 */
+    } finally {
+      ghProxyInflight.delete(cacheKey.url);
     }
-    if (res.status === 304 && cached) {
-      await refreshCacheEntry(cacheKey, cached);
-      return;
-    }
-    if (!res.ok) return; // 上游故障：保留旧缓存
-    const body = await res.arrayBuffer();
-    const response = new Response(body, {
-      status: 200,
-      headers: {
-        "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
-        "Cache-Control": `public, max-age=${CONFIG.github.cacheTtlSeconds}`,
-        "X-Cache-Time": String(Date.now()),
-      },
-    });
-    const newEtag = res.headers.get("ETag");
-    if (newEtag) response.headers.set("ETag", newEtag);
-    await ghProxyCachePut(cacheKey, response);
-  } catch (e) {
-    /* 保留旧缓存 */
-  }
+  })();
+  ghProxyInflight.set(cacheKey.url, task);
+  return task;
 }
 
 /**
@@ -1214,31 +1225,45 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
     return withXCache(refreshed, "STALE");
   }
 
-  // 无缓存：同步拉取（带 If-None-Match 时由 ghApiRequest 处理 304）
-  let res;
-  try {
-    res = opts.store
-      ? await ghApiRequest(upstream, opts.store, opts.env)
-      : await fetchWithTimeout(upstream, { headers: opts.headers }, CONFIG.github.timeoutMs);
-  } catch (e) {
-    return err("GitHub 代理不可用（网络错误）", 504);
+  // 无缓存：同步拉取（带 If-None-Match 时由 ghApiRequest 处理 304）。
+  // 并发去重：同一 URL 的并发请求（相册网格 + 灯箱 + 相邻预载常同时打到同一张图）
+  // 共享一次上游拉取，避免缓存击穿瞬间 N 路重复请求打爆上游。
+  let task = ghProxyInflight.get(cacheKey.url);
+  if (!task) {
+    task = (async () => {
+      try {
+        let res;
+        try {
+          res = opts.store
+            ? await ghApiRequest(upstream, opts.store, opts.env)
+            : await fetchWithTimeout(upstream, { headers: opts.headers }, CONFIG.github.timeoutMs);
+        } catch (e) {
+          return err("GitHub 代理不可用（网络错误）", 504);
+        }
+        if (!res.ok) {
+          // 403/429：配额/限流；其余：上游故障。均无缓存可退，明确告知降级状态
+          const status = res.status === 403 || res.status === 429 ? 503 : 502;
+          return err(`GitHub 代理上游错误（HTTP ${res.status}）`, status);
+        }
+        const body = await res.arrayBuffer();
+        const headers = new Headers({
+          "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
+          "Cache-Control": `public, max-age=${opts.ttl}, stale-while-revalidate=${opts.ttl * 4}`,
+          "X-Cache-Time": String(Date.now()),
+        });
+        const etag = res.headers.get("ETag");
+        if (etag) headers.set("ETag", etag);
+        const response = new Response(body, { status: 200, headers });
+        await ghProxyCachePut(cacheKey, response.clone());
+        return response;
+      } finally {
+        ghProxyInflight.delete(cacheKey.url);
+      }
+    })();
+    ghProxyInflight.set(cacheKey.url, task);
   }
-  if (!res.ok) {
-    // 403/429：配额/限流；其余：上游故障。均无缓存可退，明确告知降级状态
-    const status = res.status === 403 || res.status === 429 ? 503 : 502;
-    return err(`GitHub 代理上游错误（HTTP ${res.status}）`, status);
-  }
-  const body = await res.arrayBuffer();
-  const headers = new Headers({
-    "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
-    "Cache-Control": `public, max-age=${opts.ttl}, stale-while-revalidate=${opts.ttl * 4}`,
-    "X-Cache-Time": String(Date.now()),
-  });
-  const etag = res.headers.get("ETag");
-  if (etag) headers.set("ETag", etag);
-  const response = new Response(body, { status: 200, headers });
-  await ghProxyCachePut(cacheKey, response.clone());
-  return withXCache(response, "MISS");
+  // 每个调用方拿独立 clone（Response 体只能读一次）；错误响同样共享clone
+  return withXCache((await task).clone(), "MISS");
 }
 
 /** contents 列表请求识别：repos/:owner/:repo/contents/:path?ref=:branch */
