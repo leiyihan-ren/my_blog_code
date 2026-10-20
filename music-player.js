@@ -344,8 +344,15 @@
   body.mp-body-hidden { padding-bottom: 28px; }
 
   /* ---- 响应式 ---- */
+  @media (min-width: 1024px) {
+    /* 桌面端：显示音量区（静音按钮 + 滑块）。
+       基础样式 .mp-volume 为 display:none（移动端空间优先），
+       此处按原设计意图在宽屏启用——修复压测发现的「音量控件全断点不可见」缺陷 */
+    .mp-volume { display: flex; }
+  }
   @media (max-width: 1023px) {
     /* 平板/手机：音量滑块隐藏，但保留静音按钮 */
+    .mp-volume { display: flex; }
     .mp-volume-slider { display: none; }
   }
   @media (max-width: 640px) {
