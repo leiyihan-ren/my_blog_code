@@ -17,6 +17,7 @@
       --bg: #f8f9ff; --card-bg: #ffffff; --text: #333; --text-light: #666;
       --text-mute: #6b7280; --border: #eaecef; --primary: #4f46e5; --primary-text: #4f46e5;
       --card-shadow: 0 2px 12px rgba(0,0,0,0.04);
+      --mark-rgb: 250,204,21;
       --card-shadow-hover: 0 12px 32px rgba(0,0,0,0.1);
       --nav-bg: rgba(255,255,255,0.85);
 
@@ -192,14 +193,14 @@
     }
     /* 搜索关键词高亮 */
     .search-highlight {
-      background: linear-gradient(180deg, transparent 60%, rgba(250, 204, 21, 0.5) 60%);
+      background: linear-gradient(180deg, transparent 60%, rgba(var(--mark-rgb), 0.5) 60%);
       color: inherit;
       padding: 0 1px;
       border-radius: 2px;
       font-weight: 600;
     }
     body.dark .search-highlight {
-      background: linear-gradient(180deg, transparent 60%, rgba(250, 204, 21, 0.35) 60%);
+      background: linear-gradient(180deg, transparent 60%, rgba(var(--mark-rgb), 0.35) 60%);
     }
     .empty { text-align: center; padding: 60px 20px; color: var(--text-mute); }
     @keyframes fadeUp {
