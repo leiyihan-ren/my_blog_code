@@ -40,6 +40,11 @@ const CONFIG = {
     // 单个源内的重试次数（仅网络错误/超时/5xx 时重试）
     retriesPerSource: 2,
     userAgent: "blog-auto-mode",
+    // 配额储备：X-RateLimit-Remaining 低于该值时暂停调用 api.github.com，
+    // 降级到 CDN 源（jsDelivr/raw/statically 有独立配额），保住目录列表能力
+    quotaReserve: 10,
+    // 同源图片代理（/api/github/raw/*）的边缘缓存 TTL（秒）：图片不可变，缓存 1 天
+    imageCacheTtlSeconds: 86400,
   },
   rate: {
     messageCooldownSeconds: 60,
@@ -700,6 +705,96 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
+// ============================================================
+// 7.5 GitHub API 客户端 —— Token 注入 + ETag 条件请求 + 配额感知 + 401 自愈
+// ------------------------------------------------------------
+// 背景：api.github.com 匿名请求仅 60 次/小时（按出口 IP 计），
+// 注入 GITHUB_TOKEN 后 5000 次/小时；ETag 条件请求命中 304 不消耗配额。
+// 配额低于储备值时主动降级到 CDN 源；Token 失效（401）自动摘除并裸重试。
+// 所有状态同时记录到 KV（gh_status），供管理后台「连接状态」面板排查。
+// ============================================================
+
+/** isolate 内配额状态（Worker 多 isolate 各自维护，KV 为准但读一次即可） */
+const ghQuotaMem = { remaining: null, resetAt: 0 };
+/** isolate 内 Token 健康状态：401 后本 isolate 不再发送，避免每次请求都撞一次 401 */
+const ghTokenMem = { invalid: false };
+
+function ghToken(env) {
+  const t = env && env.GITHUB_TOKEN;
+  return typeof t === "string" && t.trim() ? t.trim() : "";
+}
+
+/** 请求头：Token 有效时注入 Bearer（5000 次/时），否则匿名（60 次/时） */
+function ghHeaders(env) {
+  const h = {
+    "User-Agent": CONFIG.github.userAgent,
+    Accept: "application/vnd.github+json",
+  };
+  const token = ghToken(env);
+  if (token && !ghTokenMem.invalid) h.Authorization = `Bearer ${token}`;
+  return h;
+}
+
+/** 读取响应头中的配额信息，更新内存态 */
+function ghTrackQuota(res) {
+  try {
+    const remaining = res.headers.get("X-RateLimit-Remaining");
+    const reset = res.headers.get("X-RateLimit-Reset");
+    if (remaining != null) {
+      const v = parseInt(remaining, 10);
+      if (!isNaN(v)) ghQuotaMem.remaining = v;
+    }
+    if (reset != null) {
+      const v = parseInt(reset, 10);
+      if (!isNaN(v)) ghQuotaMem.resetAt = v * 1000;
+    }
+  } catch (e) {
+    /* 头解析失败不影响主流程 */
+  }
+}
+
+/** 配额是否低于储备值（重置时间前持续降级） */
+function ghQuotaLow() {
+  if (ghQuotaMem.remaining == null) return false;
+  if (ghQuotaMem.remaining >= CONFIG.github.quotaReserve) return false;
+  return Date.now() < ghQuotaMem.resetAt;
+}
+
+/** Token 失效：内存标记 + KV 记录（读-改-写，保留其他状态字段） */
+function ghMarkTokenInvalid(store) {
+  ghTokenMem.invalid = true;
+  if (store) {
+    recordGhStatus(store, { tokenInvalid: true, tokenInvalidAt: Date.now() });
+  }
+}
+
+/**
+ * 带完整保护的 GitHub API 请求。
+ * @param {string} url    上游 URL（https://api.github.com/...）
+ * @param {Store|null} store  用于记录 Token 失效状态（可空）
+ * @param {object} env    Worker 环境（读 GITHUB_TOKEN）
+ * @param {string} etag  上次响应的 ETag（有则发 If-None-Match，304 不耗配额）
+ * @returns {Promise<Response>} 上游响应（304 时 body 为空，由调用方用缓存兜底）
+ */
+async function ghApiRequest(url, store, env, etag) {
+  const headers = ghHeaders(env);
+  if (etag) headers["If-None-Match"] = etag;
+  let res = await fetchWithTimeout(url, { headers }, CONFIG.github.timeoutMs);
+  ghTrackQuota(res);
+  // 401：Token 失效/过期/ revoked → 摘除 Token 裸重试一次，避免永久卡死
+  if (res.status === 401 && headers.Authorization) {
+    ghMarkTokenInvalid(store);
+    const bare = {
+      "User-Agent": CONFIG.github.userAgent,
+      Accept: "application/vnd.github+json",
+    };
+    if (etag) bare["If-None-Match"] = etag;
+    res = await fetchWithTimeout(url, { headers: bare }, CONFIG.github.timeoutMs);
+    ghTrackQuota(res);
+  }
+  return res;
+}
+
 /** 目录列表数据源（jsDelivr data API 只返回当前层级，需适配成统一结构） */
 const GH_LIST_SOURCES = {
   github: {
@@ -754,11 +849,22 @@ const GH_FILE_SOURCES = {
  * useCdn 开启时 CDN 优先，关闭时官方源优先；任一源失败都会尝试其余源。
  * @returns { content, source } 内容与命中的源名
  */
-async function ghFetchWithFallback(kind, repo, path, branch, useCdn) {
+/**
+ * 多源故障转移拉取。
+ * useCdn 开启时 CDN 优先，关闭时官方源优先；任一源失败都会尝试其余源。
+ * - github-api 源走 ghApiRequest：Token 注入 + If-None-Match（304 不耗配额）
+ * - 配额低于储备值时跳过 github-api 源（把有限配额留给关键时刻）
+ * - 304 时返回 { notModified: true }，由调用方用缓存内容兜底
+ * @returns { content, source, etag } 或 { notModified: true }
+ */
+async function ghFetchWithFallback(kind, repo, path, branch, useCdn, opts) {
+  opts = opts || {};
   const table = kind === "list" ? GH_LIST_SOURCES : GH_FILE_SOURCES;
-  const order = useCdn
+  let order = useCdn
     ? ["jsdelivr", "github", "statically"]
     : ["github", "jsdelivr", "statically"];
+  // 配额不足：api.github.com 直接降级，让 jsDelivr/raw/statically 顶上
+  if (kind === "list" && ghQuotaLow()) order = order.filter((k) => k !== "github");
   const errors = [];
 
   for (const key of order) {
@@ -766,11 +872,23 @@ async function ghFetchWithFallback(kind, repo, path, branch, useCdn) {
     if (!source) continue; // 目录列表没有 statically 源
     for (let attempt = 1; attempt <= CONFIG.github.retriesPerSource; attempt++) {
       try {
-        const res = await fetchWithTimeout(
-          source.url(repo, path, branch),
-          source.headers ? { headers: source.headers() } : {},
-          CONFIG.github.timeoutMs
-        );
+        let res;
+        if (key === "github") {
+          // 官方 API：带 Token / ETag / 401 自愈的受保护请求
+          res = await ghApiRequest(
+            source.url(repo, path, branch),
+            opts.store || null,
+            opts.env,
+            opts.etag
+          );
+          if (res.status === 304) return { notModified: true, source: source.name };
+        } else {
+          res = await fetchWithTimeout(
+            source.url(repo, path, branch),
+            source.headers ? { headers: source.headers() } : {},
+            CONFIG.github.timeoutMs
+          );
+        }
         if (!res.ok) {
           errors.push(`${source.name}: HTTP ${res.status}`);
           // 404：该源上确实不存在；403/429：限流——换源即可，无需重试
@@ -778,7 +896,8 @@ async function ghFetchWithFallback(kind, repo, path, branch, useCdn) {
           continue; // 5xx/408：临时故障，重试当前源
         }
         const content = await source.parse(res, { repo, path, branch });
-        return { content, source: source.name };
+        const etag = (res.headers && res.headers.get("ETag")) || "";
+        return { content, source: source.name, etag };
       } catch (e) {
         const reason = e && e.name === "AbortError" ? "超时" : String((e && e.message) || e);
         errors.push(`${source.name}: ${reason}`);
@@ -789,21 +908,25 @@ async function ghFetchWithFallback(kind, repo, path, branch, useCdn) {
   throw new GitHubUnavailableError(`GitHub 拉取失败（${path}）：${errors.join("；")}`);
 }
 
-/** 缓存读取：区分「新鲜」与「过期可用」，过期内容用于刷新失败时兜底 */
+/** 缓存读取：区分「新鲜」与「过期可用」，过期内容用于刷新失败时兜底；附带 ETag 供条件请求 */
 async function ghCacheGet(store, cacheKey) {
   const raw = await store.getRaw(cacheKey);
   if (raw == null) return null;
   const data = safeJsonParse(raw);
   if (!data || typeof data !== "object") return null;
   const age = Date.now() - (data.time || 0);
-  return { content: data.content, fresh: age < CONFIG.github.cacheTtlSeconds * 1000 };
+  return {
+    content: data.content,
+    etag: data.etag || "",
+    fresh: age < CONFIG.github.cacheTtlSeconds * 1000,
+  };
 }
 
-function ghCacheSet(store, cacheKey, content) {
+function ghCacheSet(store, cacheKey, content, etag) {
   return store.defer(
     store.kv.put(
       cacheKey,
-      JSON.stringify({ time: Date.now(), content }),
+      JSON.stringify({ time: Date.now(), content, etag: etag || "" }),
       // TTL 拉长到 stale 存活期：GitHub 长时间不可达时仍有旧内容可展示
       { expirationTtl: CONFIG.github.staleTtlSeconds }
     )
@@ -834,29 +957,54 @@ function recordGhStatus(store, patch) {
 /**
  * 带缓存与兜底的内容加载（Worker 侧唯一的 GitHub 出入口）。
  *  - 缓存新鲜 → 直接返回，不发网络请求
- *  - 缓存过期/不存在 → 多源拉取；成功则更新缓存
+ *  - 缓存过期但有旧值 → SWR：立即返回旧内容 + 后台重验（用户永不等 GitHub）
+ *  - 无缓存 → 多源拉取；带 ETag 条件请求（304 不耗配额）；成功则更新缓存
  *  - 拉取失败但有旧缓存 → 返回旧缓存（stale），站点内容不消失
  *  - 拉取失败且无缓存 → 抛 GitHubUnavailableError
  */
 async function ghLoad(store, kind, repo, path, branch, useCdn) {
+  // ctx 从 store 取（Store 构造时已持有），无需逐层透传
+  const ctx = store.ctx;
+  const env = ctx && ctx.env;
   const cacheKey = KEYS.ghCache(kind === "list" ? "cache" : "raw", repo, branch, path, useCdn);
   const cached = await ghCacheGet(store, cacheKey);
   if (cached && cached.fresh) return cached.content;
+
+  // SWR：旧缓存立即可用 → 先返回旧内容，后台异步重验
+  if (cached && ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(ghRevalidate(store, kind, repo, path, branch, useCdn, cacheKey, cached, env));
+    return cached.content;
+  }
 
   const inflight = ghInflight.get(cacheKey);
   if (inflight) return inflight;
 
   const task = (async () => {
     try {
-      const { content, source } = await ghFetchWithFallback(kind, repo, path, branch, useCdn);
-      await ghCacheSet(store, cacheKey, content);
+      const r = await ghFetchWithFallback(kind, repo, path, branch, useCdn, {
+        store,
+        env,
+        etag: cached ? cached.etag : "",
+      });
+      if (r.notModified) {
+        // 304：内容未变——只续期缓存时间戳，不重写内容、不消耗 GitHub 配额
+        await ghCacheSet(store, cacheKey, cached.content, cached.etag);
+        recordGhStatus(store, {
+          lastOkAt: Date.now(),
+          lastOkSource: `${r.source}(304)`,
+          lastError: "",
+          usingStale: false,
+        });
+        return cached.content;
+      }
+      await ghCacheSet(store, cacheKey, r.content, r.etag);
       recordGhStatus(store, {
         lastOkAt: Date.now(),
-        lastOkSource: source,
+        lastOkSource: r.source,
         lastError: "",
         usingStale: false,
       });
-      return content;
+      return r.content;
     } catch (e) {
       if (cached) {
         // 全部源失败：退回旧缓存（超过 TTL 也照常展示）。
@@ -882,12 +1030,293 @@ async function ghLoad(store, kind, repo, path, branch, useCdn) {
   return task;
 }
 
+/**
+ * SWR 后台重验：与前台路径共享并发去重表。
+ * 失败只记录状态（前台已在用旧内容，无用户可感影响）；304 只续期不重写。
+ */
+function ghRevalidate(store, kind, repo, path, branch, useCdn, cacheKey, cached, env) {
+  const existing = ghInflight.get(cacheKey);
+  if (existing) return existing;
+  const task = (async () => {
+    try {
+      const r = await ghFetchWithFallback(kind, repo, path, branch, useCdn, {
+        store,
+        env,
+        etag: cached.etag,
+      });
+      if (r.notModified) {
+        await ghCacheSet(store, cacheKey, cached.content, cached.etag);
+      } else {
+        await ghCacheSet(store, cacheKey, r.content, r.etag);
+        recordGhStatus(store, {
+          lastOkAt: Date.now(),
+          lastOkSource: r.source,
+          lastError: "",
+          usingStale: false,
+        });
+      }
+    } catch (e) {
+      recordGhStatus(store, {
+        lastFailAt: Date.now(),
+        lastError: String((e && e.message) || e).slice(0, 300),
+        usingStale: true,
+        staleSince: Date.now(),
+      });
+    } finally {
+      ghInflight.delete(cacheKey);
+    }
+  })();
+  ghInflight.set(cacheKey, task);
+  return task;
+}
+
 async function githubFetch(store, repo, path, branch, useCdn) {
   return ghLoad(store, "list", repo, path, branch, useCdn);
 }
 
 async function githubFetchRaw(store, repo, path, branch, useCdn) {
   return ghLoad(store, "file", repo, path, branch, useCdn);
+}
+
+// ============================================================
+// 7.6 同源 GitHub 代理（/api/github/*）
+// ------------------------------------------------------------
+// 前端统一请求同源路径，由 Worker 转发到 GitHub：
+//   /api/github/api/<rest>  → https://api.github.com/<rest>（含 query string）
+//   /api/github/raw/<rest>  → https://raw.githubusercontent.com/<rest>（图片/文件）
+// 特性：
+//   - Token 注入 + 401 自愈 + 配额跟踪（api 代理复用 ghApiRequest）
+//   - 配额降级：contents 目录列表在配额低于储备值时改走 jsDelivr data API（X-Cache: DEGRADED）
+//   - Cache API 边缘缓存：命中带 X-Cache: HIT（生产环境另有 cf-cache-status: HIT）
+//   - ETag 条件请求：If-None-Match 命中 304，不消耗 GitHub 配额
+//   - SWR：缓存过期立即返回旧值 + 后台刷新（ctx.waitUntil 驱动）；上游故障/超时返回旧缓存，永不白屏
+// 命名缓存与 purgeApiCache 的 caches.default 相互独立，互不干扰。
+// ============================================================
+const GH_PROXY_CACHE = "gh-proxy-v1";
+
+async function ghProxyCacheOpen() {
+  return caches.open(GH_PROXY_CACHE);
+}
+
+async function ghProxyCacheMatch(request) {
+  try {
+    return await (await ghProxyCacheOpen()).match(request);
+  } catch (e) {
+    return null;
+  }
+}
+
+async function ghProxyCachePut(request, response) {
+  try {
+    await (await ghProxyCacheOpen()).put(request, response);
+  } catch (e) {
+    /* 缓存写失败不影响响应 */
+  }
+}
+
+/** 清空代理边缘缓存（后台「刷新 GitHub 缓存」时与 KV 缓存同步清理） */
+async function ghProxyCachePurge() {
+  try {
+    const cache = await ghProxyCacheOpen();
+    const keys = await cache.keys();
+    await Promise.all(keys.map((k) => cache.delete(k)));
+    return keys.length;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/** 给响应打上观测头（生产环境 Cloudflare 边缘会自动附加 cf-cache-status） */
+function withXCache(response, state) {
+  response.headers.set("X-Cache", state);
+  return response;
+}
+
+/**
+ * 读旧缓存并续期（SWR/304 路径共用）。
+ * 缓存响应体只能消费一次：先读成 buffer，再分别构造「续期存入」与「返回」两份。
+ */
+async function refreshCacheEntry(cacheKey, cached) {
+  const buf = await cached.arrayBuffer();
+  const headers = new Headers(cached.headers);
+  headers.set("X-Cache-Time", String(Date.now()));
+  await ghProxyCachePut(cacheKey, new Response(buf, { status: 200, headers }));
+  return new Response(buf, { status: 200, headers });
+}
+
+/**
+ * 后台刷新（SWR）：失败/非 2xx 一律保留旧缓存，静默结束。
+ * - api 分支（opts.store 存在）：走 ghApiRequest，重验同样享受 Token 注入/401 自愈/配额跟踪
+ * - raw 分支：匿名直拉，带 If-None-Match；命中 304 只续期不重写内容（不耗配额）
+ * @param {object} opts { store, env }——store 存在即按 api 分支处理
+ */
+async function ghProxyRevalidate(cacheKey, cached, upstream, headers, opts) {
+  opts = opts || {};
+  try {
+    const etag = cached ? cached.headers.get("ETag") : null;
+    let res;
+    if (opts.store) {
+      res = await ghApiRequest(upstream, opts.store, opts.env, etag);
+    } else {
+      const h = Object.assign({}, headers || {});
+      if (etag) h["If-None-Match"] = etag;
+      res = await fetchWithTimeout(upstream, { headers: h }, CONFIG.github.timeoutMs);
+    }
+    if (res.status === 304 && cached) {
+      await refreshCacheEntry(cacheKey, cached);
+      return;
+    }
+    if (!res.ok) return; // 上游故障：保留旧缓存
+    const body = await res.arrayBuffer();
+    const response = new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
+        "Cache-Control": `public, max-age=${CONFIG.github.cacheTtlSeconds}`,
+        "X-Cache-Time": String(Date.now()),
+      },
+    });
+    const newEtag = res.headers.get("ETag");
+    if (newEtag) response.headers.set("ETag", newEtag);
+    await ghProxyCachePut(cacheKey, response);
+  } catch (e) {
+    /* 保留旧缓存 */
+  }
+}
+
+/**
+ * 代理核心：Cache API SWR + ETag 条件请求 + 上游故障兜底。
+ * @param {string} upstream  上游 URL
+ * @param {object} opts      { ttl, headers, store(可空), env }
+ * @param {object} ctx      执行上下文（ctx.waitUntil 驱动后台重验；可空）
+ * @returns {Promise<Response>} 始终返回可渲染响应（有旧缓存时绝不 5xx）
+ */
+async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
+  const cached = await ghProxyCacheMatch(cacheKey);
+
+  if (cached) {
+    const cachedAt = parseInt(cached.headers.get("X-Cache-Time") || "0", 10) || 0;
+    const age = Date.now() - cachedAt;
+    if (age < opts.ttl * 1000) {
+      return withXCache(cached, "HIT"); // 边缘缓存命中：不打上游、不耗配额
+    }
+    // 过期：SWR——先续期旧缓存并立即返回，再后台异步重验。
+    // 先续期再排后台任务，避免重验抢在续期前写入导致旧内容覆盖新内容。
+    const refreshed = await refreshCacheEntry(cacheKey, cached);
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        ghProxyRevalidate(cacheKey, cached, upstream, opts.headers, {
+          store: opts.store,
+          env: opts.env,
+        })
+      );
+    }
+    return withXCache(refreshed, "STALE");
+  }
+
+  // 无缓存：同步拉取（带 If-None-Match 时由 ghApiRequest 处理 304）
+  let res;
+  try {
+    res = opts.store
+      ? await ghApiRequest(upstream, opts.store, opts.env)
+      : await fetchWithTimeout(upstream, { headers: opts.headers }, CONFIG.github.timeoutMs);
+  } catch (e) {
+    return err("GitHub 代理不可用（网络错误）", 504);
+  }
+  if (!res.ok) {
+    // 403/429：配额/限流；其余：上游故障。均无缓存可退，明确告知降级状态
+    const status = res.status === 403 || res.status === 429 ? 503 : 502;
+    return err(`GitHub 代理上游错误（HTTP ${res.status}）`, status);
+  }
+  const body = await res.arrayBuffer();
+  const headers = new Headers({
+    "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
+    "Cache-Control": `public, max-age=${opts.ttl}, stale-while-revalidate=${opts.ttl * 4}`,
+    "X-Cache-Time": String(Date.now()),
+  });
+  const etag = res.headers.get("ETag");
+  if (etag) headers.set("ETag", etag);
+  const response = new Response(body, { status: 200, headers });
+  await ghProxyCachePut(cacheKey, response.clone());
+  return withXCache(response, "MISS");
+}
+
+/** contents 列表请求识别：repos/:owner/:repo/contents/:path?ref=:branch */
+const GH_CONTENTS_RE = /^repos\/([^/]+)\/([^/]+)\/contents\/([^?]+)(?:\?.*)?$/;
+
+/**
+ * 配额降级服务：GitHub 配额低于储备值且请求是 contents 目录列表时，
+ * 改走 jsDelivr data API（独立配额体系），保住目录列表能力。
+ * 降级内容同样写入边缘缓存（同 key），避免每次降级都打 CDN。
+ * @returns {Promise<Response>|null} 降级响应；不适用/失败时返回 null 交回正常路径
+ */
+async function ghProxyServeDegraded(cacheKey, apiPath, opts) {
+  if (!ghQuotaLow()) return null;
+  const m = GH_CONTENTS_RE.exec(apiPath);
+  if (!m) return null;
+  const repo = `${m[1]}/${m[2]}`;
+  const dirPath = m[3];
+  const refMatch = /[?&]ref=([^&]+)/.exec(apiPath);
+  const branch = refMatch ? decodeURIComponent(refMatch[1]) : "HEAD";
+
+  // 已有缓存（含正常路径写入的）：新鲜则直接复用；过期则尝试用降级源刷新
+  const cached = await ghProxyCacheMatch(cacheKey);
+  if (cached) {
+    const cachedAt = parseInt(cached.headers.get("X-Cache-Time") || "0", 10) || 0;
+    if (Date.now() - cachedAt < CONFIG.github.cacheTtlSeconds * 1000) {
+      return withXCache(cached, "HIT");
+    }
+  }
+  try {
+    // useCdn=false：jsDelivr 优先；ghFetchWithFallback 内部还会在配额低时剔除 github 源
+    const { content } = await ghFetchWithFallback("list", repo, dirPath, branch, false, {
+      store: opts.store,
+      env: opts.env,
+    });
+    const response = new Response(JSON.stringify(content), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": `public, max-age=${CONFIG.github.cacheTtlSeconds}`,
+        "X-Cache-Time": String(Date.now()),
+      },
+    });
+    await ghProxyCachePut(cacheKey, response.clone());
+    return withXCache(response, "DEGRADED");
+  } catch (e) {
+    // 降级源也失败：交回正常路径（由它负责 502/503/STALE 语义）
+    return cached ? withXCache(await refreshCacheEntry(cacheKey, cached), "STALE") : null;
+  }
+}
+
+/**
+ * /api/github/* 统一入口。
+ * api 子路径走 ghApiRequest（Token/401 自愈/配额跟踪）；raw 子路径匿名直拉（CDN 无配额问题）。
+ */
+async function handleGithubProxy(request, env, ctx, url, store) {
+  const rest = url.pathname.replace(/^\/api\/github\//, "");
+  if (!rest) return err("代理路径为空", 400);
+
+  if (rest.startsWith("api/")) {
+    const apiPath = rest.slice(4) + url.search;
+    const upstream = "https://api.github.com/" + apiPath;
+    const cacheKey = new Request(upstream, { method: "GET" });
+    const degraded = await ghProxyServeDegraded(cacheKey, apiPath, { store: store || null, env });
+    if (degraded) return degraded;
+    return ghProxyFetch(cacheKey, upstream, {
+      ttl: CONFIG.github.cacheTtlSeconds,
+      store: store || null,
+      env,
+    }, ctx);
+  }
+  if (rest.startsWith("raw/")) {
+    const upstream = "https://raw.githubusercontent.com/" + rest.slice(4);
+    return ghProxyFetch(new Request(upstream, { method: "GET" }), upstream, {
+      ttl: CONFIG.github.imageCacheTtlSeconds,
+      headers: { "User-Agent": CONFIG.github.userAgent },
+    }, ctx);
+  }
+  return err("不支持的代理路径（仅 api/ 与 raw/）", 400);
 }
 
 /** URL 路径分段编码，避免仓库名/文件名中的特殊字符破坏 URL */
@@ -902,13 +1331,19 @@ function encodePathSegments(p) {
  * 为相册图片生成多个镜像地址（前端加载失败时逐个切换）。
  * useCdn 开启时 jsDelivr 优先，关闭时 GitHub 官方优先，statically 兜底。
  */
-function buildImageMirrors(repo, branch, path, name, useCdn) {
-  const mirrors = [
-    `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${encodePathSegments(path)}/${encodePathSegments(name)}`,
-    `https://raw.githubusercontent.com/${repo}/${branch}/${encodePathSegments(path)}/${encodePathSegments(name)}`,
-    `https://cdn.statically.io/gh/${repo}/${branch}/${encodePathSegments(path)}/${encodePathSegments(name)}`,
-  ];
-  return useCdn ? mirrors : [mirrors[1], mirrors[0], mirrors[2]];
+/**
+ * 为相册图片生成多个镜像地址（前端加载失败时逐个切换）。
+ * 同源代理（/api/github/raw/*）置首：经 Cloudflare 边缘缓存，弱网/受限网络下
+ * 不依赖浏览器直连 GitHub；CDN 镜像兜底保证代理故障时仍可加载。
+ * useCdn 开启时 jsDelivr 次之，关闭时 GitHub 官方次之，statically 兜底。
+ */
+function buildImageMirrors(repo, branch, path, name) {
+  const encoded = `${encodePathSegments(path)}/${encodePathSegments(name)}`;
+  const proxy = `/api/github/raw/${repo}/${branch}/${encoded}`;
+  const cdn = `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${encoded}`;
+  const raw = `https://raw.githubusercontent.com/${repo}/${branch}/${encoded}`;
+  const statically = `https://cdn.statically.io/gh/${repo}/${branch}/${encoded}`;
+  return [proxy, cdn, raw, statically];
 }
 
 function parseFrontMatter(content) {
@@ -1512,7 +1947,8 @@ const handlers = {
 
   async refreshGithub(ctx) {
     await ctx.store.deletePrefix(KEYS.prefix.github);
-    return { success: true, message: "GitHub 缓存已刷新" };
+    const purged = await ghProxyCachePurge(); // 同步清理 /api/github/* 边缘缓存
+    return { success: true, message: `GitHub 缓存已刷新${purged ? `（含 ${purged} 条代理缓存）` : ""}` };
   },
 
   /**
@@ -1529,6 +1965,10 @@ const handlers = {
       repo: site.githubRepo || "",
       branch: site.githubBranch || "main",
       useCdn: site.useCdn !== false,
+      // Token 配置态（不回传 Token 本体）：决定 5000/时 与 60/时 配额档位
+      tokenConfigured: !!ghToken(ctx.env),
+      // 同源代理端点说明（供后台排查「请求走哪条路」）
+      proxy: "/api/github/api/* 与 /api/github/raw/*",
       ...status,
     };
   },
@@ -1556,7 +1996,7 @@ const handlers = {
         .map((f) => ({
           name: f.name,
           size: f.size || 0,
-          mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.name, useCdn),
+          mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.name),
         }));
       return { photos, configured: true };
     } catch (e) {
@@ -2539,6 +2979,18 @@ async function dispatchApi(request, env, ctx, url) {
   }
 
   const store = new Store(env, ctx);
+
+  // 同源 GitHub 代理：在路由表之前拦截（/api/github/* 不依赖 KV，store 允许为null）
+  if (url.pathname.startsWith("/api/github/")) {
+    let proxyStore = null;
+    try {
+      proxyStore = store;
+    } catch (e) {
+      /* KV 未绑定时代理仍可用（仅丢失 Token 失效记录） */
+    }
+    return handleGithubProxy(request, env, ctx, url, proxyStore);
+  }
+
   const matched = matchRoute(request.method, url.pathname);
   if (!matched) failNoRoute(url.pathname);
 

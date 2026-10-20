@@ -1223,6 +1223,15 @@
         }
         const fmt = (t) => (t ? new Date(t).toLocaleString("zh-CN") : "从未");
         let html = `仓库：<b>${escapeHtml(st.repo)}</b> @ ${escapeHtml(st.branch || "main")} · 优先源：${st.useCdn ? "jsDelivr CDN" : "GitHub 官方"}<br>`;
+        // Token 配额档位：5000 次/时（已配置） vs 60 次/时（匿名）
+        if (st.tokenConfigured) {
+          html += `鉴权：<span class="st-ok">✅ GITHUB_TOKEN 已配置（5000 次/小时）</span><br>`;
+        } else {
+          html += `鉴权：<span class="st-warn">⚠️ 未配置 GITHUB_TOKEN（匿名 60 次/小时，高峰期易失败）</span><br>`;
+        }
+        if (st.tokenInvalid) {
+          html += `<span class="st-bad">❌ Token 已失效（401），已自动降级为匿名请求，请更新环境变量 GITHUB_TOKEN</span><br>`;
+        }
         if (st.lastOkAt) {
           html += `最近成功：<span class="st-ok">${fmt(st.lastOkAt)}</span>（${escapeHtml(st.lastOkSource || "")}）<br>`;
         } else {
@@ -1234,7 +1243,7 @@
         if (st.lastError) {
           html += `最近失败：<span class="st-bad">${fmt(st.lastFailAt)}</span><br><span class="st-bad">${escapeHtml(st.lastError)}</span><br>`;
         }
-        html += '<span class="st-dim">提示：CDN 源（jsDelivr）可能有最多约 12 小时缓存延迟；Worker 位于 Cloudflare 边缘，本机 DNS 加速对服务端拉取无效，不稳定时请依靠上方多镜像自动切换。</span>';
+        html += '<span class="st-dim">提示：前端统一经同源代理 <code>/api/github/*</code> 拉取（CORS 免疫 + 边缘缓存 + ETag 304 不耗配额 + 上游故障自动回退旧缓存）；CDN 源（jsDelivr）可能有最多约 12 小时缓存延迟；Worker 位于 Cloudflare 边缘，本机 DNS 加速对服务端拉取无效，不稳定时请依靠多镜像自动切换。</span>';
         body.innerHTML = html;
       } catch (e) {
         body.innerHTML = '<span class="st-bad">状态加载失败</span>';
