@@ -447,26 +447,8 @@
   .rank-empty { text-align: center; color: var(--text-mute); padding: 30px 0; font-size: 14px; }
 
   .footer { text-align: center; padding: 40px 24px; color: var(--text-mute); font-size: 13px; border-top: 1px solid var(--border); }
-  .back-top {
-    position: fixed; bottom: 30px; right: 30px; width: 48px; height: 48px; border-radius: 50%;
-    background: var(--primary); color: var(--on-accent); border: none; cursor: pointer; font-size: 20px;
-    box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4); opacity: 0; transform: translateY(20px);
-    transition: all 0.3s var(--ease); z-index: 99;
-  }
-    .back-top:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
-    }
 
-  .back-top.show { opacity: 1; transform: translateY(0); }
 
-  .toast {
-    position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%) translateY(20px);
-    background: var(--text); color: var(--bg); padding: 10px 20px; border-radius: var(--radius-pill);
-    font-size: 14px; font-weight: 600; opacity: 0; pointer-events: none; transition: all 0.3s var(--ease); z-index: 200;
-    max-width: 86vw; text-align: center;
-  }
-  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
   @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 
@@ -597,7 +579,7 @@
 </main>
 
 <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
-<button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
+<button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="game-core.js"></script>
@@ -617,8 +599,6 @@ const $ = Core.$;
 /* ---------- 主题 ---------- */
 
 /* ---------- 移动端菜单 ---------- */
-
-function scrollToTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }
 
 /* ---------- 启动 ---------- */
 Core.renderGameGrid();

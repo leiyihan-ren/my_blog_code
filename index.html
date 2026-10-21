@@ -141,7 +141,6 @@
     }
     .theme-btn:hover { transform: scale(1.1); }
     .theme-btn:active { transform: scale(0.97); }
-    .back-top:active { transform: scale(0.92); }
 
     /* Hero 区域 */
     .hero {
@@ -442,33 +441,7 @@
       border-top: 1px solid var(--border);
     }
 
-    /* 回到顶部 */
-    .back-top {
-      position: fixed;
-      bottom: 30px;
-      right: 30px;
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      background: var(--primary);
-      color: var(--on-accent);
-      border: none;
-      cursor: pointer;
-      font-size: 20px;
-      box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4);
-      opacity: 0;
-      transform: translateY(20px);
-      transition: all 0.3s var(--ease);
-      z-index: 99;
-    }
-    .back-top.show {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    .back-top:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
-    }
+    
 
     /* 移动端汉堡菜单 */
     .nav-toggle {
@@ -527,7 +500,6 @@
       .section-title { font-size: 20px; }
       .hero-stats { gap: 24px; row-gap: 16px; }
       .hero-stat-num { font-size: 22px; }
-      .back-top { bottom: 20px; right: 20px; width: 42px; height: 42px; }
     }
     @media (max-width: 400px) {
       /* 小屏手机：统计项收紧间距与最小宽度，配合 flex-wrap 排成两行也不溢出 */
@@ -680,7 +652,7 @@
 
   <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
 
-  <button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
+  <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 
   <script>
   const { escapeHtml } = window.BlogUtils;
@@ -784,10 +756,6 @@
     }
 
     // 回到顶部 + 导航栏滚动状态
-    function scrollToTop() {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-
     // 滚动渐入动画
     function setupReveal() {
       const reveals = document.querySelectorAll(".reveal");

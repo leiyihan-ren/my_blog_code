@@ -90,6 +90,104 @@ a:active, button:active, [role="button"]:active,
 body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
 body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
 
+/* ---- 选中态：主题色高亮（明暗自适应） ---- */
+::selection { background: rgba(var(--primary-rgb), 0.22); color: inherit; }
+body.dark ::selection { background: rgba(var(--accent-rgb), 0.34); color: inherit; }
+
+/* ---- 导航：激活项下划线弹入 + 非激活项悬停下划线 ----
+   页面 <style> 中同名 ::after 规则只设 content/位置/颜色，
+   此处追加 animation 不冲突（级联上页面样式在前、本文件规则可被页面覆盖，
+   但页面未设 animation，故动画生效）。 */
+.nav-links a.active::after {
+  animation: nav-underline-in 0.35s var(--ease-spring) both;
+}
+.nav-links a:not(.active):hover::after {
+  content: "";
+  position: absolute;
+  bottom: -6px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary);
+  border-radius: 2px;
+  opacity: 0.4;
+  animation: nav-underline-in 0.25s var(--ease) both;
+}
+@keyframes nav-underline-in {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* ---- 导航栏底部滚动进度条：CSS 滚动驱动动画，零 JS 零 DOM ----
+   渐进增强：仅支持 animation-timeline 的浏览器（Chromium 115+）生效，
+   不支持的浏览器静默忽略（条不存在，无布局影响）。 */
+@supports (animation-timeline: scroll()) {
+  .navbar::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: 100%;
+    height: 2px;
+    background: var(--grad-brand);
+    transform: scaleX(0);
+    transform-origin: left center;
+    animation: nav-progress-grow linear both;
+    animation-timeline: scroll(root block);
+  }
+  @keyframes nav-progress-grow {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+}
+
+/* ---- 回到顶部按钮（原 8 个页面各自重复定义，步骤 5 后抽取消重复） ---- */
+.back-top {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--on-accent);
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 16px rgba(var(--primary-rgb), 0.4);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.3s var(--ease), transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+  z-index: 99;
+}
+.back-top.show { opacity: 1; transform: translateY(0); }
+.back-top:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(var(--primary-rgb), 0.5); }
+.back-top:active { transform: scale(0.92); }
+
+/* ---- 轻提示 Toast（原 games/links 重复定义，抽取消重复；由 BlogUtils.toast 驱动） ---- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--text);
+  color: var(--bg);
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
+  z-index: 200;
+  max-width: 86vw;
+  text-align: center;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
 /* ---- 尊重系统减弱动效偏好：关闭装饰性动画与过渡 ---- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

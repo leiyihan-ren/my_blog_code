@@ -102,7 +102,6 @@
     }
     .theme-btn:hover { transform: scale(1.1); }
     .theme-btn:active { transform: scale(0.97); }
-    .back-top:active { transform: scale(0.92); }
     .lightbox-close:active { transform: scale(0.92); }
     /* prev/next 基础样式带 translateY(-50%) 垂直居中，:active 缩放必须保留该位移——
        否则按下瞬间按钮跳位半个身高，mouseup 落到背景上，点击关闭而非切换照片 */
@@ -400,32 +399,6 @@
       font-size: 13px; border-top: 1px solid var(--border);
     }
 
-    .back-top {
-      position: fixed;
-      bottom: 30px;
-      right: 30px;
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      background: var(--primary);
-      color: var(--on-accent);
-      border: none;
-      cursor: pointer;
-      font-size: 20px;
-      box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4);
-      opacity: 0;
-      transform: translateY(20px);
-      transition: all 0.3s var(--ease);
-      z-index: 99;
-    }
-    .back-top.show {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    .back-top:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
-    }
 
     @media (max-width: 1024px) { .masonry { column-count: 3; } }
     @media (max-width: 768px) { .masonry { column-count: 2; } }
@@ -447,7 +420,6 @@
       .lightbox { padding: 20px; }
       .lightbox-prev { left: 10px; }
       .lightbox-next { right: 10px; }
-      .back-top { bottom: 90px; right: 20px; width: 42px; height: 42px; }
     }
   
     /* 可访问性：键盘焦点清晰可见 */
@@ -1053,12 +1025,8 @@
         </div>`;
     }
     init();
-
-    function scrollToTop() {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
   </script>
-  <button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
+  <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 <script src="music-player.js" defer></script>
 </body>
 </html>

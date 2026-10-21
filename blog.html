@@ -102,7 +102,6 @@
     }
     .theme-btn:hover { transform: scale(1.1); }
     .theme-btn:active { transform: scale(0.97); }
-    .back-top:active { transform: scale(0.92); }
     .container { max-width: 960px; margin: 0 auto; padding: 50px 24px; }
     .page-header {
       display: flex; justify-content: space-between; align-items: center;
@@ -183,21 +182,7 @@
       text-align: center; padding: 40px 24px; color: var(--text-mute);
       font-size: 13px; border-top: 1px solid var(--border);
     }
-    .back-top {
-      position: fixed; bottom: 30px; right: 30px;
-      width: 48px; height: 48px; border-radius: 50%;
-      background: var(--primary); color: var(--on-accent); border: none;
-      cursor: pointer; font-size: 20px;
-      box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4);
-      opacity: 0; transform: translateY(20px);
-      transition: all 0.3s var(--ease); z-index: 99;
-    }
-    .back-top:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
-    }
 
-    .back-top.show { opacity: 1; transform: translateY(0); }
     .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
     .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s var(--ease); }
     .nav-toggle.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
@@ -291,7 +276,7 @@
   </main>
 
   <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
-  <button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
+  <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 
   <script>
   const { escapeHtml } = window.BlogUtils;
@@ -355,8 +340,6 @@
         ), q);
       }, 200);
     }
-
-    function scrollToTop() { window.scrollTo({ top: 0, behavior: "smooth" }); }
 
     // ========== 键盘快捷键 ==========
     document.addEventListener("keydown", function(e) {

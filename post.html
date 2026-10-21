@@ -135,7 +135,6 @@
     }
     .theme-btn:hover { transform: scale(1.1); }
     .theme-btn:active { transform: scale(0.97); }
-    .back-top:active { transform: scale(0.92); }
     .action-btn:active { transform: scale(0.97); }
     .comment-submit-btn:active { transform: scale(0.97); }
 
@@ -525,33 +524,7 @@
       font-size: 14px;
     }
 
-    /* 回到顶部 */
-    .back-top {
-      position: fixed;
-      bottom: 30px;
-      right: 30px;
-      width: 48px;
-      height: 48px;
-      border-radius: 50%;
-      background: var(--primary);
-      color: var(--on-accent);
-      border: none;
-      cursor: pointer;
-      font-size: 20px;
-      box-shadow: 0 4px 16px rgba(var(--primary-rgb),0.4);
-      opacity: 0;
-      transform: translateY(20px);
-      transition: all 0.3s var(--ease);
-      z-index: 99;
-    }
-    .back-top.show {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    .back-top:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 8px 24px rgba(var(--primary-rgb),0.5);
-    }
+    
 
     /* 目录导航 TOC */
     .toc-sidebar {
@@ -683,7 +656,6 @@
       .nav-toggle { display: flex; }
       .article-actions { flex-wrap: wrap; }
       .action-btn { flex: 1; justify-content: center; }
-      .back-top { bottom: 90px; right: 20px; width: 42px; height: 42px; }
     }
   
     /* 可访问性：键盘焦点清晰可见 */
@@ -1621,14 +1593,10 @@
       `;
     }
     init();
-
-    function scrollToTop() {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
     // 滚动效果（navbar .scrolled + backTop .show）由 common.js 统一处理
   </script>
 
-  <button class="back-top" onclick="scrollToTop()" id="backTop" title="回到顶部">↑</button>
+  <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 
   <!-- 目录导航 -->
   <button class="toc-toggle" id="tocToggle" onclick="toggleTocMobile()" title="目录">📑</button>

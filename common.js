@@ -17,6 +17,12 @@
   };
   window.safeStorage = safeStorage;
 
+  /* ---- 回到顶部：原 6 个页面各自定义同一函数，抽至此全局挂载 ----
+     页面按钮以 onclick="scrollToTop()" 调用，需保持 window 全局可见。 */
+  window.scrollToTop = function () {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   /* ---- 主题切换：点击 .theme-btn 切换 body.dark 并持久化 ---- */
   function initTheme() {
     const btn = document.querySelector(".theme-btn");
