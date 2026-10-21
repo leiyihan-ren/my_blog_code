@@ -439,6 +439,7 @@
   let seeking = false;          // 进度条拖动中（拖动期间忽略 timeupdate）
   let lastProgressUpdate = 0;
   let volumeBeforeMute = 0.7;   // 静音前音量，用于恢复
+  let currentObjectUrl = null;  // 当前 Blob 对象 URL（切歌时 revoke 防泄漏）
 
   // 播放模式：sequence 顺序播放 / listLoop 列表循环 / singleLoop 单曲循环 / shuffle 随机
   const MODES = ["listLoop", "singleLoop", "shuffle", "sequence"];
@@ -553,7 +554,47 @@
       if (p >= 0) shufflePos = p;
     }
 
-    audio.src = song.url;
+    // 音频加载管道：fetch → Blob → objectURL。
+    // 为什么不能直接 audio.src = song.url：Chromium 的 <audio src> 媒体请求
+    // 不经过 Service Worker，SW 缓存形同虚设、断网必挂；fetch 走 SW，
+    // 同源或经 /api/github/raw/* 代理的资源可缓存、可离线播放。
+    // 仅对同源资源走管道：跨域外链（无 CORS 头）fetch 必然失败，
+    // 且 SW 也不缓存跨域资源，直连即可，避免每次切歌刷 CORS 报错。
+    // autoplay=false 时不预下载（首屏不抢流量；用户点播放时走
+    // togglePlay 的 !audio.src 分支以 autoplay=true 重新进入本函数）。
+    let sameOrigin = false;
+    try { sameOrigin = new URL(song.url, location.href).origin === location.origin; } catch (e) {}
+    if (autoplay) {
+      const playAfterLoad = () => {
+        if (myToken !== loadToken) return;
+        audio.play().then(syncPlayUI).catch(() => {
+          if (myToken !== loadToken) return;
+          syncPlayUI();
+          $("mpArtist").textContent = "浏览器阻止了自动播放，请点击播放按钮";
+        });
+      };
+      if (sameOrigin) {
+        if (currentObjectUrl) { URL.revokeObjectURL(currentObjectUrl); currentObjectUrl = null; }
+        fetch(song.url)
+          .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
+          .then((blob) => {
+            if (myToken !== loadToken) return;
+            currentObjectUrl = URL.createObjectURL(blob);
+            audio.src = currentObjectUrl;
+            playAfterLoad();
+          })
+          .catch(() => {
+            if (myToken !== loadToken) return;
+            // 兜底：同源但网络异常/SW 未就绪时直连（在线可播）
+            audio.src = song.url;
+            playAfterLoad();
+          });
+      } else {
+        // 跨域外链：直接赋值（在线可播；SW 不缓存跨域，无离线损失）
+        audio.src = song.url;
+        playAfterLoad();
+      }
+    }
     // 重置进度 UI，避免上一首的进度/时长残留
     $("mpProgressBar").style.width = "0%";
     $("mpProgressBuffer").style.width = "0%";
@@ -583,15 +624,7 @@
     renderPlaylist();
     updateMediaSession(song);
 
-    if (autoplay) {
-      audio.play().then(syncPlayUI).catch(() => {
-        if (myToken !== loadToken) return;
-        syncPlayUI();
-        $("mpArtist").textContent = "浏览器阻止了自动播放，请点击播放按钮";
-      });
-    } else {
-      syncPlayUI();
-    }
+    if (!autoplay) syncPlayUI(); // 音频未加载：仅刷新 UI，等用户点击播放
   }
 
   function togglePlay() {

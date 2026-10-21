@@ -163,7 +163,10 @@ self.addEventListener("fetch", (event) => {
           if (!hit) {
             const full = await fetch(new Request(req.url, { method: "GET" }));
             if (isCacheableResponse(full)) {
-              await cache.put(req, full.clone());
+              // 注意：cache.put 的 key Request 不能带 Range 头（规范要求 Range 请求
+              // 只能配 206 响应），否则 put 抛 TypeError。用无 Range 头的同 URL
+              // Request 作 key，后续带 Range 的 match 仍能命中（key 只看 URL）。
+              await cache.put(new Request(req.url, { method: "GET" }), full.clone());
               hit = full;
             }
           }
