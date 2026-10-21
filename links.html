@@ -110,6 +110,14 @@
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 18px;
     padding: 20px; transition: all 0.25s var(--ease); position: relative; overflow: hidden;
   }
+  /* 顶部渐变条：悬停时展开（全站卡片统一设计语言） */
+  .link-card::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--brand-from), var(--brand-to));
+    transform: scaleX(0); transform-origin: left;
+    transition: transform 0.3s var(--ease);
+  }
+  .link-card:hover::before { transform: scaleX(1); }
   .link-card:hover { transform: translateY(-4px); box-shadow: var(--card-shadow-hover); border-color: var(--primary-text); }
   .link-avatar {
     width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0; overflow: hidden;

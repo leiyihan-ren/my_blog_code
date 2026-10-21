@@ -153,9 +153,22 @@
       border-color: var(--primary-text);
     }
     .msg-header {
-      display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 10px;
     }
-    .msg-name { font-weight: 600; color: var(--primary-text); font-size: 15px; min-width: 0; overflow-wrap: anywhere; }
+    /* 生成头像：昵称首字母 + 确定性哈希色（JS 设 --msg-h），纯装饰 */
+    .msg-avatar {
+      width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+      display: grid; place-items: center;
+      font-size: 16px; font-weight: 700; line-height: 1;
+      background: hsl(var(--msg-h, 250) 70% 92%);
+      color: hsl(var(--msg-h, 250) 65% 32%);
+      user-select: none;
+    }
+    body.dark .msg-avatar {
+      background: hsl(var(--msg-h, 250) 45% 24%);
+      color: hsl(var(--msg-h, 250) 70% 74%);
+    }
+    .msg-name { font-weight: 600; color: var(--primary-text); font-size: 15px; min-width: 0; overflow-wrap: anywhere; margin-right: auto; }
     .msg-date { font-size: 12px; color: var(--text-mute); flex-shrink: 0; }
     .msg-content {
       color: var(--text); font-size: 14px; line-height: 1.7;
@@ -318,15 +331,22 @@
         el.innerHTML = '<div class="empty">还没有人留言，来抢沙发吧~ ✨</div>';
         return;
       }
-      el.innerHTML = list.map((m, i) => `
+      el.innerHTML = list.map((m, i) => {
+        // 生成头像：取昵称首字符（按码点取，防代理对截断），色相由昵称哈希决定
+        const nameStr = String(m.name || "");
+        const initial = Array.from(nameStr)[0] || "?";
+        let h = 0;
+        for (const ch of nameStr) h = (h * 31 + ch.codePointAt(0)) % 360;
+        return `
         <div class="msg-card" data-delay="${i}">
           <div class="msg-header">
+            <span class="msg-avatar" style="--msg-h:${h}" aria-hidden="true">${escapeHtml(initial)}</span>
             <span class="msg-name">${escapeHtml(m.name)}</span>
             <span class="msg-date">${formatDate(m.date)}</span>
           </div>
           <div class="msg-content">${escapeHtml(m.content)}</div>
-        </div>
-      `).join("");
+        </div>`;
+      }).join("");
 
       // 滚动渐入
       if ("IntersectionObserver" in window) {

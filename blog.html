@@ -145,7 +145,20 @@
       background: var(--card-bg); border-radius: 18px; padding: 28px;
       margin-bottom: 16px; box-shadow: var(--card-shadow);
       transition: all 0.3s var(--ease); border: 1px solid var(--border); cursor: pointer;
+      position: relative; overflow: hidden;
     }
+    /* 顶部渐变条：悬停时展开（全站卡片统一设计语言） */
+    .post-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--brand-from), var(--brand-to));
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.3s var(--ease);
+    }
+    .post-card:hover::before { transform: scaleX(1); }
     .post-card:hover {
       transform: translateY(-4px); box-shadow: var(--card-shadow-hover);
       border-color: var(--primary-text);
