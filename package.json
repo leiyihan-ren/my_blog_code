@@ -20,5 +20,8 @@
   },
   "devDependencies": {
     "playwright": "^1.58.1"
+  },
+  "config": {
+    "playwright_skip_browser_download": "1"
   }
 }
