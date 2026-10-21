@@ -221,7 +221,27 @@
       border: 4px solid rgba(255,255,255,0.5);
       animation: bounceIn 1s var(--ease);
       box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+      position: relative;
     }
+    /* 头像外圈旋转光环（conic 渐变 + 遮罩抠出圆环，纯装饰） */
+    .hero-avatar::before {
+      content: "";
+      position: absolute;
+      inset: -14px;
+      border-radius: 50%;
+      background: conic-gradient(
+        from 0deg,
+        rgba(255,255,255,0) 0deg,
+        rgba(255,255,255,0.55) 60deg,
+        rgba(255,255,255,0) 140deg,
+        rgba(255,255,255,0) 360deg
+      );
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+      animation: halo-spin 6s linear infinite;
+      pointer-events: none;
+    }
+    @keyframes halo-spin { to { transform: rotate(360deg); } }
     @keyframes bounceIn {
       0% { transform: scale(0); opacity: 0; }
       50% { transform: scale(1.1); }
@@ -264,7 +284,8 @@
       margin-top: 32px;
       animation: fadeUp 1s var(--ease) 0.6s both;
     }
-    .hero-stat { text-align: center; min-width: 64px; }
+    .hero-stat { text-align: center; min-width: 64px; transition: transform 0.25s var(--ease-spring); }
+    .hero-stat:hover { transform: translateY(-3px); }
     .hero-stat-num {
       font-size: 28px;
       font-weight: 700;
@@ -313,7 +334,21 @@
       box-shadow: var(--card-shadow);
       transition: all 0.3s var(--ease);
       border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
     }
+    /* 顶部渐变条：悬停时展开（与文章卡设计语言统一） */
+    .info-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--brand-from), var(--brand-to));
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform 0.3s var(--ease);
+    }
+    .info-card:hover::before { transform: scaleX(1); }
     .info-card:hover {
       transform: translateY(-4px);
       box-shadow: var(--card-shadow-hover);
@@ -801,6 +836,30 @@
 
       const isJson = (r) => r.ok && (r.headers.get("content-type") || "").includes("json");
 
+      /* 统计数字滚动动画：从 0 计数到目标值（rAF 驱动，约 900ms）
+         尊重系统减弱动效偏好：直接落最终值；目标非整数时保持原样 */
+      const countUpEl = (el, target) => {
+        if (!el) return;
+        const n = Number(target);
+        if (!Number.isFinite(n)) { el.textContent = String(target); return; }
+        if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          el.textContent = String(n);
+          return;
+        }
+        const from = 0;
+        const duration = 900;
+        const t0 = performance.now();
+        const step = (now) => {
+          const p = Math.min(1, (now - t0) / duration);
+          // easeOutCubic：先快后慢，数字停止时不突兀
+          const eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = String(Math.round(from + (n - from) * eased));
+          if (p < 1) requestAnimationFrame(step);
+          else el.textContent = String(n);
+        };
+        requestAnimationFrame(step);
+      };
+
       if (sResult.status === "fulfilled" && isJson(sResult.value)) {
         try {
           const s = await sResult.value.json();
@@ -817,7 +876,7 @@
           const posts = await pResult.value.json();
           if (Array.isArray(posts)) {
             renderPosts(posts);
-            document.getElementById("stat-posts").textContent = posts.length;
+            countUpEl(document.getElementById("stat-posts"), posts.length);
           }
         } catch(e) {}
       }
@@ -826,11 +885,11 @@
         try {
           const stats = await statsResult.value.json();
           if (stats && typeof stats === "object") {
-            document.getElementById("stat-posts").textContent = stats.posts;
-            document.getElementById("stat-messages").textContent = stats.messages;
-            document.getElementById("stat-timeline").textContent = stats.timeline;
-            document.getElementById("stat-likes").textContent = stats.totalLikes;
-            document.getElementById("stat-views").textContent = stats.totalViews || 0;
+            countUpEl(document.getElementById("stat-posts"), stats.posts);
+            countUpEl(document.getElementById("stat-messages"), stats.messages);
+            countUpEl(document.getElementById("stat-timeline"), stats.timeline);
+            countUpEl(document.getElementById("stat-likes"), stats.totalLikes);
+            countUpEl(document.getElementById("stat-views"), stats.totalViews || 0);
           }
         } catch(e) {}
       }
