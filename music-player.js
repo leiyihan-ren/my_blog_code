@@ -307,6 +307,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .mp-src-badge {
+    font-size: 11px;
+    margin-left: 4px;
+    opacity: 0.75;
+    vertical-align: middle;
+  }
   .mp-playlist-item-artist {
     font-size: 12px;
     color: var(--text-mute, #6b7280);
@@ -744,7 +750,7 @@
         <span class="mp-playlist-item-num">${i === currentIdx ? "" : i + 1}</span>
         <span class="mp-playlist-item-eq"><span class="mp-eq-bar"></span><span class="mp-eq-bar"></span><span class="mp-eq-bar"></span></span>
         <div class="mp-playlist-item-body">
-          <div class="mp-playlist-item-title">${escapeHtml(s.title || "未知歌曲")}</div>
+          <div class="mp-playlist-item-title">${escapeHtml(s.title || "未知歌曲")}${s.source === "github" ? '<span class="mp-src-badge" title="来自 GitHub 仓库目录">🐙</span>' : ""}</div>
           <div class="mp-playlist-item-artist">${escapeHtml(s.artist || "")}</div>
         </div>
       </div>
@@ -982,7 +988,13 @@
       if (!ct.includes("json")) return;
       const data = await res.json();
       if (!Array.isArray(data)) return;
-      playlist = data.filter(s => s && s.url && String(s.url).trim() && /^https?:\/\//i.test(String(s.url).trim()));
+      // 链接三重校验：http(s) 绝对外链、/ 开头同源相对路径（/api/github/raw/*
+      // 代理资源，可经 SW 缓存离线播放）均接受；拒绝 data: 等伪协议
+      const okUrl = (u) => {
+        const s = String(u || "").trim();
+        return /^https?:\/\//i.test(s) || s.startsWith("/");
+      };
+      playlist = data.filter(s => s && s.url && okUrl(s.url));
       if (playlist.length) {
         loadSong(0, false);
       } else {

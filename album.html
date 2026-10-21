@@ -211,6 +211,66 @@
       text-overflow: ellipsis;
     }
 
+    /* v3.0 动态相册：分类 tabs（pill 按钮组，移动端横向滚动） */
+    .album-tabs {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 10px;
+      overflow-x: auto;
+      padding: 4px 2px 14px;
+      scrollbar-width: none;
+    }
+    .album-tabs::-webkit-scrollbar { display: none; }
+    .album-tabs:empty { display: none; }
+    .album-tab {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.25s var(--ease);
+    }
+    .album-tab:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      transform: translateY(-1px);
+    }
+    .album-tab[aria-selected="true"] {
+      background: var(--grad-brand);
+      border-color: transparent;
+      color: var(--on-accent);
+      box-shadow: 0 6px 18px rgba(var(--primary-rgb), 0.35);
+    }
+    .album-tab .tab-count {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 1px 8px;
+      border-radius: 999px;
+      background: var(--item-bg);
+      color: var(--text-mute);
+    }
+    .album-tab[aria-selected="true"] .tab-count {
+      background: rgba(255,255,255,0.22);
+      color: var(--on-accent);
+    }
+    /* 无限滚动哨兵 + 加载状态条 */
+    .album-sentinel { height: 1px; }
+    .album-status {
+      text-align: center;
+      padding: 18px 0 8px;
+      font-size: 13px;
+      color: var(--text-mute);
+    }
+    .album-status:empty { display: none; }
+
     /* 灯箱 */
     .lightbox {
       display: none;
@@ -451,9 +511,12 @@
       <h1 class="page-title">📷 我的相册</h1>
       <p class="page-subtitle" id="album-subtitle">记录生活中的美好瞬间</p>
     </div>
-    <div id="album-content">
+    <div class="album-tabs" id="album-tabs" role="tablist" aria-label="相册分类"></div>
+    <div id="album-content" role="region" aria-label="照片列表">
       <div class="loading"><div class="loading-spinner"></div>加载中...</div>
     </div>
+    <div class="album-sentinel" id="album-sentinel" aria-hidden="true"></div>
+    <div class="album-status" id="album-status" role="status" aria-live="polite"></div>
   </div>
 
   </main>
@@ -497,31 +560,71 @@
 
 
 
-    let photos = [];
+    let photos = []; // 当前分类下已加载的照片（灯箱与预加载基于它）
     let currentPhotoIdx = 0;
 
-    // 照片列表经 Worker /api/album/photos 获取（Worker 侧多源故障转移 + 缓存），
+    // 照片列表经 Worker /api/album/photos 获取（Worker 侧多源故障转移 + 缓存 + 分页），
     // 浏览器只同源通信，避免 CSP connect-src 限制；每张照片带多个镜像地址，
     // 图片加载失败时逐个切换——本机 DNS 加速失效时自动走下一个镜像。
-    const PHOTO_CACHE_KEY = "album_photos_v2";
-    const PHOTO_CACHE_TIME_KEY = "album_photos_v2_time";
+
+    // ===== v3.0 动态相册：分类 tabs + 分页接口 + 无限滚动 =====
+    const ALBUM_PAGE_SIZE = 24;
+    // v3 缓存结构：{ v: 3, categories, photos }（v2 是裸数组，直接弃用重新拉取）
+    const PHOTO_CACHE_KEY = "album_photos_v3";
+    const PHOTO_CACHE_TIME_KEY = "album_photos_v3_time";
+
+    const albumState = {
+      category: "all",   // 当前分类 id（"all" = 全部）
+      offset: 0,         // 下一页偏移
+      loading: false,    // 分页请求去重
+      hasMore: true,     // 是否还有更多
+      total: 0,          // 当前分类总数
+      categories: [],    // [{ id, name, count }]
+      cacheMode: false,  // 缓存兜底模式（接口失败，本地过滤）
+    };
+    let cacheAllPhotos = []; // 缓存模式下的全量照片（本地分类过滤用）
 
     function readPhotoCache() {
       try {
         const raw = localStorage.getItem(PHOTO_CACHE_KEY);
         if (!raw) return null;
-        const list = JSON.parse(raw);
-        return Array.isArray(list) && list.length ? list : null;
+        const data = JSON.parse(raw);
+        if (data && data.v === 3 && Array.isArray(data.photos) && data.photos.length) {
+          return { photos: data.photos, categories: Array.isArray(data.categories) ? data.categories : [] };
+        }
+        return null;
       } catch (e) {
         return null;
       }
     }
 
-    function writePhotoCache(list) {
+    function writePhotoCache(list, categories) {
       try {
-        localStorage.setItem(PHOTO_CACHE_KEY, JSON.stringify(list));
+        localStorage.setItem(PHOTO_CACHE_KEY, JSON.stringify({ v: 3, categories: categories || [], photos: list }));
         localStorage.setItem(PHOTO_CACHE_TIME_KEY, Date.now().toString());
       } catch (e) { /* 存储空间不足时静默 */ }
+    }
+
+    function showAlbumStatus(text) {
+      const el = document.getElementById("album-status");
+      if (el) el.textContent = text || "";
+    }
+
+    /** 本地聚合分类计数（缓存兜底渲染时用，接口模式的计数以服务端为准） */
+    function aggregateCategories(list) {
+      const count = new Map();
+      const names = new Map();
+      for (const p of list) {
+        const id = p && p.category ? String(p.category) : "all";
+        count.set(id, (count.get(id) || 0) + 1);
+        if (!names.has(id)) names.set(id, id);
+      }
+      const cats = [{ id: "all", name: "全部", count: list.length }];
+      for (const [id, n] of count) {
+        if (id === "all") continue;
+        cats.push({ id, name: names.get(id), count: n });
+      }
+      return cats;
     }
 
     function showAlbumNotice(text) {
@@ -539,36 +642,178 @@
       notice.style.display = "block";
     }
 
-    async function loadPhotos() {
-      const res = await fetch("/api/album/photos");
+    /** 分类 tabs 渲染（全部 + 各分类含计数；点击切换 → 重置分页 → 加载第一页） */
+    function renderTabs(categories) {
+      albumState.categories = Array.isArray(categories) ? categories : [];
+      const box = document.getElementById("album-tabs");
+      if (!box) return;
+      const tabs = [{ id: "all", name: "全部", count: albumState.total }]
+        .concat(albumState.categories.filter((c) => c && c.id !== "all"));
+      box.innerHTML = tabs.map((c) => `
+        <button type="button" class="album-tab" role="tab" data-cat="${escapeAttr(c.id)}"
+          aria-selected="${c.id === albumState.category ? "true" : "false"}">
+          ${escapeHtml(c.name || c.id)}<span class="tab-count">${c.count}</span>
+        </button>`).join("");
+      box.querySelectorAll(".album-tab").forEach((btn) => {
+        btn.addEventListener("click", () => switchCategory(btn.dataset.cat));
+      });
+    }
+
+    function switchCategory(id) {
+      const next = id || "all";
+      if (next === albumState.category || albumState.loading) return;
+      albumState.category = next;
+      albumState.offset = 0;
+      albumState.hasMore = true;
+      photos = [];
+      currentPhotoIdx = 0;
+      document.getElementById("album-content").innerHTML = "";
+      document.querySelectorAll(".album-tab").forEach((b) => {
+        b.setAttribute("aria-selected", b.dataset.cat === albumState.category ? "true" : "false");
+      });
+      if (albumState.cacheMode) {
+        // 缓存兜底模式：接口刚才失败过，本地过滤全量缓存，不再打请求
+        const filtered = albumState.category === "all"
+          ? cacheAllPhotos
+          : cacheAllPhotos.filter((p) => p.category === albumState.category);
+        renderPhotosAll(filtered, albumState.categories, false);
+        return;
+      }
+      loadAlbumPage();
+    }
+
+    async function fetchAlbumPage() {
+      const params = new URLSearchParams({
+        category: albumState.category,
+        offset: String(albumState.offset),
+        limit: String(ALBUM_PAGE_SIZE),
+      });
+      const res = await fetch(`/api/album/photos?${params.toString()}`);
       const data = await res.json().catch(() => null);
       if (!res.ok || !data || !Array.isArray(data.photos)) {
         throw new Error((data && data.error) || `加载失败（HTTP ${res.status}）`);
       }
-      if (data.photos.length === 0) return [];
-      writePhotoCache(data.photos);
-      return data.photos;
+      return data;
     }
 
-    function renderPhotos(items) {
-      const el = document.getElementById("album-content");
-      if (items.length === 0) {
-        el.innerHTML = '<div class="empty">📭 相册还没有照片<br><br>在管理后台设置 GitHub 仓库后，照片会自动显示在这里</div>';
+    /** 加载一页并增量渲染；首屏失败时走本地缓存/错误态，翻页失败时保留已加载内容 */
+    async function loadAlbumPage() {
+      if (albumState.loading) return;
+      albumState.loading = true;
+      showAlbumStatus("加载中…");
+      try {
+        const data = await fetchAlbumPage();
+        const items = data.photos || [];
+        // 先更新总数再渲染 tabs（tabs 的「全部」计数读 albumState.total）
+        albumState.total = typeof data.total === "number" ? data.total : photos.length + items.length;
+        albumState.hasMore = !!data.hasMore;
+        albumState.offset = data.nextOffset != null ? data.nextOffset : albumState.offset + items.length;
+        if (Array.isArray(data.categories)) renderTabs(data.categories);
+        appendPhotoItems(items);
+        if (!albumState.hasMore) {
+          writePhotoCache(photos, albumState.categories);
+          showAlbumStatus(`已展示全部 ${photos.length} 张照片`);
+        } else {
+          showAlbumStatus(`已加载 ${photos.length} / ${albumState.total} 张，下滑加载更多`);
+        }
+      } catch (err) {
+        if (photos.length === 0 && albumState.offset === 0) {
+          // 首屏失败：本地缓存兜底（GitHub 不稳定时不空屏）
+          const cached = readPhotoCache();
+          if (cached) {
+            // cacheAllPhotos 始终保持全量（供缓存模式下的本地分类切换），
+            // 渲染时按当前分类过滤——切换分类途中遇接口故障也不丢上下文
+            cacheAllPhotos = cached.photos.slice();
+            albumState.cacheMode = true;
+            const filtered = albumState.category === "all"
+              ? cacheAllPhotos
+              : cacheAllPhotos.filter((p) => p.category === albumState.category);
+            renderPhotosAll(filtered, cached.categories, false);
+            showAlbumNotice("⚠️ 网络不稳定，正在展示缓存的相册，恢复后将自动更新");
+            return;
+          }
+          document.getElementById("album-content").innerHTML =
+            `<div class="empty">❌ 相册加载失败<br><br>${escapeHtml(err.message || "未知错误")}<br><br>请检查 GitHub 仓库配置，或稍后重试<br><br><button class="album-retry" style="display:inline-block;margin-top:12px;padding:10px 24px;border:none;border-radius:8px;background:var(--primary);color:var(--on-accent);cursor:pointer;font-size:14px;transition:filter 0.2s var(--ease)" onclick="init()">🔄 重试</button></div>`;
+          showAlbumStatus("");
+          return;
+        }
+        // 翻页失败：保留已加载照片，提示重试（下次滚动哨兵进入视口会再触发）
+        showAlbumStatus(`⚠️ 加载更多失败：${err.message || "网络错误"}，下滑重试`);
+      } finally {
+        albumState.loading = false;
+      }
+    }
+
+    /** 无限滚动：哨兵进入视口且还有更多 → 加载下一页 */
+    function setupInfiniteScroll() {
+      const sentinel = document.getElementById("album-sentinel");
+      if (!sentinel || !("IntersectionObserver" in window)) return;
+      const io = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting) && albumState.hasMore && !albumState.loading) {
+          loadAlbumPage();
+        }
+      }, { rootMargin: "300px 0px" }); // 提前 300px 预取，滚动更顺滑
+      io.observe(sentinel);
+    }
+
+    /** 全量渲染（缓存兜底路径）：一次性渲染 + tabs 本地过滤 */
+    function renderPhotosAll(list, categories, fromCache) {
+      document.getElementById("album-content").innerHTML = "";
+      photos = [];
+      currentPhotoIdx = 0;
+      albumState.hasMore = false;
+      albumState.total = list.length;
+      if (fromCache) {
+        cacheAllPhotos = list.slice();
+        albumState.cacheMode = true;
+      }
+      appendPhotoItems(list);
+      const cats = Array.isArray(categories) && categories.length ? categories : aggregateCategories(list);
+      renderTabs(cats);
+      showAlbumStatus(`已展示全部 ${list.length} 张照片（离线缓存）`);
+    }
+
+    /** 增量渲染一页照片：只对新节点绑事件 + 懒加载，已加载照片不受影响 */
+    function appendPhotoItems(items) {
+      const content = document.getElementById("album-content");
+      if (!items.length && photos.length === 0) {
+        content.innerHTML = '<div class="empty">📭 相册还没有照片<br><br>在管理后台设置 GitHub 仓库后，照片会自动显示在这里</div>';
         return;
       }
-      el.innerHTML = `<div class="masonry">${items.map((p, i) => `
-        <div class="photo-item" data-idx="${i}" role="button" tabindex="0" aria-label="查看照片 ${escapeAttr(p.name)}" style="animation:fadeUp 0.5s ease ${i * 0.03}s both">
+      let masonry = content.querySelector(".masonry");
+      if (!masonry) {
+        content.innerHTML = ""; // 清除首屏 loading 占位
+        masonry = document.createElement("div");
+        masonry.className = "masonry";
+        content.appendChild(masonry);
+      }
+      const startIdx = photos.length;
+      const frag = document.createDocumentFragment();
+      const nodes = [];
+      items.forEach((p, i) => {
+        const idx = startIdx + i;
+        const item = document.createElement("div");
+        item.className = "photo-item";
+        item.dataset.idx = String(idx);
+        item.setAttribute("role", "button");
+        item.setAttribute("tabindex", "0");
+        item.setAttribute("aria-label", `查看照片 ${escapeAttr(p.name || "")}`);
+        item.style.animation = `fadeUp 0.5s ease ${i * 0.03}s both`;
+        item.innerHTML = `
           <div class="photo-img-wrap loading">
-            <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name)}" class="lazy-img">
+            <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name || "")}" class="lazy-img">
           </div>
           <div class="photo-info">
             <div class="photo-name">${escapeHtml((p.name || "").replace(/\.[^.]+$/, ""))}</div>
-          </div>
-        </div>
-      `).join("")}</div>`;
+          </div>`;
+        nodes.push(item);
+        frag.appendChild(item);
+      });
+      masonry.appendChild(frag);
+      photos = photos.concat(items);
 
       // 照片项键盘可操作：Enter / 空格 打开灯箱（鼠标走 click）
-      el.querySelectorAll(".photo-item").forEach((item) => {
+      nodes.forEach((item) => {
         const open = () => {
           const wrap = item.querySelector(".photo-img-wrap");
           // 加载失败态：点击时双管齐下——重试网格缩略图，同时打开灯箱
@@ -591,7 +836,7 @@
         });
       });
 
-      // 使用 IntersectionObserver 实现懒加载
+      // 懒加载只观察新节点（已观察过的照片不受翻页影响）
       if ("IntersectionObserver" in window) {
         const imgObserver = new IntersectionObserver((entries, observer) => {
           entries.forEach(entry => {
@@ -602,12 +847,16 @@
           });
         }, { rootMargin: "200px 0px" }); // 提前 200px 开始加载
 
-        document.querySelectorAll(".lazy-img").forEach(img => {
-          imgObserver.observe(img);
+        nodes.forEach((item) => {
+          const img = item.querySelector(".lazy-img");
+          if (img) imgObserver.observe(img);
         });
       } else {
         // 降级方案：直接加载
-        document.querySelectorAll(".lazy-img").forEach(img => loadImgWithFallback(img));
+        nodes.forEach((item) => {
+          const img = item.querySelector(".lazy-img");
+          if (img) loadImgWithFallback(img);
+        });
       }
     }
 
@@ -758,6 +1007,16 @@
     });
 
     async function init() {
+      // 重置分页状态（「重试」按钮会再次调用 init，必须清空上一轮残留）
+      albumState.category = "all";
+      albumState.offset = 0;
+      albumState.hasMore = true;
+      albumState.loading = false;
+      albumState.cacheMode = false;
+      photos = [];
+      cacheAllPhotos = [];
+      currentPhotoIdx = 0;
+
       // 加载站点信息
       let siteReqFailed = false;
       let site = null;
@@ -787,15 +1046,15 @@
             subtitle.innerHTML = `${escapeHtml(site.githubRepo)} 仓库自动同步 <span class="auto-badge">🤖 GitHub 同步</span>${useCdn ? ' <span class="auto-badge" style="background:var(--grad-cdn, linear-gradient(135deg,#f59e0b,var(--danger-solid)))">⚡ CDN加速</span>' : ''}`;
           }
           try {
-            photos = await loadPhotos();
-            renderPhotos(photos);
+            // 加载第一页（内部已含：tabs 渲染、缓存兜底、错误态）
+            await loadAlbumPage();
+            setupInfiniteScroll();
             return;
           } catch (err) {
-            // 接口失败：尝试展示本地缓存的旧照片（GitHub 不稳定时不空屏）
+            // loadAlbumPage 内部已兜底所有失败路径，此处仅为防御性兜底
             const cached = readPhotoCache();
             if (cached) {
-              photos = cached;
-              renderPhotos(photos);
+              renderPhotosAll(cached.photos, cached.categories, true);
               showAlbumNotice("⚠️ 网络不稳定，正在展示缓存的相册，恢复后将自动更新");
               return;
             }

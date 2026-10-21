@@ -1420,6 +1420,7 @@ const DEFAULT_SITE = {
   githubPostsPath: "posts",
   githubMusicPath: "music",
   githubAlbumPath: "photos",
+  githubAlbumConfigFile: "album.json",
   githubTimelineFile: "timeline.json",
   githubMusicListFile: "music.json",
 };
@@ -1735,26 +1736,145 @@ async function loadPostsFromGithub(store, site) {
   return sortByDateDesc(parsed.filter((p) => p !== null));
 }
 
+/** 仓库内文件 → 同源代理 URL：经 /api/github/raw/* 由 Worker 转发。
+ *  同源的意义：Service Worker 只接管同源请求，SW 可缓存、断网可播、
+ *  无跨域 CORS 问题（音乐播放器的 fetch→Blob 管道仅对同源资源生效）。 */
+function githubProxyUrl(repo, branch, path) {
+  return `/api/github/raw/${repo}/${branch}/${encodePathSegments(path)}`;
+}
+
+/** 歌曲/封面链接三通道解析：
+ *  1) url 为 http(s) 绝对地址 → 原样保留（用户显式配置的外链）
+ *  2) 提供 file 相对路径 → 拼成同源代理 URL（推荐：可缓存可离线）
+ *  3) 都没有 → 返回空串（该条目被过滤） */
+function resolveGithubAssetUrl(url, file, repo, branch, basePath) {
+  if (url && isValidUrl(url)) return String(url).trim();
+  if (file) return githubProxyUrl(repo, branch, `${basePath}/${String(file).replace(/^\/+/, "")}`);
+  return "";
+}
+
+  /** 递归枚举仓库目录内文件（限深 2 层，防异常目录结构打爆配额）。
+ *  返回 [{ name, path, size }]，path 为相对 dir 的路径（可含子目录）。 */
+async function listRepoFilesRecursive(store, repo, dir, branch, useCdn, depth = 0) {
+  const files = await githubFetch(store, repo, dir, branch, useCdn);
+  const out = [];
+  for (const f of files || []) {
+    if (f.type === "file") {
+      out.push({ name: f.name, path: f.name, size: f.size || 0 });
+    } else if (f.type === "dir" && depth < 2) {
+      const sub = await listRepoFilesRecursive(store, repo, `${dir}/${f.name}`, branch, useCdn, depth + 1);
+      for (const s of sub) out.push({ ...s, path: `${f.name}/${s.path}` });
+    }
+  }
+  return out;
+}
+
+  /**
+   * 相册数据装配（v3.0 动态相册）：
+   *  1. 递归枚举相册目录（子目录即分类）
+   *  2. 若目录内存在 album.json（或自定义配置文件名），读取分类/标题/日期/排序配置
+   *  3. 配置条目按作者顺序排列，目录中未配置的文件自动补录（子目录名作分类）
+   *  返回 { photos: [{name,title,category,date,mirrors}], categories: [{id,name,count}] }
+   *  无 album.json 时退化为纯目录模式（旧行为），零额外请求。
+   */
+async function loadAlbumFromGithub(store, site) {
+  const useCdn = site.useCdn !== false;
+  const branch = site.githubBranch || "main";
+  const albumPath = site.githubAlbumPath || "photos";
+  const configName = site.githubAlbumConfigFile || "album.json";
+  const imgExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"];
+
+  const files = await listRepoFilesRecursive(store, site.githubRepo, albumPath, branch, useCdn);
+  const images = files.filter((f) => imgExts.some((ext) => f.path.toLowerCase().endsWith(ext)));
+  const byPath = new Map(images.map((f) => [f.path, f]));
+
+  // 仅在目录中确实存在配置文件时才拉取内容（无配置时零额外请求）
+  let config = null;
+  if (files.some((f) => f.path === configName)) {
+    try {
+      const raw = await githubFetchRaw(store, site.githubRepo, `${albumPath}/${configName}`, branch, useCdn);
+      config = safeJsonParse(raw, null);
+    } catch (e) {
+      config = null; // 配置损坏：退化为目录模式，不阻塞相册
+    }
+  }
+
+  // 分类 id → 显示名（album.json 的 categories 可覆盖）
+  const catNames = new Map();
+  if (config && Array.isArray(config.categories)) {
+    for (const c of config.categories) {
+      if (c && c.id != null) catNames.set(String(c.id), String(c.name || c.id));
+    }
+  }
+
+  const photos = [];
+  const catCount = new Map();
+  const bump = (id) => catCount.set(id, (catCount.get(id) || 0) + 1);
+
+  // 1) album.json 显式配置条目（保留作者排序意图）
+  if (config && Array.isArray(config.photos)) {
+    for (const p of config.photos) {
+      const rel = String((p && p.file) || "").replace(/^\/+/, "");
+      if (!rel || !byPath.has(rel)) continue; // 配置了但仓库没有：跳过
+      const cat = String((p && p.category) || "all");
+      photos.push({
+        name: rel,
+        title: String((p && p.title) || "").slice(0, 200),
+        category: cat,
+        date: String((p && p.date) || "").slice(0, 20),
+        mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, rel),
+      });
+      byPath.delete(rel);
+      bump(cat);
+    }
+  }
+  // 2) 目录中未配置的文件：子目录名即分类，顶层文件归 all，按路径倒序追加
+  const rest = [...byPath.values()].sort((a, b) => b.path.localeCompare(a.path));
+  for (const f of rest) {
+    const seg = f.path.split("/");
+    const cat = seg.length > 1 ? seg[0] : "all";
+    photos.push({
+      name: f.path,
+      title: "",
+      category: cat,
+      date: "",
+      mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.path),
+    });
+    bump(cat);
+  }
+
+  // 3) 分类列表：all 恒为首位
+  const categories = [{ id: "all", name: "全部", count: photos.length }];
+  for (const [id, count] of catCount) {
+    if (id === "all") continue;
+    categories.push({ id, name: catNames.get(id) || id, count });
+  }
+  return { photos, categories };
+}
+
 async function loadMusicFromGithub(store, site) {
   const useCdn = site.useCdn !== false;
   const branch = site.githubBranch || "main";
+  const repo = site.githubRepo;
+  const musicPath = site.githubMusicPath || "music";
   const musicListFile = site.githubMusicListFile || "music.json";
   try {
-    const raw = await githubFetchRaw(store, site.githubRepo, musicListFile, branch, useCdn);
+    const raw = await githubFetchRaw(store, repo, musicListFile, branch, useCdn);
     const list = safeJsonParse(raw, []);
     return (Array.isArray(list) ? list : [])
       .map((m, i) => ({
         id: (m.id ? String(m.id).replace(/[^a-zA-Z0-9_.-]/g, "_") : "gm" + i).slice(0, CONFIG.limit.id),
         title: m.title || "未知歌曲",
         artist: m.artist || "",
-        url: m.url || "",
-        cover: m.cover || "",
+        // 支持两种配置写法：url 绝对外链，或 file 仓库内相对路径（自动走同源代理）
+        url: resolveGithubAssetUrl(m.url, m.file, repo, branch, musicPath),
+        cover: resolveGithubAssetUrl(m.cover, m.coverFile, repo, branch, musicPath),
+        source: "github",
       }))
-      .filter((m) => m.url && isValidUrl(m.url));
+      .filter((m) => m.url && (isValidUrl(m.url) || m.url.startsWith("/")));
   } catch (e) {
-    // music.json 不存在时，回退到扫描音频目录
-    const musicPath = site.githubMusicPath || "music";
-    const files = await githubFetch(store, site.githubRepo, musicPath, branch, useCdn);
+    // music.json 不存在时，回退到扫描音频目录（URL 同源代理化：离线可播的关键）
+    const files = await githubFetch(store, repo, musicPath, branch, useCdn);
     const audioExts = [".mp3", ".wav", ".ogg", ".m4a", ".flac"];
     return files
       .filter((f) => f.type === "file" && audioExts.some((ext) => f.name.toLowerCase().endsWith(ext)))
@@ -1762,8 +1882,9 @@ async function loadMusicFromGithub(store, site) {
         id: "gm" + i,
         title: f.name.replace(/\.[^.]+$/, ""),
         artist: "",
-        url: f.download_url,
+        url: githubProxyUrl(repo, branch, `${musicPath}/${f.name}`),
         cover: "",
+        source: "github",
       }));
   }
 }
@@ -2012,25 +2133,35 @@ const handlers = {
    */
   async listAlbumPhotos(ctx) {
     const site = await Repo.getSite(ctx.store);
-    if (!site.githubRepo) return { photos: [], configured: false };
+    if (!site.githubRepo) return { photos: [], categories: [], configured: false };
 
-    const useCdn = site.useCdn !== false;
-    const branch = site.githubBranch || "main";
     const albumPath = site.githubAlbumPath || "photos";
     try {
-      const files = await githubFetch(ctx.store, site.githubRepo, albumPath, branch, useCdn);
-      const imgExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"];
-      const photos = files
-        .filter(
-          (f) => f.type === "file" && imgExts.some((ext) => f.name.toLowerCase().endsWith(ext))
-        )
-        .sort((a, b) => b.name.localeCompare(a.name))
-        .map((f) => ({
-          name: f.name,
-          size: f.size || 0,
-          mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.name),
-        }));
-      return { photos, configured: true };
+      const album = await loadAlbumFromGithub(ctx.store, site);
+      const category = ctx.url.searchParams.get("category");
+      let photos = album.photos;
+      if (category && category !== "all") {
+        photos = photos.filter((p) => p.category === category);
+      }
+
+      // 分页模式（?offset=&limit=）：供前端无限滚动逐批拉取
+      const limitParam = ctx.url.searchParams.get("limit");
+      if (limitParam !== null) {
+        const offset = Math.max(0, safeParseInt(ctx.url.searchParams.get("offset"), 0));
+        const limit = Math.min(Math.max(safeParseInt(limitParam, 24), 1), 100);
+        const slice = photos.slice(offset, offset + limit);
+        const nextOffset = offset + slice.length;
+        return {
+          photos: slice,
+          categories: album.categories,
+          total: photos.length,
+          hasMore: nextOffset < photos.length,
+          nextOffset: nextOffset < photos.length ? nextOffset : null,
+          configured: true,
+        };
+      }
+      // 无分页参数：全量返回（兼容管理后台等既有调用方）
+      return { photos, categories: album.categories, configured: true, total: photos.length };
     } catch (e) {
       throw new HttpError(502, `相册加载失败：${String((e && e.message) || e)}`);
     }
@@ -2470,7 +2601,18 @@ const handlers = {
       }
       return jsonEtagResponse(ctx.request, { music, ghIds });
     }
-    return jsonEtagResponse(ctx.request, music);
+    // 来源标记（供前台播放列表展示「后台/仓库」徽章）：
+    // 后台本地库命中的记 local，其余（autoMode 合并进来的）记 github
+    let localIds = null;
+    try {
+      localIds = new Set((await Repo.getLocalMusic(ctx.store)).map((m) => m && m.id).filter(Boolean));
+    } catch {
+      /* 标记失败不阻断歌单返回 */
+    }
+    const marked = localIds
+      ? music.map((m) => (m && m.source ? m : { ...m, source: localIds.has(m.id) ? "local" : "github" }))
+      : music;
+    return jsonEtagResponse(ctx.request, marked);
   },
 
   async saveMusic(ctx) {
