@@ -178,10 +178,17 @@ check("离线刷新 index.html 仍可打开", !!offlineIndex.logo || !!offlineIn
 
 /* ============ P4 离线小游戏 ============ */
 console.log("\n═══ P4 离线小游戏 ═══");
-await pageA.goto("http://localhost:8899/games.html", { waitUntil: "domcontentloaded" });
-await sleep(1500);
+// 先在线打开 games.html，确保 SW 完成 game-core.js 等资源的预缓存，
+// 再离线重载验证（避免 CI headless 上 SW 预缓存尚未完成导致 game-core.js 取不到 → 0 卡片）。
+await context.setOffline(false);
+await pageA.goto("http://localhost:8899/games.html", { waitUntil: "load" });
+await pageA.waitForFunction(() => document.querySelectorAll(".game-card").length >= 7, { timeout: 8000 }).catch(() => {});
+const warmCards = await pageA.evaluate(() => document.querySelectorAll(".game-card").length);
+await context.setOffline(true);
+await pageA.reload({ waitUntil: "load" });
+await sleep(1800);
 const gameGrid = await pageA.evaluate(() => document.querySelectorAll(".game-card").length);
-check("离线下游戏列表渲染（JS 已缓存）", gameGrid >= 7, `${gameGrid} 张卡片`);
+check("离线下游戏列表渲染（JS 已缓存）", gameGrid >= 7, `${gameGrid} 张卡片（在线预热 ${warmCards} 张）`);
 if (gameGrid > 0) {
   await pageA.click(".game-card");
   await sleep(900);

@@ -395,6 +395,14 @@ const apiD = await startApi(8612);
   // 趁 mock 健康拉取全量相册，构造 localStorage v3 种子（供兜底场景预置）
   const fullAlbum = await (await realFetch("http://127.0.0.1:8612/api/album/photos?category=all&offset=0&limit=100")).json();
   const v3Seed = { v: 3, categories: fullAlbum.categories, photos: fullAlbum.photos };
+  // 清掉前面无限滚动污染进 SW Cache Storage 的 48/60 张，重新只预热第一页（24 张），
+  // 使离线断言确定命中 24 而非被污染的缓存（否则 CI headless 上会得到 48）。
+  await page2.evaluate(async () => {
+    if (typeof caches !== "undefined") { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); }
+    localStorage.removeItem("album_photos_v3");
+  });
+  await page2.reload({ waitUntil: "load" });
+  await sleep(2500); // 等首屏 24 张渲染 + SW 把 API 响应写入 SWR 缓存
   await context.setOffline(true);
   await page2.reload({ waitUntil: "load" });
   await sleep(2500);
