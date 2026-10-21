@@ -25,6 +25,15 @@
 
   /* ---- 主题切换：点击 .theme-btn 切换 body.dark 并持久化 ---- */
   function initTheme() {
+    /* 主题色同步：移动端地址栏/状态栏颜色跟随手动主题
+       （页面只保留一个无 media 的 theme-color，由这里按当前主题赋值；
+         系统偏好由 head 防闪脚本在首屏决定初始 dark 类） */
+    const syncThemeColor = () => {
+      const meta = document.head.querySelector('meta[name="theme-color"]:not([media])');
+      if (meta) meta.setAttribute("content", document.body.classList.contains("dark") ? "#0f0f1a" : "#4f46e5");
+    };
+    window.__syncThemeColor = syncThemeColor;
+    syncThemeColor();
     const btn = document.querySelector(".theme-btn");
     if (!btn || btn.dataset.commonBound) return;
     btn.dataset.commonBound = "1";
@@ -35,6 +44,7 @@
       document.body.classList.toggle("dark");
       safeStorage.set("theme", document.body.classList.contains("dark") ? "dark" : "light");
       syncIcon();
+      syncThemeColor();
     });
     syncIcon(); // 与 head 联防闪脚本的初始 dark 类对齐图标
   }

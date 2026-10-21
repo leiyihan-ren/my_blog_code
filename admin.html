@@ -8,7 +8,6 @@
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#4f46e5">
-  <meta name="theme-color" content="#0f0f1a" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="我的博客">
@@ -508,9 +507,13 @@
   // 同步应用主题：避免暗色模式首屏白闪（FOUC）。与页尾 initTheme 逻辑保持一致
   try {
     var __t = localStorage.getItem("theme");
-    if (__t === "dark" || (!__t && matchMedia("(prefers-color-scheme: dark)").matches)) {
+    var __dark = __t === "dark" || (!__t && matchMedia("(prefers-color-scheme: dark)").matches);
+    if (__dark) {
       document.body.classList.add("dark");
     }
+    // 主题色同步：移动端地址栏/状态栏颜色与首屏主题一致（后续手动切换由 common.js 接管）
+    var __tc = document.querySelector('meta[name="theme-color"]:not([media])');
+    if (__tc) __tc.setAttribute("content", __dark ? "#0f0f1a" : "#4f46e5");
   } catch (e) {}
 </script>
   <main class="container">
