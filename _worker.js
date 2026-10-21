@@ -448,7 +448,12 @@ const CSP_POLICY =
   // worker-src 必须放行 'self'：否则浏览器会以 CSP 为由拒绝注册 sw.js（PWA 直接失效）。
   // sw.js 为同源静态文件，不引入任何外部脚本，放行同源是安全的。
   "frame-src 'none'; object-src 'none'; base-uri 'none'; " +
-  "form-action 'self'; worker-src 'self'";
+  "form-action 'self'; worker-src 'self'; " +
+  // frame-ancestors 'none'：禁止任何站点以 iframe 嵌入本站（防点击劫持），
+  // 与 X-Frame-Options: DENY 形成新旧双保险（CSP 头途经才生效，静态直连走 XFO）。
+  // manifest-src 'self'：PWA manifest 仅限同源。
+  // upgrade-insecure-requests：http 子资源自动升级 https（本地 localhost 豁免，生产全站 https）。
+  "frame-ancestors 'none'; manifest-src 'self'; upgrade-insecure-requests";
 
 /** 业务异常：抛出后由入口统一转成错误响应 */
 class HttpError extends Error {

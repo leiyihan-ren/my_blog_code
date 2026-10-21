@@ -18,7 +18,14 @@
   <meta property="og:title" content="文章 - 我的博客">
   <meta property="og:description" content="阅读博客文章全文，参与评论交流。">
   <meta property="og:url" content="https://leiyihan.dpdns.org/post.html">
+<meta property="og:image" content="https://leiyihan.dpdns.org/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Lei Yihan 的个人博客">
+<meta name="twitter:image" content="https://leiyihan.dpdns.org/og-image.png">
+<link rel="canonical" href="https://leiyihan.dpdns.org/post.html">
   <meta name="twitter:card" content="summary">
+  <meta name="twitter:description" content="阅读博客文章全文，参与评论交流。">
   <title>文章 - 我的博客</title>
   <link rel="stylesheet" href="common.css">
     <style>
@@ -938,6 +945,55 @@
       return null;
     }
 
+    /** v3.0 动态 SEO：文章详情页按内容更新 Description/OG/Twitter/Canonical。
+     *  静态 HTML 里是占位 meta，这里按文章实际内容覆写——分享链接时
+     *  微信/QQ/Twitter 等抓取的 og:title/og:description 即为文章内容。 */
+    function updateSeo(meta) {
+      const setMeta = (selector, attr, value) => {
+        const el = document.head.querySelector(selector);
+        if (el) el.setAttribute(attr, value);
+      };
+      if (meta.title) document.title = meta.title;
+      if (meta.description) {
+        setMeta('meta[name="description"]', "content", meta.description);
+        setMeta('meta[property="og:description"]', "content", meta.description);
+        setMeta('meta[name="twitter:description"]', "content", meta.description);
+      }
+      if (meta.ogTitle) setMeta('meta[property="og:title"]', "content", meta.ogTitle);
+      if (meta.image) {
+        setMeta('meta[property="og:image"]', "content", meta.image);
+        setMeta('meta[name="twitter:image"]', "content", meta.image);
+      }
+      if (meta.url) {
+        setMeta('meta[property="og:url"]', "content", meta.url);
+        const canonical = document.head.querySelector('link[rel="canonical"]');
+        if (canonical) canonical.setAttribute("href", meta.url);
+      }
+    }
+
+    /** v3.0 结构化数据：文章页注入 BlogPosting JSON-LD（搜索引擎富摘要）。
+     *  文本一律经 textContent 写入，不拼 HTML，无注入面。 */
+    function updateBlogPostingJsonLd(post) {
+      const old = document.getElementById("jsonld-blogposting");
+      if (old) old.remove();
+      const script = document.createElement("script");
+      script.type = "application/ld+json";
+      script.id = "jsonld-blogposting";
+      script.textContent = JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        headline: post.title,
+        description: post.description,
+        datePublished: post.date,
+        dateModified: post.date,
+        mainEntityOfPage: { "@type": "WebPage", "@id": post.url },
+        author: { "@type": "Person", name: "Lei Yihan" },
+        publisher: { "@type": "Person", name: "Lei Yihan" },
+        image: `${location.origin}/og-image.png`,
+      });
+      document.head.appendChild(script);
+    }
+
     function renderPost(post, prev, next) {
       const el = document.getElementById("article-container");
       const liked = safeStorage.get(`liked_${post.id}`) === "1";
@@ -999,6 +1055,29 @@
         </article>
       `;
       document.title = `${post.title} - 我的博客`;
+      // v3.0 动态 SEO：正文剥离 markdown 标记后截取摘要，按文章内容生成
+      // Description/OG/Canonical + BlogPosting 结构化数据
+      const plain = content
+        .replace(/```[\s\S]*?```/g, " ") // 代码块整体剔除
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, " ") // 图片
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1") // 链接保留文字
+        .replace(/[#>*`~|[\]()!-]/g, " ") // markdown 标记
+        .replace(/\s+/g, " ")
+        .trim();
+      const seoDesc = plain.slice(0, 120) || "阅读博客文章全文，参与评论交流。";
+      updateSeo({
+        title: `${post.title} - 我的博客`,
+        ogTitle: post.title,
+        description: seoDesc,
+        image: `${location.origin}/og-image.png`,
+        url: location.href,
+      });
+      updateBlogPostingJsonLd({
+        title: post.title,
+        description: seoDesc,
+        date: post.date,
+        url: location.href,
+      });
       // 绑定点赞按钮事件
       const likeBtn = document.getElementById("likeBtn");
       if (likeBtn) likeBtn.addEventListener("click", likePost);
