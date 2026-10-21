@@ -1,0 +1,21 @@
+# 依赖与构建产物
+node_modules/
+playwright-report/
+test-results/
+blob-report/
+.cache/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+npm-debug.log*
+
+# 本地环境变量（绝不提交 Token）
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler/

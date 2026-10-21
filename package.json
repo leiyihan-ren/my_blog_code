@@ -1,0 +1,24 @@
+{
+  "name": "my-blog",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Cloudflare Worker 博客：PWA + 动态内容 + SEO/CSP 加固 + 全链路测试",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node tests/run-all.mjs",
+    "test:pwa": "node tests/step1-pwa-verify.mjs",
+    "test:music": "node tests/step2-music-dynamic.mjs",
+    "test:album": "node tests/step2-album-dynamic.mjs",
+    "test:seo": "node tests/step3-seo-csp.mjs",
+    "test:a11y": "node tests/step4-a11y-audit.mjs",
+    "test:lightbox": "node tests/step4-lightbox-trap.mjs",
+    "test:stress": "node tests/step3-ui-stress.mjs",
+    "test:common": "node tests/step5-common-verify.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.1"
+  }
+}
