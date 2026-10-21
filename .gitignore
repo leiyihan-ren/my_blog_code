@@ -19,3 +19,6 @@ npm-debug.log*
 !.env.example
 .dev.vars
 .wrangler/
+
+# 交付打包产物（不入库）
+*.zip

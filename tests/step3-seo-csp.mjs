@@ -177,7 +177,9 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 900 
       ldName: parsed && parsed.name,
     };
   });
-  check("index DOM 层 og:image/canonical 正确", info.ogImage === `${ORIGIN}/og-image.png` && info.canonical === `${ORIGIN}/index.html`, JSON.stringify(info));
+  // canonical 由 common.js initSeoUrls 按 location 动态归一（换域名/308 规范化后仍等于真实 URL），
+  // og:image 保持静态生产域名（绝对 URL 公开可访问，任何域名下都有效）
+  check("index DOM 层 og:image/canonical 正确", info.ogImage === `${ORIGIN}/og-image.png` && info.canonical === "http://localhost:8899/index.html", JSON.stringify(info));
   check("index WebSite JSON-LD 可解析且类型正确", info.ldType === "WebSite" && info.ldName === "Lei Yihan 的个人博客", JSON.stringify(info));
   check("index 加载零 JS 错误", jsErrors.length === 0, jsErrors.join(" | ") || "无");
   await page.close();
@@ -232,7 +234,8 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 900 
     content: !!document.getElementById("album-content"),
     canonical: document.head.querySelector('link[rel="canonical"]')?.getAttribute("href") || "",
   }));
-  check("album 页面结构完好 + canonical 正确", ok.hasTabs && ok.content && ok.canonical === `${ORIGIN}/album.html`, JSON.stringify(ok));
+  // canonical 由 common.js initSeoUrls 按 location 动态归一（同 index），断言运行时真实 URL
+  check("album 页面结构完好 + canonical 正确", ok.hasTabs && ok.content && ok.canonical === "http://localhost:8899/album.html", JSON.stringify(ok));
   check("album 加载零 JS 错误", jsErrors.length === 0, jsErrors.join(" | ") || "无");
   await page.close();
 }

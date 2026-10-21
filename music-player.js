@@ -447,7 +447,7 @@
   let volumeBeforeMute = 0.7;   // 静音前音量，用于恢复
   let currentObjectUrl = null;  // 当前 Blob 对象 URL（切歌时 revoke 防泄漏）
 
-  const { escapeHtml, safeStorage, $ } = window.BlogUtils;
+  const { escapeHtml, safeStorage, $, formatTime } = window.BlogUtils;
 
   // 播放模式：sequence 顺序播放 / listLoop 列表循环 / singleLoop 单曲循环 / shuffle 随机
   const MODES = ["listLoop", "singleLoop", "shuffle", "sequence"];
@@ -461,14 +461,8 @@
   let shuffleOrder = [];        // 随机模式下的播放顺序（索引数组）
   let shufflePos = 0;
 
-  function formatTime(s) {
-    if (!isFinite(s) || isNaN(s) || s < 0) return "0:00";
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60).toString().padStart(2, "0");
-    return `${m}:${sec}`;
-  }
-
   // ---- UI 同步 ----
+  /** 同步播放/暂停按钮、封面态与系统媒体中心（锁屏/通知栏）状态 */
   function syncPlayUI() {
     const playing = !audio.paused && !audio.ended;
     const playBtn = $("mpPlay");
@@ -485,6 +479,7 @@
     }
   }
 
+  /** 同步进度条宽度、当前时间文字与 aria-valuenow（无障碍） */
   function syncProgressUI() {
     const dur = isFinite(audio.duration) ? audio.duration : 0;
     const pct = dur > 0 ? (audio.currentTime / dur) * 100 : 0;
@@ -494,6 +489,7 @@
     bar.setAttribute("aria-valuenow", String(Math.round(pct)));
   }
 
+  /** 同步缓冲进度条（audio.buffered 末端 / 总时长） */
   function syncBufferUI() {
     const dur = isFinite(audio.duration) ? audio.duration : 0;
     if (dur <= 0 || !audio.buffered.length) return;
@@ -501,6 +497,7 @@
     $("mpProgressBuffer").style.width = Math.min(100, (end / dur) * 100) + "%";
   }
 
+  /** 渲染播放模式按钮图标与 aria 标签 */
   function renderModeBtn() {
     const meta = MODE_META[playMode] || MODE_META.listLoop;
     const btn = $("mpMode");
@@ -510,6 +507,7 @@
     btn.classList.add("mp-mode-active");
   }
 
+  /** 循环切换四种播放模式并持久化 */
   function cycleMode() {
     const i = MODES.indexOf(playMode);
     playMode = MODES[(i + 1) % MODES.length];
@@ -525,6 +523,12 @@
     }
 
   // ---- 播放核心 ----
+  /**
+   * 加载并（可选）播放指定索引歌曲。
+   * 音频管道：fetch → Blob → objectURL（绕过 <audio src> 不走 SW 的限制，
+   * 断网可播）；跨域外链直连，避免无 CORS 头时必然失败。
+   * loadToken 防止快速切歌时的旧回调覆盖新状态。
+   */
   function loadSong(idx, autoplay) {
     if (!playlist.length) return;
     // 手动/自动切歌：取消尚未触发的"失败后自动切换"，避免连跳两首
@@ -613,6 +617,7 @@
     if (!autoplay) syncPlayUI(); // 音频未加载：仅刷新 UI，等用户点击播放
   }
 
+  /** 播放/暂停切换 */
   function togglePlay() {
     if (!playlist.length) {
       showToast("播放列表为空，请先到后台添加音乐");
@@ -629,11 +634,13 @@
       syncPlayUI();
     }
   }
+  /** 取当前歌曲艺术家（缺失时回退 "未知艺术家"） */
   function songArtist() {
     const s = playlist[currentIdx];
     return s ? (s.artist || "") : "";
   }
 
+  /** 生成随机播放顺序索引数组 */
   function buildShuffleOrder() {
     shuffleOrder = playlist.map((_, i) => i).filter(i => i !== currentIdx);
     // Fisher-Yates 洗牌
@@ -645,6 +652,7 @@
   }
 
   // 返回下一个索引；无下一首返回 -1
+  /** 按当前播放模式计算下一首索引 */
   function pickNextIndex() {
     if (playlist.length === 0) return -1;
     if (playlist.length === 1) return 0;
@@ -668,6 +676,7 @@
     }
   }
 
+  /** 按当前播放模式计算上一首索引 */
   function pickPrevIndex() {
     if (playlist.length === 0) return -1;
     if (playlist.length === 1) return 0;
@@ -699,6 +708,7 @@
   }
 
   // ---- 系统媒体控制（锁屏 / 耳机按键 / 通知栏）----
+  /** 更新系统媒体中心元数据（标题/艺术家/封面，锁屏可见） */
   function updateMediaSession(song) {
     if (!("mediaSession" in navigator) || typeof MediaMetadata !== "function") return;
     try {
@@ -718,6 +728,7 @@
   }
 
   // ---- 播放列表 ----
+  /** 渲染播放列表（当前曲高亮，点击切歌） */
   function renderPlaylist() {
     const el = $("mpPlaylistItems");
     $("mpPlaylistCount").textContent = playlist.length ? `${playlist.length} 首` : "";
@@ -743,6 +754,7 @@
   }
 
   // ---- 音量 / 静音 ----
+  /** 渲染音量条与静音按钮状态 */
   function renderVolumeUI() {
     const vol = audio.volume;
     const muted = audio.muted || vol === 0;
@@ -752,6 +764,7 @@
     $("mpVolume").value = String(Math.round(vol * 100));
   }
 
+  /** 静音切换（记住静音前音量便于恢复） */
   function toggleMute() {
     if (audio.muted || audio.volume === 0) {
       audio.muted = false;
@@ -765,6 +778,7 @@
   }
 
   // ---- 收起 / 展开 ----
+  /** 播放器收起/展开（状态持久化） */
   function togglePlayer() {
     const player = $("mpPlayer");
     const hidden = player.classList.toggle("mp-hidden");
@@ -947,6 +961,7 @@
     }
   });
 
+  /** 快进/快退 delta 秒 */
   function seekBy(delta) {
     if (!isFinite(audio.duration) || audio.duration <= 0) return;
     try {
@@ -956,6 +971,7 @@
   }
 
   // ---- 加载音乐列表 ----
+  /** 拉取歌单（/api/music）并做 URL 三重校验，过滤坏链 */
   async function loadMusic() {
     try {
       const res = await fetch("/api/music");

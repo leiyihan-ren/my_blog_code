@@ -891,7 +891,7 @@
       img.classList.remove("loaded");
       img.alt = p.name || "照片";
       showLightboxLoading();
-      BlogApi.github.loadImage(img);
+      BlogApi.github.loadImage(img, hideLightboxLoading);
       document.getElementById("lightbox-caption").textContent = `${idx + 1} / ${photos.length} · ${p.name}`;
       const lb = document.getElementById("lightbox");
       const wasActive = lb.classList.contains("active");
@@ -920,7 +920,7 @@
       const img = document.getElementById("lightbox-img");
       img.dataset.idx = "0";
       showLightboxLoading();
-      BlogApi.github.loadImage(img);
+      BlogApi.github.loadImage(img, hideLightboxLoading);
     }
 
     // 记录按下点：仅当按下与松开都落在背景/关闭按钮上才允许关闭，

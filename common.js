@@ -94,10 +94,39 @@
     else window.addEventListener("load", register);
   }
 
+  /* ---- SEO URL 归一：canonical / og:url 与实际访问 URL 对齐 ----
+     静态 <meta> 写死生产域名，供不执行 JS 的爬虫读取；
+     运行时再按 location 覆写一次：换域名、经 CDN/镜像访问、
+     Cloudflare 308 规范化（/album.html → /album）时，
+     canonical 始终等于浏览器地址栏的真实 URL，不会留下错位。 */
+  function initSeoUrls() {
+    const here = location.origin + location.pathname;
+    const setContent = (selector, value) => {
+      const el = document.head.querySelector(selector);
+      if (el) el.setAttribute("content", value);
+    };
+    const canonical = document.head.querySelector('link[rel="canonical"]');
+    if (canonical) canonical.setAttribute("href", here);
+    setContent('meta[property="og:url"]', here);
+    setContent('meta[name="twitter:url"]', here);
+    // index 的 WebSite JSON-LD：url 字段同步归一（textContent 读写，防注入）
+    const ld = document.getElementById("jsonld-website");
+    if (ld) {
+      try {
+        const data = JSON.parse(ld.textContent);
+        if (data && data["@type"] === "WebSite") {
+          data.url = location.origin + "/";
+          ld.textContent = JSON.stringify(data);
+        }
+      } catch (e) { /* 解析失败保持静态值 */ }
+    }
+  }
+
   function boot() {
     initTheme();
     initMobileMenu();
     initScrollFx();
+    initSeoUrls();
     initPwa();
   }
   if (document.readyState === "loading") {

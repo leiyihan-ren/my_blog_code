@@ -22,7 +22,7 @@
 window.BlogApi = (function () {
   "use strict";
 
-  const { sleep, $ } = window.BlogUtils;
+  const { sleep } = window.BlogUtils;
 
   const DEFAULT_TIMEOUT = 12000;
 
@@ -125,7 +125,7 @@ window.BlogApi = (function () {
      * mirrors 依次尝试，当前失败自动切下一个；全部失败派发
      * imgallfailed 事件（bubbles），由网格/灯箱容器决定呈现。
      * @param {HTMLImageElement} img        带 data-mirrors(JSON 数组) 的图片
-     * @param {function} [onSuccess] 加载成功回调
+     * @param {function} [onSuccess] 加载成功回调（调用方管理自身 Loading 态）
      */
     loadImage(img, onSuccess) {
       let mirrors = [];
@@ -140,10 +140,6 @@ window.BlogApi = (function () {
         img.classList.add("loaded");
         const wrap = img.closest(".photo-img-wrap");
         if (wrap) wrap.classList.remove("loading");
-        if (img.closest(".lightbox")) {
-          const loading = $("lightbox-loading");
-          if (loading) loading.classList.remove("show");
-        }
         if (onSuccess) onSuccess();
       };
       img.onerror = () => github.loadImage(img, onSuccess);
