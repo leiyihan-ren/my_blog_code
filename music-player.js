@@ -447,6 +447,8 @@
   let volumeBeforeMute = 0.7;   // 静音前音量，用于恢复
   let currentObjectUrl = null;  // 当前 Blob 对象 URL（切歌时 revoke 防泄漏）
 
+  const { escapeHtml, safeStorage, $ } = window.BlogUtils;
+
   // 播放模式：sequence 顺序播放 / listLoop 列表循环 / singleLoop 单曲循环 / shuffle 随机
   const MODES = ["listLoop", "singleLoop", "shuffle", "sequence"];
   const MODE_META = {
@@ -459,26 +461,11 @@
   let shuffleOrder = [];        // 随机模式下的播放顺序（索引数组）
   let shufflePos = 0;
 
-  const $ = id => document.getElementById(id);
-
-  // 安全的 localStorage 读写（隐私模式下不抛错）
-  const safeStorage = {
-    get(key) { try { return localStorage.getItem(key); } catch (e) { return null; } },
-    set(key, val) { try { localStorage.setItem(key, val); } catch (e) {} },
-  };
-
   function formatTime(s) {
     if (!isFinite(s) || isNaN(s) || s < 0) return "0:00";
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60).toString().padStart(2, "0");
     return `${m}:${sec}`;
-  }
-
-  // HTML 转义：同时转义引号，属性位置也安全
-  function escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str == null ? "" : String(str);
-    return div.innerHTML.replace(/"/g, "&quot;");
   }
 
   // ---- UI 同步 ----
@@ -531,18 +518,11 @@
     showToast(`播放模式：${MODE_META[playMode].title}`);
   }
 
-  // ---- 轻提示（复用各页面 toast 则降级为控制台）----
+  // ---- 轻提示 ----
   function showToast(msg) {
-    const toast = $("toast");
-    if (toast && typeof window.showToast === "function") {
-      window.showToast(msg);
-    } else if (toast) {
-      toast.textContent = msg;
-      toast.classList.add("show");
-      clearTimeout(showToast._t);
-      showToast._t = setTimeout(() => toast.classList.remove("show"), 2000);
+    // 轻提示：委托全站统一实现（js/utils.js），不再自管定时器
+    window.BlogUtils.toast(msg);
     }
-  }
 
   // ---- 播放核心 ----
   function loadSong(idx, autoplay) {
@@ -642,14 +622,14 @@
       if (!audio.src) { loadSong(currentIdx, true); return; }
       audio.play().then(syncPlayUI).catch(() => {
         syncPlayUI();
-        $("mpArtist").textContent = song_artist() || "播放失败";
+        $("mpArtist").textContent = songArtist() || "播放失败";
       });
     } else {
       audio.pause();
       syncPlayUI();
     }
   }
-  function song_artist() {
+  function songArtist() {
     const s = playlist[currentIdx];
     return s ? (s.artist || "") : "";
   }

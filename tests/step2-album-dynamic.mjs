@@ -462,7 +462,7 @@ const apiD = await startApi(8612);
 
 /* ============ B6 弱网镜像分级降级 ============ */
 console.log("\n═══ B6 弱网镜像分级降级：镜像逐个兜底 ═══");
-// 单元级验证 loadImgWithFallback 的四镜像链（代理 → jsDelivr → raw → statically）。
+// 单元级验证 BlogApi.github.loadImage 的四镜像链（代理 → jsDelivr → raw → statically）。
 // CDN 镜像为跨域图片请求（SW 不接管），用 page.route 精准转发到 mock；
 // 同源的 /api/github/raw/* 不走 route，完整经过 SW → worker 链路。
 await page.route(/https:\/\/cdn\.jsdelivr\.net\/.*/, async (route) => {
@@ -505,7 +505,7 @@ const probeImg = (name) => page.evaluate(async (probeName) => {
   img.dataset.mirrors = JSON.stringify(mirrors);
   img.dataset.idx = "0";
   document.getElementById("album-content").appendChild(img);
-  loadImgWithFallback(img); // 真实网格由 IntersectionObserver 触发，探针直接调用
+  BlogApi.github.loadImage(img); // 真实网格由 IntersectionObserver 触发，探针直接调用
   const result = await new Promise((resolve) => {
     img.addEventListener("load", () => resolve({ loaded: true, src: img.src }));
     img.addEventListener("imgallfailed", () => resolve({ loaded: false, allFailed: true, src: img.src }));

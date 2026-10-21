@@ -23,36 +23,11 @@
 window.GameCore = (function () {
   "use strict";
 
+  const { escapeHtml, escapeAttr } = window.BlogUtils;
   const $ = (id) => document.getElementById(id);
 
-  function escapeHtml(str) {
-    const d = document.createElement("div");
-    d.textContent = str == null ? "" : String(str);
-    return d.innerHTML;
-  }
-
-  /**
-   * 属性上下文转义：escapeHtml 不转义引号，直接拼进 HTML 属性会被注入闭合
-   * （如 data-id="x" onmouseover="..."）。属性位置一律用本函数。
-   */
-  function escapeAttr(str) {
-    return escapeHtml(str)
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
-
-  /* =========================================================
-   * Toast（页面级提示）
-   * =======================================================*/
-  let toastTimer = null;
-  function toast(msg) {
-    const el = $("toast");
-    if (!el) return;
-    el.textContent = msg;
-    el.classList.add("show");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
-  }
+  /* ---- Toast（页面级提示）：委托全站统一实现（js/utils.js） ---- */
+  function toast(msg) { window.BlogUtils.toast(msg); }
 
   /* =========================================================
    * BaseGame —— 游戏基类

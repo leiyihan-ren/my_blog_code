@@ -483,6 +483,8 @@
   } catch (e) {}
 </script>
 <script src="common.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/request.js"></script>
 <main>
   <nav class="navbar">
     <div class="nav-inner">
@@ -544,24 +546,7 @@
   </div>
 
   <script>
-    // HTML 转义
-    function escapeHtml(str) {
-      const div = document.createElement("div");
-      div.textContent = str == null ? "" : String(str);
-      return div.innerHTML;
-    }
-
-    // 属性级转义：escapeHtml 基于 textContent→innerHTML，不转义引号，
-    // JSON 字符串（含大量双引号）直接插入双引号属性会被浏览器截断。
-    // 凡是要把 JSON/任意文本写入 HTML 属性的地方必须用本函数。
-    function escapeAttr(str) {
-      return String(str == null ? "" : str)
-        .replace(/&/g, "&amp;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
-    }
+  const { escapeHtml, escapeAttr } = window.BlogUtils;
 
 
 
@@ -694,10 +679,13 @@
         offset: String(albumState.offset),
         limit: String(ALBUM_PAGE_SIZE),
       });
-      const res = await fetch(`/api/album/photos?${params.toString()}`);
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data || !Array.isArray(data.photos)) {
-        throw new Error((data && data.error) || `加载失败（HTTP ${res.status}）`);
+      // 统一走 BlogApi：15s 超时 + 失败自动重试 1 次 + 错误信息归一化
+      const data = await BlogApi.get(`/api/album/photos?${params.toString()}`, {
+        timeout: 15000,
+        retry: 1,
+      });
+      if (!data || !Array.isArray(data.photos)) {
+        throw new Error("相册接口返回数据格式异常");
       }
       return data;
     }
@@ -829,7 +817,7 @@
             wrap.classList.remove("failed");
             wrap.classList.add("loading");
             const img = item.querySelector(".lazy-img");
-            if (img) { img.dataset.idx = "0"; loadImgWithFallback(img); }
+            if (img) { img.dataset.idx = "0"; BlogApi.github.loadImage(img); }
           }
           openLightbox(parseInt(item.dataset.idx, 10));
         };
@@ -847,7 +835,7 @@
         const imgObserver = new IntersectionObserver((entries, observer) => {
           entries.forEach(entry => {
             if (entry.isIntersecting) {
-              loadImgWithFallback(entry.target);
+              BlogApi.github.loadImage(entry.target);
               observer.unobserve(entry.target);
             }
           });
@@ -861,35 +849,9 @@
         // 降级方案：直接加载
         nodes.forEach((item) => {
           const img = item.querySelector(".lazy-img");
-          if (img) loadImgWithFallback(img);
+          if (img) BlogApi.github.loadImage(img);
         });
       }
-    }
-
-    /**
-     * 图片多镜像兜底加载：当前镜像失败时自动切换下一个。
-     * 首镜像是同源代理 /api/github/raw/*（边缘缓存 + 弱网下 Cloudflare 就近返回），
-     * 其后依次是 jsDelivr / raw / statically 三个公网 CDN。
-     * 全部失败时派发 imgallfailed 事件，由容器（网格/灯箱）决定呈现什么。
-     */
-    function loadImgWithFallback(img) {
-      let mirrors = [];
-      try { mirrors = JSON.parse(img.dataset.mirrors || "[]"); } catch (e) { mirrors = []; }
-      let idx = parseInt(img.dataset.idx || "0", 10);
-      if (idx >= mirrors.length) {
-        // 全部镜像失败：保留占位，不卡死懒加载；通知容器呈现失败态
-        img.dispatchEvent(new CustomEvent("imgallfailed", { bubbles: true }));
-        return;
-      }
-      img.dataset.idx = String(idx + 1);
-      img.onload = () => {
-        img.classList.add("loaded");
-        const wrap = img.closest(".photo-img-wrap");
-        if (wrap) wrap.classList.remove("loading");
-        if (img.closest(".lightbox")) hideLightboxLoading();
-      };
-      img.onerror = () => loadImgWithFallback(img);
-      img.src = mirrors[idx];
     }
 
     // 灯箱打开前最后聚焦的元素（关闭后归还焦点）
@@ -907,7 +869,7 @@
       document.getElementById("lightbox-error").classList.add("show");
     }
 
-    /** 灯箱内图片全部镜像失败时呈现失败态（事件由 loadImgWithFallback 派发） */
+    /** 灯箱内图片全部镜像失败时呈现失败态（事件由 BlogApi.github.loadImage 派发） */
     document.getElementById("lightbox").addEventListener("imgallfailed", (e) => {
       if (e.target.id === "lightbox-img") showLightboxError();
     });
@@ -929,7 +891,7 @@
       img.classList.remove("loaded");
       img.alt = p.name || "照片";
       showLightboxLoading();
-      loadImgWithFallback(img);
+      BlogApi.github.loadImage(img);
       document.getElementById("lightbox-caption").textContent = `${idx + 1} / ${photos.length} · ${p.name}`;
       const lb = document.getElementById("lightbox");
       const wasActive = lb.classList.contains("active");
@@ -958,7 +920,7 @@
       const img = document.getElementById("lightbox-img");
       img.dataset.idx = "0";
       showLightboxLoading();
-      loadImgWithFallback(img);
+      BlogApi.github.loadImage(img);
     }
 
     // 记录按下点：仅当按下与松开都落在背景/关闭按钮上才允许关闭，

@@ -233,6 +233,8 @@
   } catch (e) {}
 </script>
 <script src="common.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/request.js"></script>
 <main>
   <nav class="navbar">
     <div class="nav-inner">
@@ -272,12 +274,7 @@
   <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
 
   <script>
-    // HTML 转义（防 XSS）
-    function escapeHtml(str) {
-      const div = document.createElement("div");
-      div.textContent = str == null ? "" : String(str);
-      return div.innerHTML;
-    }
+  const { escapeHtml } = window.BlogUtils;
 
 
 

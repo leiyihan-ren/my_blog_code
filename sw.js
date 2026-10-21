@@ -45,6 +45,8 @@ const PRECACHE_URLS = [
   "./admin.html",
   "./common.css",
   "./common.js",
+  "./js/utils.js",
+  "./js/request.js",
   "./music-player.js",
   "./game-core.js",
   "./games/breakout.js",

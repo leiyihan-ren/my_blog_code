@@ -261,6 +261,8 @@
   } catch (e) {}
 </script>
 <script src="common.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/request.js"></script>
 <main>
   <nav class="navbar">
     <div class="nav-inner">
@@ -314,6 +316,7 @@
   <footer class="footer" id="footer-text">© 2026 Lei Yihan</footer>
 
   <script>
+  const { escapeHtml } = window.BlogUtils;
 
 
 
@@ -333,21 +336,8 @@
     }
 
     function formatDate(dateStr) {
-      const d = new Date(dateStr);
-      const now = new Date();
-      const diff = now - d;
-      if (diff < 60000) return "刚刚";
-      if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
-      if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
-      if (diff < 2592000000) return Math.floor(diff / 86400000) + " 天前";
-      return d.toLocaleDateString();
-    }
-
-    function escapeHtml(str) {
-      const div = document.createElement("div");
-      div.textContent = str == null ? "" : String(str);
-      return div.innerHTML;
-    }
+      return window.BlogUtils.formatRelativeDate(dateStr);
+      }
 
     function renderMessages(list) {
       const el = document.getElementById("msg-list");

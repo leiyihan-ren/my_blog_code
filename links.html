@@ -215,6 +215,8 @@
   } catch (e) {}
 </script>
 <script src="common.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/request.js"></script>
 <main>
 <nav class="navbar">
   <div class="nav-inner">
@@ -281,28 +283,9 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
+  const { escapeHtml, escapeAttr, toast } = window.BlogUtils;
 "use strict";
 const $ = (id) => document.getElementById(id);
-
-function escapeHtml(str) {
-  const d = document.createElement("div");
-  d.textContent = str == null ? "" : String(str);
-  return d.innerHTML;
-}
-// 属性上下文转义：在 escapeHtml 基础上额外转义双引号，防止 URL 突破属性边界（属性注入 XSS）
-function escapeAttr(str) {
-  return escapeHtml(str).replace(/"/g, "&quot;");
-}
-
-
-let toastTimer = null;
-function toast(msg) {
-  const el = $("toast");
-  el.textContent = msg;
-  el.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
-}
 
 
 

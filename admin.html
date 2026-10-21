@@ -16,6 +16,8 @@
   <title>管理后台 - 我的博客</title>
   <link rel="stylesheet" href="common.css">
   <script src="common.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/request.js"></script>
     <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -884,6 +886,7 @@
   </div>
 
   <script>
+  const { escapeHtml, escapeAttr } = window.BlogUtils;
     // safeStorage 由 common.js 统一提供（window.safeStorage，隐私模式下不抛错）
     // 登录口令是敏感信息：只存 sessionStorage（关闭标签页即失效），
     // 不再长期驻留 localStorage；旧版本曾写在 localStorage，这里做一次性迁移兼容
@@ -1002,11 +1005,8 @@
     // ========== 提示 ==========
     // 安全的日期格式化：非法日期返回 "-" 而非 "Invalid Date"
     function formatDate(dateStr) {
-      if (!dateStr) return "-";
-      const d = new Date(dateStr);
-      if (isNaN(d.getTime())) return escapeHtml(String(dateStr));
-      return d.toLocaleString();
-    }
+      return window.BlogUtils.formatDateTime(dateStr);
+      }
 
 
     /* ===== 模态对话框键盘支持：焦点移入/陷阱/归还 + Esc 关闭 ===== */
@@ -1563,17 +1563,6 @@
           deleteMsg(id);
         });
       });
-    }
-
-    function escapeHtml(str) {
-      const div = document.createElement("div");
-      div.textContent = str == null ? "" : String(str);
-      return div.innerHTML;
-    }
-
-    // 属性上下文转义：escapeHtml 不转义引号，拼进 HTML 属性有注入风险
-    function escapeAttr(str) {
-      return escapeHtml(str).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
     async function deleteMsg(id) {

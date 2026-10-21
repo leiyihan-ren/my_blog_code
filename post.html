@@ -717,6 +717,8 @@
   } catch (e) {}
 </script>
 <script src="common.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/request.js"></script>
 <main>
   <div class="progress-bar" id="progressBar"></div>
 
@@ -759,12 +761,7 @@
   <div class="share-toast" id="shareToast">链接已复制到剪贴板</div>
 
   <script>
-    // HTML 转义（防 XSS）
-    function escapeHtml(str) {
-      const div = document.createElement("div");
-      div.textContent = str == null ? "" : String(str);
-      return div.innerHTML;
-    }
+  const { escapeHtml, escapeAttr } = window.BlogUtils;
 
     /**
      * 属性上下文转义。
@@ -772,12 +769,6 @@
      * `![x" onmouseover="alert(1)](https://a.png)` 就能闭合引号注入事件处理器。
      * 凡是拼进 "..." / '...' 的用户数据，必须用这个函数。
      */
-    function escapeAttr(str) {
-      return escapeHtml(str)
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-
     // URL 协议白名单：只允许 http/https/mailto/tel 与相对路径，拒绝 javascript: 等伪协议
     // （GitHub 同步的文章不过 Worker 的 sanitizeUserContent，必须在此拦截）
     function isSafeMarkdownUrl(url) {
@@ -1161,14 +1152,10 @@
     let currentPostId = "";
 
     function formatCommentDate(dateStr) {
-      const d = new Date(dateStr);
-      const now = new Date();
-      const diff = now - d;
-      if (diff < 60000) return "刚刚";
-      if (diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
-      if (diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
-      if (diff < 259200000) return Math.floor(diff / 86400000) + " 天前";
-      return d.toLocaleDateString() + " " + d.toTimeString().slice(0, 5);
+    const { formatRelativeDate } = window.BlogUtils;
+    return formatRelativeDate(dateStr, {
+      farFormat: (d) => d.toLocaleDateString() + " " + d.toTimeString().slice(0, 5),
+    });
     }
 
     function showCommentAlert(msg, type) {

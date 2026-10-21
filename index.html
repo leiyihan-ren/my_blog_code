@@ -570,6 +570,8 @@
   } catch (e) {}
 </script>
 <script src="common.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/request.js"></script>
 <main>
   <nav class="navbar">
     <div class="nav-inner">
@@ -681,12 +683,7 @@
   <button class="back-top" onclick="scrollToTop()" id="backTop">↑</button>
 
   <script>
-    // HTML 转义（防 XSS）
-    function escapeHtml(str) {
-      const div = document.createElement("div");
-      div.textContent = str == null ? "" : String(str);
-      return div.innerHTML;
-    }
+  const { escapeHtml } = window.BlogUtils;
 
     const DEFAULT_SITE = {
       title: "Lei Yihan 的个人博客", name: "Lei Yihan", avatar: "LY", avatarBg: "var(--primary)",
