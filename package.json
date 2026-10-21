@@ -9,6 +9,7 @@
   },
   "scripts": {
     "test": "node tests/run-all.mjs",
+    "build": "echo \"static site: no build step needed\"",
     "test:pwa": "node tests/step1-pwa-verify.mjs",
     "test:music": "node tests/step2-music-dynamic.mjs",
     "test:album": "node tests/step2-album-dynamic.mjs",
