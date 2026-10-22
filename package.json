@@ -9,7 +9,10 @@
   },
   "scripts": {
     "test": "node tests/run-all.mjs",
-    "build": "echo \"static site: no build step needed\"",
+    "build": "node scripts/build-pages.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
+    "pages:build": "node scripts/build-pages.mjs",
+    "build:cloudflare": "node scripts/build-pages.mjs",
     "test:pwa": "node tests/step1-pwa-verify.mjs",
     "test:music": "node tests/step2-music-dynamic.mjs",
     "test:album": "node tests/step2-album-dynamic.mjs",

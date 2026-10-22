@@ -22,3 +22,8 @@ npm-debug.log*
 
 # 交付打包产物（不入库）
 *.zip
+
+# Pages 构建加固产物（scripts/build-pages.mjs 生成，不入库）
+/dist/
+/public/
+/build/

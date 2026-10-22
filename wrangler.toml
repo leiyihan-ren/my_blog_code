@@ -26,7 +26,7 @@ pages_build_output_dir = "."
 # 用 Wrangler CLI 部署时，必须填写实际的 KV 命名空间 ID
 [[kv_namespaces]]
 binding = "SITE_DATA"
-id = "please-create-a-kv-namespace-and-paste-id-here"
+id = "523f05f83d9045f69b258bfb5b928243"
 
 # 环境变量（可选）：管理员密码
 # 强烈建议设置一个强密码！不设置则使用 _worker.js 中的默认密码
