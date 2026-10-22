@@ -1274,7 +1274,10 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
         // [临时探针] 同 zone 键（本站 URL）put+match 是否可用
         try {
           const c = await ghProxyCacheOpen();
-          const probeKey = new Request(new URL(url.href).origin + new URL(url.href).pathname + "?__probe=1", { method: "GET" });
+          const probeKey = new Request(
+            new URL(opts.request.url).origin + new URL(opts.request.url).pathname + "?__probe=1",
+            { method: "GET" }
+          );
           await c.put(probeKey, new Response("probe", { status: 200, headers: { "Cache-Control": "public, max-age=60" } }));
           const m = await c.match(probeKey);
           response.headers.set("X-Cache-Probe", m ? "same-zone-ok" : "same-zone-put-nomatch");
@@ -1282,6 +1285,9 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
           response.headers.set("X-Cache-Probe", "same-zone-err:" + String(e && e.message || e).slice(0, 80));
         }
         return response;
+      } catch (dbg) {
+        // [临时探针] 兜底暴露真实异常（定位生产 500）
+        return err("DBG:" + String(dbg && dbg.message || dbg).slice(0, 150), 500);
       } finally {
         ghProxyInflight.delete(cacheKey.url);
       }
@@ -1358,6 +1364,7 @@ async function handleGithubProxy(request, env, ctx, url, store) {
       ttl: CONFIG.github.cacheTtlSeconds,
       store: store || null,
       env,
+      request,
     }, ctx);
   }
   if (rest.startsWith("raw/")) {
@@ -1365,6 +1372,7 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     return ghProxyFetch(new Request(upstream, { method: "GET" }), upstream, {
       ttl: CONFIG.github.imageCacheTtlSeconds,
       headers: { "User-Agent": CONFIG.github.userAgent },
+      request,
     }, ctx);
   }
   return err("不支持的代理路径（仅 api/ 与 raw/）", 400);
