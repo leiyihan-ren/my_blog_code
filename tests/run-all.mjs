@@ -20,6 +20,7 @@ const SUITES = [
   { name: "a11y 与响应式", file: "step4-a11y-audit.mjs" },
   { name: "灯箱焦点陷阱", file: "step4-lightbox-trap.mjs" },
   { name: "common.js 交互回归", file: "step5-common-verify.mjs" },
+  { name: "边缘缓存回归", file: "step6-edge-cache.mjs" },
 ];
 
 function runSuite(file) {

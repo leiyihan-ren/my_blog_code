@@ -1123,9 +1123,8 @@ async function ghProxyCacheMatch(request) {
 async function ghProxyCachePut(request, response) {
   try {
     await (await ghProxyCacheOpen()).put(request, response);
-    return "ok";
   } catch (e) {
-    return "err:" + (e && e.message ? String(e.message).slice(0, 120) : String(e).slice(0, 120));
+    /* 缓存写失败不影响响应 */
   }
 }
 
@@ -1141,10 +1140,20 @@ async function ghProxyCachePurge() {
   }
 }
 
-/** 给响应打上观测头（生产环境 Cloudflare 边缘会自动附加 cf-cache-status） */
+/**
+ * 给响应打上观测头（生产环境 Cloudflare 边缘会自动附加 cf-cache-status）。
+ * ⚠️ cache.match() 返回的响应 headers 为 immutable guard（Fetch 规范，CF 强制执行），
+ * 直接 headers.set() 会抛 TypeError 导致 500——必须先复制到新 Headers 再构造新响应。
+ * 新构造响应的 body 直接透传原 body（保持流式，不落盘）。
+ */
 function withXCache(response, state) {
-  response.headers.set("X-Cache", state);
-  return response;
+  const headers = new Headers(response.headers);
+  headers.set("X-Cache", state);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 /**
@@ -1269,25 +1278,8 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
         const etag = res.headers.get("ETag");
         if (etag) headers.set("ETag", etag);
         const response = new Response(body, { status: 200, headers });
-        const putState = await ghProxyCachePut(cacheKey, response.clone());
-        response.headers.set("X-Cache-Put", putState); // [临时探针] 跨 zone 上游键写入结果
-        // [临时探针] 同 zone 键（本站 URL）put+match 是否可用
-        try {
-          const c = await ghProxyCacheOpen();
-          const probeKey = new Request(
-            new URL(opts.request.url).origin + new URL(opts.request.url).pathname + "?__probe=1",
-            { method: "GET" }
-          );
-          await c.put(probeKey, new Response("probe", { status: 200, headers: { "Cache-Control": "public, max-age=60" } }));
-          const m = await c.match(probeKey);
-          response.headers.set("X-Cache-Probe", m ? "same-zone-ok" : "same-zone-put-nomatch");
-        } catch (e) {
-          response.headers.set("X-Cache-Probe", "same-zone-err:" + String(e && e.message || e).slice(0, 80));
-        }
+        await ghProxyCachePut(cacheKey, response.clone());
         return response;
-      } catch (dbg) {
-        // [临时探针] 兜底暴露真实异常（定位生产 500）
-        return err("DBG:" + String(dbg && dbg.message || dbg).slice(0, 150), 500);
       } finally {
         ghProxyInflight.delete(cacheKey.url);
       }
@@ -1364,7 +1356,6 @@ async function handleGithubProxy(request, env, ctx, url, store) {
       ttl: CONFIG.github.cacheTtlSeconds,
       store: store || null,
       env,
-      request,
     }, ctx);
   }
   if (rest.startsWith("raw/")) {
@@ -1372,7 +1363,6 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     return ghProxyFetch(new Request(upstream, { method: "GET" }), upstream, {
       ttl: CONFIG.github.imageCacheTtlSeconds,
       headers: { "User-Agent": CONFIG.github.userAgent },
-      request,
     }, ctx);
   }
   return err("不支持的代理路径（仅 api/ 与 raw/）", 400);
