@@ -155,6 +155,8 @@
     .footer {
       text-align: center; padding: 40px 24px; color: var(--text-mute);
       font-size: 13px; border-top: 1px solid var(--border);
+      /* CLS 防护：site.footer 动态注入可能换行，预留两行高度避免布局位移 */
+      min-height: 102px;
     }
     .nav-toggle { display: none; width: 36px; height: 36px; border: none; background: transparent; cursor: pointer; flex-direction: column; justify-content: center; align-items: center; gap: 5px; padding: 0; }
     .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--text); border-radius: 2px; transition: all 0.3s var(--ease); }

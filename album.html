@@ -396,6 +396,8 @@
     .footer {
       text-align: center; padding: 40px 24px; color: var(--text-mute);
       font-size: 13px; border-top: 1px solid var(--border);
+      /* CLS 防护：site.footer 动态注入可能换行，预留两行高度避免布局位移 */
+      min-height: 102px;
     }
 
 
@@ -773,9 +775,11 @@
         item.setAttribute("tabindex", "0");
         item.setAttribute("aria-label", `查看照片 ${escapeAttr(p.name || "")}`);
         item.style.animation = `fadeUp 0.5s ease ${i * 0.03}s both`;
+        // 首屏前两张（移动端约一屏）提升优先级：不懒加载 + fetchpriority=high，加快 LCP
+        const isAboveFold = idx < 2;
         item.innerHTML = `
           <div class="photo-img-wrap loading">
-            <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name || "")}" class="lazy-img" loading="lazy" decoding="async">
+            <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name || "")}" class="lazy-img"${isAboveFold ? ' fetchpriority="high"' : ' loading="lazy"'} decoding="async">
           </div>
           <div class="photo-info">
             <div class="photo-name">${escapeHtml((p.name || "").replace(/\.[^.]+$/, ""))}</div>
