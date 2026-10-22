@@ -1,0 +1,62 @@
+name: 部署到 Cloudflare Pages
+
+# 步骤 1.2：代码推送到 main 即自动构建并部署到 Cloudflare Pages。
+# 用 wrangler 做 Direct Upload（在 Actions Runner 上构建，产物直接上传），
+# 与 Cloudflare 原生的 Git 自动构建二选一（避免重复部署，见 docs/DevOps运维手册.md）。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一时间只允许一个生产部署，避免并发部署互相覆盖
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: 构建并部署到生产
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 构建脚本只用 Node 内置模块，无需安装 npm 依赖（跳过 playwright，构建更快更稳）
+      - name: 构建静态产物（dist/）
+        run: node scripts/build-pages.mjs
+
+      - name: 校验产物
+        run: |
+          test -f dist/index.html || { echo "::error::缺少 dist/index.html"; exit 1; }
+          test -f dist/_worker.js || { echo "::error::缺少 dist/_worker.js（Pages 高级模式需要）"; exit 1; }
+          echo "✅ 产物就绪（顶层 $(ls dist | wc -l) 个条目）"
+
+      # 凭据探测：未配置 Secrets 时优雅跳过（不报红），由 Cloudflare Git 集成继续部署；
+      # 配置后本工作流即接管生产部署（届时建议关闭 Cloudflare Git 自动部署以避免重复）。
+      - name: 检查部署凭据
+        id: creds
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCOUNT" ]; then
+            echo "has_creds=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID Secrets，跳过 GitHub Actions 部署（当前由 Cloudflare Git 集成自动部署）。添加 Secret 后本工作流自动接管。"
+          else
+            echo "has_creds=true" >> "$GITHUB_OUTPUT"
+            echo "✅ 检测到 Cloudflare 部署凭据"
+          fi
+
+      - name: 部署到 Cloudflare Pages
+        if: steps.creds.outputs.has_creds == 'true'
+        run: npx --yes wrangler@3 pages deploy dist --project-name=leiyihan --branch=main
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
