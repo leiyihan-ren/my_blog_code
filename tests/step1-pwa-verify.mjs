@@ -145,7 +145,7 @@ const swState = await pageA.evaluate(async () => {
 });
 check("SW 注册成功且激活控制页面", swState.hasController, swState.scriptURL);
 check("SW scope 覆盖全站", swState.scope.endsWith("/"), swState.scope);
-const STATIC_CACHE = "my-blog-static-v3.0.1";
+const STATIC_CACHE = "my-blog-static-v3.0.2";
 check(`预缓存容器 ${STATIC_CACHE} 已创建`, swState.cacheKeys.includes(STATIC_CACHE), swState.cacheKeys.join(","));
 
 const precached = await pageA.evaluate(async (cacheName) => {
@@ -191,9 +191,16 @@ const gameGrid = await pageA.evaluate(() => document.querySelectorAll(".game-car
 check("离线下游戏列表渲染（JS 已缓存）", gameGrid >= 7, `${gameGrid} 张卡片（在线预热 ${warmCards} 张）`);
 if (gameGrid > 0) {
   await pageA.click(".game-card");
-  await sleep(900);
-  const canvas = await pageA.evaluate(() => !!document.querySelector("#board-wrap canvas, .board-wrap canvas, canvas"));
-  check("离线下点击卡片可启动游戏（canvas 创建）", canvas);
+  // 懒加载（2.3）：点击后按需加载游戏脚本（离线经 SW 缓存供给），异步挂载后才创建 canvas，
+  // 故轮询等待而非固定 sleep；若始终不出现则超时判失败，不会掩盖真实问题。
+  const canvasOk = await pageA
+    .waitForFunction(
+      () => !!document.querySelector("#board-wrap canvas, .board-wrap canvas, canvas"),
+      { timeout: 6000 }
+    )
+    .then(() => true)
+    .catch(() => false);
+  check("离线下点击卡片可启动游戏（canvas 创建）", canvasOk);
   const noErr = jsErrors.filter((e) => e.startsWith("[A]")).length;
   check("离线游戏过程零 JS 错误", noErr === 0, jsErrors.join(" | ") || "无");
 }
@@ -260,7 +267,7 @@ console.log("\n═══ P7 HTML 内容新鲜度（网络优先，旧缓存不�
 console.log("\n═══ P6 SW 版本控制：新版本发布后用户不停留旧页面 ═══");
 await pageA.close(); // 关闭旧页面，避免其 controllerchange 自动刷新干扰
 const swSrc = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
-const OLD_VER = "v3.0.1", NEW_VER = "v3.0.2";
+const OLD_VER = "v3.0.2", NEW_VER = "v3.0.3";
 if (!swSrc.includes(`"${OLD_VER}"`)) {
   check("sw.js 含可替换版本常量", false, "未找到版本常量");
 } else {

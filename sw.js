@@ -26,7 +26,7 @@
 "use strict";
 
 /* ⚠️ 每次发布新版本时必须 +1，否则用户可能停留在旧缓存 */
-const CACHE_VERSION = "v3.0.1";
+const CACHE_VERSION = "v3.0.2";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "./index.html";
@@ -221,7 +221,12 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     (async () => {
       const cache = await caches.open(RUNTIME_CACHE);
-      const hit = await cache.match(req);
+      let hit = await cache.match(req);
+      if (!hit) {
+        // 预缓存资产兜底：懒加载资源（如按需注入的游戏脚本 games/*.js）在 install 期
+        // 已进入 STATIC_CACHE，但未经运行时缓存；离线时从这里命中，保证断网可玩。
+        hit = await caches.open(STATIC_CACHE).then((c) => c.match(req));
+      }
       const network = fetch(req)
         .then(async (fresh) => {
           if (isCacheableResponse(fresh)) {

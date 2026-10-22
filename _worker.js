@@ -99,16 +99,16 @@ const CONFIG = {
  *   - 管理端写操作成功后会清空本表中的全部键，数据实时性不受影响。
  */
 const API_CACHE_TTL = {
-  "/api/site": 60,
-  "/api/stats": 30,
-  "/api/popular": 60,
-  "/api/posts": 30,
-  "/api/messages": 15,
-  "/api/music": 60,
-  "/api/timeline": 60,
-  "/api/links": 60,
-  "/api/game/scores": 30,
-  "/api/album/photos": 60,
+  "/api/site": 300,
+  "/api/stats": 60,
+  "/api/popular": 300,
+  "/api/posts": 120,
+  "/api/messages": 30,
+  "/api/music": 300,
+  "/api/timeline": 300,
+  "/api/links": 300,
+  "/api/game/scores": 60,
+  "/api/album/photos": 300,
 };
 
 /** 合并视图在请求级 memo 中的键（与本地视图的 KEYS.posts 区分，避免互相覆盖） */
@@ -1190,7 +1190,7 @@ async function ghProxyRevalidate(cacheKey, cached, upstream, headers, opts) {
         status: 200,
         headers: {
           "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
-          "Cache-Control": `public, max-age=${CONFIG.github.cacheTtlSeconds}`,
+          "Cache-Control": `public, max-age=${CONFIG.github.cacheTtlSeconds}, s-maxage=3600, stale-while-revalidate=86400`,
           "X-Cache-Time": String(Date.now()),
         },
       });
@@ -1260,7 +1260,9 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
         const body = await res.arrayBuffer();
         const headers = new Headers({
           "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
-          "Cache-Control": `public, max-age=${opts.ttl}, stale-while-revalidate=${opts.ttl * 4}`,
+          // s-maxage：Cloudflare 边缘共享缓存新鲜期（api 代理 1h；raw 图片路径 ttl 本身即 1 天，取更大值）
+          // stale-while-revalidate=86400：边缘过期后仍可serve 旧值并后台刷新，与 Cache API SWR 语义一致
+          "Cache-Control": `public, max-age=${opts.ttl}, s-maxage=${Math.max(3600, opts.ttl)}, stale-while-revalidate=86400`,
           "X-Cache-Time": String(Date.now()),
         });
         const etag = res.headers.get("ETag");
@@ -1314,7 +1316,7 @@ async function ghProxyServeDegraded(cacheKey, apiPath, opts) {
       status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Cache-Control": `public, max-age=${CONFIG.github.cacheTtlSeconds}`,
+        "Cache-Control": `public, max-age=${CONFIG.github.cacheTtlSeconds}, s-maxage=3600, stale-while-revalidate=86400`,
         "X-Cache-Time": String(Date.now()),
       },
     });

@@ -510,7 +510,7 @@
   <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="照片查看器" onclick="closeLightbox(event)">
     <button class="lightbox-close" onclick="closeLightbox()" aria-label="关闭照片查看器">✕</button>
     <button class="lightbox-prev" onclick="prevPhoto(event)" aria-label="上一张">‹</button>
-    <img class="lightbox-img" id="lightbox-img" src="" alt="">
+    <img class="lightbox-img" id="lightbox-img" src="" alt="" decoding="async">
     <div class="lightbox-loading" id="lightbox-loading" aria-hidden="true"><div class="loading-spinner"></div></div>
     <div class="lightbox-error" id="lightbox-error" role="status">
       <p>😵 图片加载失败</p>
@@ -522,6 +522,11 @@
 
   <script>
   const { escapeHtml, escapeAttr } = window.BlogUtils;
+
+  // 无限滚动页禁用历史滚动恢复：刷新时浏览器若把位置重置到底部，
+  // 哨兵元素会立即进入视口触发连续翻页，既造成「刷新后跳底部」的
+  // 割裂体验，又会突发批量 API 请求。置顶加载第一页才是符合直觉的行为。
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
 
 
 
@@ -770,7 +775,7 @@
         item.style.animation = `fadeUp 0.5s ease ${i * 0.03}s both`;
         item.innerHTML = `
           <div class="photo-img-wrap loading">
-            <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name || "")}" class="lazy-img">
+            <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name || "")}" class="lazy-img" loading="lazy" decoding="async">
           </div>
           <div class="photo-info">
             <div class="photo-name">${escapeHtml((p.name || "").replace(/\.[^.]+$/, ""))}</div>
@@ -826,6 +831,26 @@
           const img = item.querySelector(".lazy-img");
           if (img) BlogApi.github.loadImage(img);
         });
+      }
+
+      // DevOps 2.2：首批照片就绪后，空闲预取前 3 张的首镜像（同源 /api/github/raw/*，
+      // 经 SW SWR 入缓存 + Cloudflare 边缘缓存预热），用户滚动到视口前已就绪；
+      // 省流模式与慢速网络跳过，不与首屏争抢带宽。
+      if (startIdx === 0) {
+        const conn = navigator.connection;
+        if (!conn || (!conn.saveData && !/(^|-)(slow-)?2g$/.test(conn.effectiveType || ""))) {
+          const idle = window.requestIdleCallback || function (fn) { setTimeout(fn, 1200); };
+          idle(() => {
+            photos.slice(0, 3).forEach((p) => {
+              const m = p.mirrors && p.mirrors[0];
+              if (!m) return;
+              const l = document.createElement("link");
+              l.rel = "prefetch";
+              l.href = m;
+              document.head.appendChild(l);
+            });
+          });
+        }
       }
     }
 

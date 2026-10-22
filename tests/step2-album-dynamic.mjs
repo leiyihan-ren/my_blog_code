@@ -402,6 +402,9 @@ const apiD = await startApi(8612);
     localStorage.removeItem("album_photos_v3");
   });
   await page2.reload({ waitUntil: "load" });
+  // 双保险：album.html 已设 scrollRestoration=manual，这里再显式置顶，
+  // 杜绝任何滚动位置残留触发哨兵翻页（确保只预热第一页 24 张）
+  await page2.evaluate(() => window.scrollTo(0, 0));
   await sleep(2500); // 等首屏 24 张渲染 + SW 把 API 响应写入 SWR 缓存
   await context.setOffline(true);
   await page2.reload({ waitUntil: "load" });

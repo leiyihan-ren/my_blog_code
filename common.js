@@ -138,12 +138,42 @@
     }
   }
 
+  /* 空闲预取（DevOps 2.2）：低优先级拉取高频下一页 HTML，经 SW SWR 写入
+     运行时缓存——站内导航（尤其离线/弱网）秒开。省流模式与慢速网络自动跳过。 */
+  function initPrefetch() {
+    var NEXT_PAGES = {
+      "/index.html": ["/blog.html", "/games.html"],
+      "/blog.html": ["/index.html"],
+      "/games.html": ["/index.html"],
+      "/album.html": ["/links.html", "/index.html"],
+      "/links.html": ["/guestbook.html", "/album.html"],
+      "/guestbook.html": ["/links.html"],
+      "/timeline.html": ["/index.html"],
+      "/post.html": ["/blog.html"]
+    };
+    var here = location.pathname === "/" ? "/index.html" : location.pathname;
+    var targets = NEXT_PAGES[here];
+    if (!targets || !targets.length) return;
+    var conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (conn && (conn.saveData || /(^|-)(slow-)?2g$/.test(conn.effectiveType || ""))) return;
+    var idle = window.requestIdleCallback || function (fn) { setTimeout(fn, 1500); };
+    idle(function () {
+      targets.forEach(function (href) {
+        var l = document.createElement("link");
+        l.rel = "prefetch";
+        l.href = href;
+        document.head.appendChild(l);
+      });
+    });
+  }
+
   function boot() {
     initTheme();
     initMobileMenu();
     initScrollFx();
     initSeoUrls();
     initPwa();
+    initPrefetch();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", boot);

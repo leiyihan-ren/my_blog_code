@@ -586,18 +586,22 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="game-core.js"></script>
-<script src="games/snake.js"></script>
-<script src="games/breakout.js"></script>
-<script src="games/g2048.js"></script>
-<script src="games/memory.js"></script>
-<script src="games/mines.js"></script>
-<script src="games/reaction.js"></script>
-<script src="games/hanoi.js"></script>
 <script src="music-player.js" defer></script>
 <script>
 "use strict";
 const Core = window.GameCore;
 const $ = Core.$;
+
+/* ---------- 懒加载占位注册（2.3 代码分割）----------
+ * 仅注册展示用元数据（游戏网格/排行榜），重型游戏代码在首次打开时
+ * 由 GameCore.openGame 按需注入对应 games/<id>.js，避免一次性加载全部游戏。 */
+Core.register("snake", { meta: { id: "snake", name: "贪吃蛇", icon: "🐍", desc: "吃掉食物变长，别撞墙也别咬到自己，三档速度任选", tips: "方向键 ↑↓←→ 或 WASD 控制方向；触屏可滑动或使用虚拟方向键。吃到食物 +10 分。", src: "games/snake.js" }, create: null });
+Core.register("breakout", { meta: { id: "breakout", name: "打砖块", icon: "🧱", desc: "弹球击碎所有砖块，别让球掉下去", tips: "移动鼠标或触屏拖动控制挡板，也可用 ←→。球落到底部失去一条命，共 3 条命。", src: "games/breakout.js" }, create: null });
+Core.register("2048", { meta: { id: "2048", name: "2048", icon: "🔢", desc: "滑动合并数字，挑战 2048 方块", tips: "方向键或滑动屏幕移动全部方块，相同数字相撞会合并，目标凑出 2048。", src: "games/g2048.js" }, create: null });
+Core.register("memory", { meta: { id: "memory", name: "记忆翻牌", icon: "🃏", desc: "翻开卡片找出全部配对，步数越少越好", tips: "点击卡片翻面，找出两张相同的即可消除。步数越少、用时越短，得分越高。", src: "games/memory.js" }, create: null });
+Core.register("mines", { meta: { id: "mines", name: "扫雷", icon: "💣", desc: "避开所有地雷，用数字推理安全区", tips: "左键翻开格子，右键或长按插旗标记地雷。全部安全格翻开即胜利。", src: "games/mines.js" }, create: null });
+Core.register("reaction", { meta: { id: "reaction", name: "闪电靶场", icon: "⚡", desc: "目标稍纵即逝，比拼反应与连击", tips: "目标点亮后立刻点击，或用数字键 1~9 直击对应靶格。连续击中触发连击倍率。", src: "games/reaction.js" }, create: null });
+Core.register("hanoi", { meta: { id: "hanoi", name: "汉诺塔大师", icon: "🗼", desc: "经典汉诺塔：大不压小，用最优步数完成挑战", tips: "把全部盘子从最左柱移到最右柱。每次只能移动一根盘子，不能把大盘子压到小盘子上。", src: "games/hanoi.js" }, create: null });
 
 /* ---------- 主题 ---------- */
 

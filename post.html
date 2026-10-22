@@ -780,7 +780,7 @@
           .replace(/`([^`]+)`/g, "<code>$1</code>")
           .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (m, alt, url) =>
             isSafeMarkdownUrl(url)
-              ? `<img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}" loading="lazy">`
+              ? `<img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}" loading="lazy" decoding="async">`
               : escapeHtml(alt))
           .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label, url) =>
             isSafeMarkdownUrl(url)

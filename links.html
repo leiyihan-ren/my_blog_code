@@ -293,7 +293,7 @@ function renderLinks(links) {
       const name = escapeHtml(l.name || "未命名");
       const initial = escapeHtml((l.name || "?").trim().charAt(0).toUpperCase());
       const avatar = l.icon
-        ? `<img src="${escapeAttr(l.icon)}" alt="${name}" loading="lazy" data-fallback="${initial}">`
+        ? `<img src="${escapeAttr(l.icon)}" alt="${name}" loading="lazy" decoding="async" data-fallback="${initial}">`
         : initial;
       return `
       <a class="link-card" href="${escapeAttr(l.url)}" target="_blank" rel="noopener noreferrer nofollow">

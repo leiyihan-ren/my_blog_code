@@ -306,15 +306,46 @@ window.GameCore = (function () {
   function allGames() { return Array.from(registry.values()); }
   function getGame(id) { return registry.get(id) || null; }
 
+  /* ---------- 懒加载（2.3 代码分割）----------
+   * 重型游戏代码按需注入：首次打开某游戏时才加载对应 games/<id>.js，
+   * 之后缓存复用；并发点击同一游戏共享同一个加载 Promise，避免重复请求。 */
+  const gameScriptPromises = new Map();
+  function loadGameScript(id, src) {
+    if (gameScriptPromises.has(id)) return gameScriptPromises.get(id);
+    const p = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => {
+        gameScriptPromises.delete(id);
+        reject(new Error("script load failed: " + src));
+      };
+      document.head.appendChild(s);
+    });
+    gameScriptPromises.set(id, p);
+    return p;
+  }
+
   /* =========================================================
    * 舞台控制
    * =======================================================*/
   let current = null;       // 当前游戏实例
   let currentMeta = null;   // 当前游戏元数据
 
-  function openGame(id) {
-    const def = getGame(id);
+  async function openGame(id) {
+    let def = getGame(id);
     if (!def) return;
+    // 懒加载：占位注册带 src，首次打开才注入重型游戏代码，加载后重新取真实 def
+    if (def.src) {
+      try {
+        await loadGameScript(id, def.src);
+      } catch (e) {
+        toast("⚠️ 游戏加载失败，请刷新重试");
+        return;
+      }
+      def = getGame(id);
+    }
+    if (!def || typeof def.create !== "function") return;
     if (current && current.destroy) current.destroy();
 
     currentMeta = def;
