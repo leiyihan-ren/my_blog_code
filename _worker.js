@@ -1123,8 +1123,9 @@ async function ghProxyCacheMatch(request) {
 async function ghProxyCachePut(request, response) {
   try {
     await (await ghProxyCacheOpen()).put(request, response);
+    return "ok";
   } catch (e) {
-    /* 缓存写失败不影响响应 */
+    return "err:" + (e && e.message ? String(e.message).slice(0, 120) : String(e).slice(0, 120));
   }
 }
 
@@ -1268,7 +1269,8 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
         const etag = res.headers.get("ETag");
         if (etag) headers.set("ETag", etag);
         const response = new Response(body, { status: 200, headers });
-        await ghProxyCachePut(cacheKey, response.clone());
+        const putState = await ghProxyCachePut(cacheKey, response.clone());
+        response.headers.set("X-Cache-Put", putState); // [临时探针] 诊断缓存写入状态
         return response;
       } finally {
         ghProxyInflight.delete(cacheKey.url);
