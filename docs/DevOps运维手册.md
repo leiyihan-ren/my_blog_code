@@ -1,10 +1,11 @@
 # DevOps 运维手册
 
-> **版本**：v3.0（2026-10-22 DevOps 五步专项后修订）
+> **版本**：v3.1（2026-10-23 域名/GITHUB_TOKEN 核实后修订）
 > **适用范围**：`leiyihan-ren/my_blog_code` 仓库 + Cloudflare Pages 项目 `leiyihan`
 > **生产地址**：
-> - Cloudflare Pages（当前实际服役）：https://leiyihan.pages.dev
-> - ⚠️ **自定义域名 `www.leyi.my` / `leyi.my` 当前 DNS 指向 `45.205.18.87`（一台无关的 nginx 服务器，站点标题 "QiuTV"），已不再解析到本博客**。详见 [§11 域名现状](#11-域名现状待处理)。
+> - **自定义域名（正式站，当前服役）：https://leiyihan.dpdns.org**（dpdns.org 子域，CNAME → Cloudflare Pages，HTTPS/Brotli 正常）
+> - 备用/应急入口：https://leiyihan.pages.dev
+> - 说明：`leyi.my` 是**另一个与本博客无关的域名**（DNS 指向 `45.205.18.87` 的无关站点），并非本站，详见 [§11 域名与自定义域名](#11-域名与自定义域名已澄清)。
 
 ---
 
@@ -49,14 +50,15 @@
 
 | 凭证 | 存放位置 | 用途 | 最小权限 |
 |---|---|---|---|
-| `CLOUDFLARE_API_TOKEN` | GitHub Secrets（**当前未配置，见 §5**） | GitHub Actions 用 wrangler 直传部署 | Pages 项目的 `Edit` |
-| `CLOUDFLARE_ACCOUNT_ID` | GitHub Secrets（同上） | 同上，定位账户 | — |
-| `GITHUB_TOKEN`（PAT） | Cloudflare Pages → Settings → Environment variables | Worker 拉取 GitHub 内容时提升配额（60→5000 次/小时） | 公开仓库只读 `public_repo`（如仓库私有则 `repo` 只读） |
-| CF 账户登录 | dash.cloudflare.com | 手动管理 Pages/KV/域名 | — |
+| `GITHUB_TOKEN`（PAT） | Cloudflare Pages → Environment variables | Worker 拉取 GitHub 内容时提升配额（60→5000 次/小时） | 公开仓库只读 `public_repo`（如仓库私有则 `repo` 只读） |
+| `CLOUDFLARE_API_TOKEN` | 用户自留（**已确认有效，当前不使用**） | 仅当改用 GitHub Actions 直传部署时才需要（见 §5） | Pages 项目的 `Edit` |
+| `CLOUDFLARE_ACCOUNT_ID` | 用户自留 | 同上 | — |
+| CF 账户登录 | dash.cloudflare.com | 手动管理 Pages/KV/环境变量 | — |
 
-> **当前状态**：生产部署由 **Cloudflare Git 集成**自动完成（推送 GitHub 即触发）。
-> GitHub Actions 的 `deploy.yml` 已就绪但未配置 Secrets，处于「优雅待命」状态——
-> 配置后 Actions 接管部署，届时应关闭 CF Git 自动构建避免双重部署（见 §5）。
+> **当前状态**：生产部署由 **Cloudflare Git 集成**自动完成（推送 GitHub 即触发），Actions 不参与。
+> `GITHUB_TOKEN` 已由用户在 CF Pages 配好并**验证生效**——经 `/api/github/api/user` 实测返回 `leiyihan-ren`，
+> 配额已从 60/小时 提升到 5000/小时，配额隐患解除。
+> 已确认（2026-10-23）：**保持 Git 集成开启，不关闭、不走 Actions 双通道**，故 CF 两个密钥当前无需配置（见 §5）。
 
 ---
 
@@ -148,22 +150,20 @@ PATCH /repos/:o/:r/git/refs/heads/main    # 推进引用
 
 ---
 
-## 5. GitHub Actions 部署接管（需用户手动操作）
+## 5. GitHub Actions 部署接管（可选，当前不启用）
 
-当前 `deploy.yml` 已就绪但**未配置 Secrets**，生产由 CF Git 集成承担。
-如需 Actions 接管（构建产物可复现、部署日志集中在 GitHub）：
+**结论（2026-10-23 用户决定）**：保持 Cloudflare Git 集成开启，走「提交 → 自动部署 → 回查」链路，
+**不启用 Actions 接管、不关闭 Git 构建**。因此 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`
+**当前不需要**，`deploy.yml` 保持优雅待命即可（缺 Secrets 时自动跳过，不影响 Git 集成）。
 
-1. 创建 CF API Token（dash.cloudflare.com → My Profile → API Tokens）：
-   权限选 `Cloudflare Pages: Edit`，账户资源限 `leiyihan` 项目所属账户；
-2. 仓库 → **Settings → Secrets and variables → Actions → New repository secret**，添加：
+> 已核实：用户提供的 CF API Token（`cfat_` 新格式）有效、具备 `Cloudflare Pages: Edit` 权限。
+> ⚠️ `/user/tokens/verify` 对该新格式令牌会**误报** "Invalid API Token"，判断有效性以实际 API 调用（如列账户/项目）为准。
 
-   | Name | Value |
-   |---|---|
-   | `CLOUDFLARE_API_TOKEN` | 上一步创建的 Token |
-   | `CLOUDFLARE_ACCOUNT_ID` | CF 账户 ID（`5dca3f8d665e2b3d0180b82ead55c6c9`） |
-
-3. 推送任意提交触发 `deploy.yml`，确认「构建并部署到生产」success；
-4. **关闭 CF Git 自动构建**（Pages → Settings → Build & deploy → 暂停 Git 集成），避免双通道重复部署。
+若将来确需 Actions 接管（构建产物可复现、部署日志集中在 GitHub），再按以下操作，并二选一避免双通道：
+1. 仓库 → **Settings → Secrets and variables → Actions**，添加 `CLOUDFLARE_API_TOKEN`（权限 `Cloudflare Pages: Edit`）与
+   `CLOUDFLARE_ACCOUNT_ID`（`5dca3f8d665e2b3d0180b82ead55c6c9`）；
+2. 推送触发 `deploy.yml`，确认「构建并部署到生产」success；
+3. 关闭 CF Git 自动构建（Pages → Settings → Build & deploy → 暂停 Git 集成），避免双通道重复部署。
 
 ---
 
@@ -178,12 +178,12 @@ git add -A && git commit -m "..." # 2. 提交
 git push origin main            # 3. 推送（沙箱环境用 api_push.py，见 §3.2）
 # 4. 等 1-2 分钟，验证：
 gh api "repos/leiyihan-ren/my_blog_code/commits/main/check-runs" --jq '.check_runs[] | "\(.name): \(.conclusion)"'
-curl -sL https://leiyihan.pages.dev/ | grep -c "<改动探针>"
+curl -sL https://leiyihan.dpdns.org/ | grep -c "<改动探针>"   # 正式域名（备用：https://leiyihan.pages.dev/）
 ```
 
 ### 6.2 强制刷新边缘缓存
 
-对单个 URL：`curl -sI "https://leiyihan.pages.dev/<路径>" -H "Cache-Control: no-cache"` 只影响浏览器；
+对单个 URL：`curl -sI "https://leiyihan.dpdns.org/<路径>" -H "Cache-Control: no-cache"` 只影响浏览器；
 边缘缓存刷新需 CF Dashboard → Caching → Configuration → **Purge Everything**（全站），
 或在 API 用 `zone_purge_cache`（需要 zone 级权限——当前 Token 仅 Pages 权限，做不了）。
 
@@ -191,7 +191,7 @@ curl -sL https://leiyihan.pages.dev/ | grep -c "<改动探针>"
 
 ```bash
 # 本地起服务（含 API mock）后用 chromium 跑，沙箱里 google-chrome 会起不来，必须指定路径
-npx lighthouse https://leiyihan.pages.dev/ \
+npx lighthouse https://leiyihan.dpdns.org/ \
   --only-categories=performance \
   --chrome-path=/usr/bin/chromium \
   --chrome-flags="--no-sandbox --disable-dev-shm-usage --headless=new"
@@ -275,28 +275,26 @@ SWR 分支查不到即离线 503。修复：SWR 分支加 STATIC_CACHE 兜底 + 
 | 事项 | 现状 | 解锁条件 |
 |---|---|---|
 | CF Image Polish（自动 WebP/AVIF） | **不可用**——需要 zone 级权限，当前 Token 仅 Pages 项目级 | 域名 NS 切到 Cloudflare 后开启 Polish |
-| 自定义域名 HTTPS/边缘优化 | 未生效（DNS 未指向 CF） | 域名 DNS 控制权（见 §11） |
-| Actions 直传部署 | 待命 | 配置 2 个 Secrets（见 §5） |
+| 自定义域名 HTTPS/边缘优化 | **已生效**——`leiyihan.dpdns.org` 走 CF，HTTPS/Brotli 正常（见 §11） | — |
+| Actions 直传部署 | 待命（**不启用**，Git 集成已满足需求） | 见 §5 |
 | 边缘缓存手动 Purge | 不可用 | zone 级权限 Token |
 
 ---
 
-## 11. 域名现状（待处理）
+## 11. 域名与自定义域名（已澄清）
 
-**2026-10-22 发现**：`www.leyi.my` 与 `leyi.my` 的 A 记录指向 `45.205.18.87`，
-该服务器返回的是**无关站点**（`<title>QiuTV</title>`，nginx/1.24.0，`/api/*` 返回 401/404，
-无本站任何特征）。本博客当前只能通过 **https://leiyihan.pages.dev** 访问。
+**2026-10-23 核实**：本站的正式域名是 **`leiyihan.dpdns.org`**（dpdns.org 子域，CNAME → Cloudflare Pages）。
+体检全绿：DNS 解析到 CF（`172.67.194.237 / 104.21.90.40`）、HTTPS 200 证书有效、Brotli 启用、
+10 个内容接口全 200、`GITHUB_TOKEN` 认证生效（配额 5000/小时）、raw 图片代理 200。
 
-**影响**：
-- 自定义域名下的访问者看到的是别人的站点（或域名已易主/停放）；
-- 之前所有针对 `leyi.my` 的「线上验证」实际打的是那台 VPS，**不代表本博客的生产状态**；
-- Cloudflare 上的自定义域名绑定（CNAME → leiyihan.pages.dev）可能仍在，但 DNS 被外部覆盖。
+**关于 `leyi.my`（澄清：非本站）**：
+- 2026-10-22 曾发现 `www.leyi.my` / `leyi.my` 的 A 记录指向 `45.205.18.87`，返回的是**无关站点**
+  （`<title>QiuTV</title>`，nginx/1.24.0，`/api/*` 返回 401/404）。经用户确认，**该域名与本博客无关**，不影响本站。
+- 本站对外地址统一使用 `leiyihan.dpdns.org`；`leiyihan.pages.dev` 作备用/应急入口。
 
-**待办**（需要域名注册商/DNS 控制权，超出代码仓库范围）：
-1. 确认 `leyi.my` 的 DNS 管理权归属（注册商账号是否仍在手）；
-2. 若在手：将 A/CNAME 记录改回 Cloudflare（CNAME `leiyihan.pages.dev`，或按 CF 指引的 IP）；
-3. 若域名已易主：考虑启用新域名，更新 CF Pages 自定义域绑定、`sw.js`/manifest 中的 scope 无需改（同源相对路径）；
-4. 处置 `45.205.18.87` 上误暴露的「QiuTV」站点归属问题。
+**后续可选**：
+1. 如需更短域名，另行注册并绑定到 CF Pages（CF 侧 Add custom domain，按指引配 CNAME）；
+2. 域名 NS 切到 Cloudflare 后可解锁 Image Polish（WebP/AVIF 自动优化）与边缘缓存手动 Purge（见 §10）。
 
 ---
 
