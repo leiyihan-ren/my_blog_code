@@ -27,6 +27,25 @@ const CONFIG = {
     lockSeconds: 900,
     maxTokenLength: 200,
   },
+  drive: {
+    // 云盘（文件管理器）写操作口令：前端 prompt 输入后经 x-drive-pin 请求头携带。
+    // 生产环境请在 CF Pages 设置环境变量 DRIVE_PIN 覆盖此默认值（默认值仅兜底）。
+    fallbackPin: "8866",
+    // 云盘文件存放的 GitHub 仓库与目录（与相册/文章同源的数据仓）
+    repo: "leiyihan-ren/Blog",
+    branch: "main",
+    dir: "drive",
+    // 单文件大小上限：GitHub Contents API 绝对上限 100MB，Base64 编码膨胀 33%，
+    // 10MB → 约 13.3MB 载荷，留足余量防 Worker 内存压力与上游超时（前端同值拦截）
+    maxFileBytes: 10 * 1024 * 1024,
+    // 读请求体上限：Base64 膨胀 33% + JSON 外壳，10MB 文件约 13.5MB，留至 16MB
+    maxBodyBytes: 16 * 1024 * 1024,
+    // 写操作超时（毫秒）：读路径的 8s 不够上传大文件，单独放宽
+    writeTimeoutMs: 30000,
+    // 目录列表的 isolate 内缓存（毫秒）：列表含每文件一次 commits 查询（N+1），
+    // 30s 内的重复刷新直接复用，压低 GitHub 配额消耗
+    listCacheMs: 30000,
+  },
   request: {
     maxBodyBytes: 100 * 1024,
   },
@@ -807,6 +826,42 @@ async function ghApiRequest(url, store, env, etag) {
   return res;
 }
 
+/**
+ * GitHub API 写请求（PUT / POST / DELETE / PATCH）——云盘写入专用。
+ * 与 ghApiRequest 的差异：携带 JSON body、30s 写超时、不做任何缓存。
+ * Token 注入 / 配额跟踪 / 401 裸重试逻辑与读路径完全一致（Worker 内注入，前端无感知）。
+ * @param {string} url     上游 URL（https://api.github.com/...）
+ * @param {object} env     Worker 环境（读 GITHUB_TOKEN）
+ * @param {string} method  HTTP 方法
+ * @param {object} body    请求体（将 JSON.stringify）
+ */
+async function ghApiWrite(url, env, method, body) {
+  const headers = ghHeaders(env);
+  headers["Content-Type"] = "application/json";
+  const payload = JSON.stringify(body || {});
+  let res = await fetchWithTimeout(
+    url,
+    { method, headers, body: payload },
+    CONFIG.drive.writeTimeoutMs
+  );
+  ghTrackQuota(res);
+  if (res.status === 401 && headers.Authorization) {
+    ghMarkTokenInvalid(null);
+    const bare = {
+      "User-Agent": CONFIG.github.userAgent,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    };
+    res = await fetchWithTimeout(
+      url,
+      { method, headers: bare, body: payload },
+      CONFIG.drive.writeTimeoutMs
+    );
+    ghTrackQuota(res);
+  }
+  return res;
+}
+
 /** 目录列表数据源（jsDelivr data API 只返回当前层级，需适配成统一结构） */
 const GH_LIST_SOURCES = {
   github: {
@@ -1346,6 +1401,28 @@ async function handleGithubProxy(request, env, ctx, url, store) {
   const rest = url.pathname.replace(/^\/api\/github\//, "");
   if (!rest) return err("代理路径为空", 400);
 
+  // 写方法（POST/PUT/DELETE/PATCH）透传：PIN 保护 + Token 注入直连 api.github.com，不走缓存。
+  // 语义：前端 → 本代理 → GitHub Contents API，Token 全程不出 Worker。
+  if (request.method !== "GET") {
+    if (!drivePinOk(request, env)) {
+      return err("写操作需要有效的云盘口令（请求头 x-drive-pin）", 401);
+    }
+    if (!rest.startsWith("api/")) {
+      return err("写操作仅支持 api/ 子路径（raw/ 为只读镜像）", 400);
+    }
+    const upstream = "https://api.github.com/" + rest.slice(4) + url.search;
+    const body = await readDriveJson(request);
+    const res = await ghApiWrite(upstream, env, request.method, body || {});
+    if (!res.ok) return githubWriteError(res);
+    const text = await res.text();
+    return new Response(text, {
+      status: res.status,
+      headers: buildHeaders({
+        "Content-Type": res.headers.get("Content-Type") || "application/json",
+      }),
+    });
+  }
+
   if (rest.startsWith("api/")) {
     const apiPath = rest.slice(4) + url.search;
     const upstream = "https://api.github.com/" + apiPath;
@@ -1366,6 +1443,292 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     }, ctx);
   }
   return err("不支持的代理路径（仅 api/ 与 raw/）", 400);
+}
+
+// ============================================================
+// 7.7 GitHub 云盘（文件管理器）—— PIN 保护的 Contents 读写代理
+// ------------------------------------------------------------
+// 前端 drive.html 专用入口。所有操作经本代理转发 GitHub Contents API，
+// Token 只在 Worker 内注入，前端永不接触；写操作一律要求 x-drive-pin 口令。
+//
+//   GET    /api/drive/list?path=drive[/子目录]  目录列表（含每文件 sha 与上传时间）
+//   POST   /api/drive/upload  {path, content, message}  新建/覆盖（后端自动判别是否带 sha）
+//   PUT    /api/drive/update  {path, content, message}  更新（后端先 GET sha，拿不到则 404）
+//   DELETE /api/drive/delete  {path, message}           删除（后端先 GET sha）
+//
+// 下载不经过本代理：/api/github/raw/<repo>/<branch>/<path>（边缘缓存 + CDN 兜底）。
+// SHA 逻辑（GitHub Contents API 硬性要求）：新建文件不传 sha；更新/删除必须先
+// GET /contents/<path> 拿到当前 sha，否则 GitHub 返回 409/422。
+// 大小上限：单文件 10MB（Base64 膨胀 33% 后约 13.3MB，远低于 GitHub 100MB 绝对上限，
+// 同时避免 Worker 内存压力与上游超时）。
+// ============================================================
+
+/** isolate 内目录列表缓存（30s）：列表含 N+1 次 commits 查询，重复刷新直接复用 */
+const driveListMemo = { at: 0, key: "", data: null };
+
+/** 云盘口令校验：env.DRIVE_PIN 优先，未配置时用 CONFIG.drive.fallbackPin 兜底 */
+function drivePinOk(request, env) {
+  const expected = (env && env.DRIVE_PIN) || CONFIG.drive.fallbackPin;
+  const given = (request.headers.get("x-drive-pin") || "").trim();
+  return given.length > 0 && given === expected;
+}
+
+/**
+ * 云盘响应助手：一律 no-store。
+ * 管理面实时数据（列表/写结果）禁一切缓存层——SW 的 /api/* SWR、
+ * 浏览器 HTTP 缓存、CF 边缘缓存都不该碰，否则写操作后前台不刷新。
+ */
+function driveOk(data) {
+  return ok(data, { "Cache-Control": "no-store" });
+}
+function driveErr(message, status) {
+  return err(message, status, { "Cache-Control": "no-store" });
+}
+
+/**
+ * 云盘路径净化：必须位于云盘目录内，拒绝空段 / . / .. 穿越与超长路径。
+ * @returns {string|null} 净化后的路径（如 drive/notes/a.txt），非法返回 null
+ */
+function sanitizeDrivePath(raw) {
+  const p = String(raw || "").trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!p) return CONFIG.drive.dir;
+  const segs = p.split("/");
+  if (segs.some((s) => s === "" || s === "." || s === "..")) return null;
+  if (segs[0] !== CONFIG.drive.dir) return null;
+  if (p.length > 300) return null;
+  return p;
+}
+
+/** Base64 解码后的真实字节数（比前端估算更可信，用于后端大小兜底） */
+function base64ByteLength(b64) {
+  const clean = String(b64).replace(/\s+/g, "");
+  try {
+    return atob(clean).length;
+  } catch (e) {
+    return -1;
+  }
+}
+
+/** 云盘大 body 读取：读路径的 readJson 有 100KB 上限，云盘需支持到 16MB */
+async function readDriveJson(request) {
+  try {
+    const text = await request.text();
+    if (text.length > CONFIG.drive.maxBodyBytes) return null;
+    return safeJsonParse(text);
+  } catch (e) {
+    return null;
+  }
+}
+
+/** GitHub 写操作错误 → 友好 JSON（403 配额/权限、409 SHA 冲突、404、422 分类提示） */
+function githubWriteError(res) {
+  const remaining = res.headers.get("X-RateLimit-Remaining");
+  if (res.status === 403 && remaining === "0") {
+    return driveErr("GitHub API 配额已用尽（每小时重置），请稍后再试", 429);
+  }
+  if (res.status === 403) {
+    return driveErr("GitHub 拒绝写入：Token 权限不足（需要 Contents: Read and write）或触发安全策略", 403);
+  }
+  if (res.status === 409) {
+    return driveErr("SHA 冲突：文件在你操作期间已被修改，请刷新列表后重试", 409);
+  }
+  if (res.status === 404) {
+    return driveErr("目标文件或目录不存在", 404);
+  }
+  if (res.status === 422) {
+    return driveErr("GitHub 校验失败：内容为空、Base64 不合法或参数有误", 422);
+  }
+  return driveErr(`GitHub 上游错误（HTTP ${res.status}）`, 502);
+}
+
+/** 云盘目录内容 URL（Contents API） */
+function driveContentsUrl(repo, branch, path) {
+  return `https://api.github.com/repos/${repo}/contents/${encodePathSegments(path)}?ref=${branch}`;
+}
+
+/**
+ * 保存文件（upload / update 共用）。
+ * @param {boolean} requireSha  true=更新（必须先拿到 sha，否则 404）；false=新建/覆盖（自动判别）
+ */
+async function driveSaveFile(env, path, content, message, requireSha) {
+  const repo = CONFIG.drive.repo;
+  const branch = CONFIG.drive.branch;
+
+  // 先 GET 元数据拿 sha：requireSha 时必须存在；否则存在则带 sha（覆盖），不存在则新建
+  const metaRes = await ghApiRequest(driveContentsUrl(repo, branch, path), null, env, null);
+  let sha = null;
+  if (metaRes.ok) {
+    const meta = await metaRes.json();
+    sha = meta && meta.sha ? meta.sha : null;
+  } else if (requireSha && metaRes.status === 404) {
+    return driveErr("文件不存在，无法更新（请先上传）", 404);
+  } else if (!metaRes.ok && metaRes.status !== 404) {
+    return githubWriteError(metaRes);
+  }
+
+  const body = {
+    message: message || `drive: ${requireSha ? "update" : "upload"} ${path}`,
+    content: String(content).replace(/\s+/g, ""),
+    branch,
+  };
+  if (sha) body.sha = sha;
+
+  const res = await ghApiWrite(driveContentsUrl(repo, branch, path), env, "PUT", body);
+  if (!res.ok) return githubWriteError(res);
+  const data = await res.json();
+  driveListMemo.data = null; // 写成功：立即使列表缓存失效，保证刷新拿到最新内容
+  return driveOk({
+    ok: true,
+    path,
+    sha: data && data.content ? data.content.sha : null,
+    commit: data && data.commit ? data.commit.sha : null,
+    updated: !!sha,
+  });
+}
+
+/**
+ * /api/drive/* 统一入口。
+ * 口令校验 → 路径净化 → 大小兜底 → 转发 GitHub Contents API。
+ */
+async function handleDrive(request, env, ctx, url) {
+  if (!drivePinOk(request, env)) {
+    return driveErr("云盘口令错误或未提供（请求头 x-drive-pin）", 401);
+  }
+
+  const sub = url.pathname.replace(/^\/api\/drive\/?/, "");
+  const repo = CONFIG.drive.repo;
+  const branch = CONFIG.drive.branch;
+
+  // ---- 目录列表 ----
+  if (request.method === "GET" && sub === "list") {
+    const dir = sanitizeDrivePath(url.searchParams.get("path") || CONFIG.drive.dir);
+    if (!dir) return driveErr("非法的目录路径", 400);
+
+    // isolate 内 30s 缓存：重复刷新不重复消耗 GitHub 配额
+    const now = Date.now();
+    if (driveListMemo.data && driveListMemo.key === dir && now - driveListMemo.at < CONFIG.drive.listCacheMs) {
+      return driveOk(driveListMemo.data);
+    }
+
+    const res = await ghApiRequest(driveContentsUrl(repo, branch, dir), null, env, null);
+    if (res.status === 404) {
+      // 目录不存在（从未上传过）→ 空列表，首次上传时 GitHub 会自动创建中间目录
+      return driveOk({ ok: true, dir, files: [], empty: true, latestAt: null });
+    }
+    if (!res.ok) return githubWriteError(res);
+    const items = await res.json();
+    const files = (Array.isArray(items) ? items : [])
+      .filter((it) => it && it.type === "file")
+      .slice(0, 50)
+      .map((it) => ({
+        name: it.name,
+        path: it.path,
+        size: it.size || 0,
+        sha: it.sha,
+        downloadUrl: `/api/github/raw/${repo}/${branch}/${encodePathSegments(it.path)}`,
+      }));
+
+    // 每文件的上传时间：对每个文件查一次该路径的最近 commit（N+1 次请求，
+    // 个人云盘文件量小可接受；由 30s isolate 缓存兜底，不会每次刷新都打）。
+    // 超过 20 个文件时跳过时间查询（配额保护），前端显示「—」。
+    let latestAt = null;
+    if (files.length > 0 && files.length <= 20) {
+      const times = await Promise.all(
+        files.map(async (f) => {
+          try {
+            const cRes = await ghApiRequest(
+              `https://api.github.com/repos/${repo}/commits?path=${encodePathSegments(f.path)}&per_page=1`,
+              null,
+              env,
+              null
+            );
+            if (!cRes.ok) return null;
+            const commits = await cRes.json();
+            return commits && commits[0] && commits[0].commit
+              ? commits[0].commit.committer.date
+              : null;
+          } catch (e) {
+            return null;
+          }
+        })
+      );
+      files.forEach((f, i) => {
+        f.uploadedAt = times[i] || null;
+        if (f.uploadedAt && (!latestAt || f.uploadedAt > latestAt)) latestAt = f.uploadedAt;
+      });
+    }
+
+    const payload = { ok: true, dir, files, empty: files.length === 0, latestAt };
+    driveListMemo.at = now;
+    driveListMemo.key = dir;
+    driveListMemo.data = payload;
+    return driveOk(payload);
+  }
+
+  // ---- 上传（新建 / 覆盖）----
+  if (request.method === "POST" && sub === "upload") {
+    const body = await readDriveJson(request);
+    if (!body || typeof body.path !== "string" || typeof body.content !== "string") {
+      return driveErr("参数缺失：需要 path 与 content（Base64 字符串）", 400);
+    }
+    const path = sanitizeDrivePath(body.path);
+    if (!path) return driveErr("非法路径：必须位于云盘目录内且不含 .. 穿越", 400);
+    if (!/^[A-Za-z0-9+/\s]+=*$/.test(body.content)) {
+      return driveErr("content 必须是 Base64 字符串", 400);
+    }
+    const bytes = base64ByteLength(body.content);
+    if (bytes < 0) return driveErr("Base64 解码失败", 400);
+    if (bytes > CONFIG.drive.maxFileBytes) {
+      return driveErr(`文件大小 ${(bytes / 1048576).toFixed(1)}MB 超过 10MB 上限`, 413);
+    }
+    return driveSaveFile(env, path, body.content, body.message, false);
+  }
+
+  // ---- 更新（必须先存在，后端自动 GET sha）----
+  if (request.method === "PUT" && sub === "update") {
+    const body = await readDriveJson(request);
+    if (!body || typeof body.path !== "string" || typeof body.content !== "string") {
+      return driveErr("参数缺失：需要 path 与 content（Base64 字符串）", 400);
+    }
+    const path = sanitizeDrivePath(body.path);
+    if (!path) return driveErr("非法路径：必须位于云盘目录内且不含 .. 穿越", 400);
+    if (!/^[A-Za-z0-9+/\s]+=*$/.test(body.content)) {
+      return driveErr("content 必须是 Base64 字符串", 400);
+    }
+    const bytes = base64ByteLength(body.content);
+    if (bytes < 0) return driveErr("Base64 解码失败", 400);
+    if (bytes > CONFIG.drive.maxFileBytes) {
+      return driveErr(`文件大小 ${(bytes / 1048576).toFixed(1)}MB 超过 10MB 上限`, 413);
+    }
+    return driveSaveFile(env, path, body.content, body.message, true);
+  }
+
+  // ---- 删除（后端先 GET sha，再 DELETE）----
+  if (request.method === "DELETE" && sub === "delete") {
+    const body = await readDriveJson(request);
+    if (!body || typeof body.path !== "string") {
+      return driveErr("参数缺失：需要 path", 400);
+    }
+    const path = sanitizeDrivePath(body.path);
+    if (!path) return driveErr("非法路径：必须位于云盘目录内且不含 .. 穿越", 400);
+
+    const metaRes = await ghApiRequest(driveContentsUrl(repo, branch, path), null, env, null);
+    if (metaRes.status === 404) return driveErr("文件不存在或已被删除", 404);
+    if (!metaRes.ok) return githubWriteError(metaRes);
+    const meta = await metaRes.json();
+    if (!meta || !meta.sha) return driveErr("无法获取文件 sha（GitHub 元数据异常）", 502);
+
+    const res = await ghApiWrite(driveContentsUrl(repo, branch, path), env, "DELETE", {
+      message: body.message || `drive: delete ${path}`,
+      sha: meta.sha,
+      branch,
+    });
+    if (!res.ok) return githubWriteError(res);
+    driveListMemo.data = null; // 写成功：立即使列表缓存失效，保证刷新拿到最新内容
+    return driveOk({ ok: true, path });
+  }
+
+  return driveErr("不支持的云盘操作（list / upload / update / delete）", 404);
 }
 
 /** URL 路径分段编码，避免仓库名/文件名中的特殊字符破坏 URL */
@@ -3164,23 +3527,29 @@ async function dispatchApi(request, env, ctx, url) {
     return new Response(null, { headers: buildHeaders() });
   }
 
+  // 同源 GitHub 代理：在路由表与方法检查之前拦截（/api/github/* 不依赖 KV，store 允许为null；
+  // 写方法透传同样在此收口，DELETE 因此可达——原 405 检查只约束其余业务路由）
+  if (url.pathname.startsWith("/api/github/")) {
+    let proxyStore = null;
+    try {
+      proxyStore = new Store(env, ctx);
+    } catch (e) {
+      /* KV 未绑时代理仍可用（仅丢失 Token 失效记录） */
+    }
+    return handleGithubProxy(request, env, ctx, url, proxyStore);
+  }
+
+  // 云盘代理（文件管理器）：PIN 保护 + GitHub Contents 读写，同样不依赖 KV
+  if (url.pathname.startsWith("/api/drive/")) {
+    return handleDrive(request, env, ctx, url);
+  }
+
   // 仅支持 GET / POST，其余方法一律 405（与原实现保持一致）
   if (request.method !== "GET" && request.method !== "POST") {
     fail("Method Not Allowed", 405);
   }
 
   const store = new Store(env, ctx);
-
-  // 同源 GitHub 代理：在路由表之前拦截（/api/github/* 不依赖 KV，store 允许为null）
-  if (url.pathname.startsWith("/api/github/")) {
-    let proxyStore = null;
-    try {
-      proxyStore = store;
-    } catch (e) {
-      /* KV 未绑定时代理仍可用（仅丢失 Token 失效记录） */
-    }
-    return handleGithubProxy(request, env, ctx, url, proxyStore);
-  }
 
   const matched = matchRoute(request.method, url.pathname);
   if (!matched) failNoRoute(url.pathname);

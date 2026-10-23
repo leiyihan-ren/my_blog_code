@@ -21,6 +21,8 @@ const SUITES = [
   { name: "灯箱焦点陷阱", file: "step4-lightbox-trap.mjs" },
   { name: "common.js 交互回归", file: "step5-common-verify.mjs" },
   { name: "边缘缓存回归", file: "step6-edge-cache.mjs" },
+  { name: "GitHub 云盘 API", file: "step7-drive-api.mjs" },
+  { name: "云盘页面端到端", file: "step7-drive-ui.mjs" },
 ];
 
 function runSuite(file) {

@@ -43,6 +43,7 @@ const PRECACHE_URLS = [
   "./guestbook.html",
   "./post.html",
   "./admin.html",
+  "./drive.html",
   "./common.css",
   "./common.js",
   "./js/utils.js",
@@ -183,6 +184,15 @@ self.addEventListener("fetch", (event) => {
         return fetch(req);
       })()
     );
+    return;
+  }
+
+  // 1.5) 云盘 API 实时接口：不走 SWR 缓存，直传网络。
+  // 原因：/api/drive/list 是管理面数据，上传/删除后必须立即反映最新列表；
+  // stale-while-revalidate 会先返回旧缓存，导致「删了还在、传了不显示」。
+  // 写方法（POST/PUT/DELETE）本就在 146 行被放行，不受影响。
+  if (url.pathname.startsWith("/api/drive/")) {
+    event.respondWith(fetch(req));
     return;
   }
 
