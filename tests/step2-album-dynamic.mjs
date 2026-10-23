@@ -343,6 +343,22 @@ const apiD = await startApi(8612);
 {
   const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page2 = await ctx2.newPage();
+  // 无限滚动触发助手：懒加载图片会改变文档高度，单次 scrollTo 可能踩空哨兵或撞上 loading 窗口；
+  // 循环滚动 + 直滚哨兵，直到达到目标张数或超时（45s 容忍慢环境）。仅改测试触发方式，不改断言强度。
+  async function scrollUntilPhotos(page, target, timeoutMs = 45000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const n = await page.evaluate(() => document.querySelectorAll(".photo-item").length);
+      if (n >= target) return n;
+      await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight);
+        const s = document.getElementById("album-sentinel");
+        if (s && s.scrollIntoView) s.scrollIntoView({ block: "end" });
+      });
+      await sleep(400);
+    }
+    return page.evaluate(() => document.querySelectorAll(".photo-item").length);
+  }
   const jsErrors2 = [];
   page2.on("pageerror", (e) => jsErrors2.push(String(e)));
   await page2.goto("http://localhost:8899/album.html", { waitUntil: "load" });
@@ -354,9 +370,8 @@ const apiD = await startApi(8612);
   check("第一页加载 24 张", p1count === 24, `items=${p1count}`);
   const st1 = await page2.evaluate(() => document.getElementById("album-status")?.textContent || "");
   check("状态条显示 24 / 60", st1.includes("24 / 60"), st1);
-  // 滚动触发第二页
-  await page2.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page2.waitForFunction(() => document.querySelectorAll(".photo-item").length >= 48, { timeout: 8000 });
+  // 滚动触发第二页（懒加载图片改变文档高度，单次 scrollTo 易踩空哨兵，循环滚动兜底）
+  await scrollUntilPhotos(page2, 48);
   const p2count = await page2.evaluate(() => document.querySelectorAll(".photo-item").length);
   check("滚动后加载第二页（48 张）", p2count === 48, `items=${p2count}`);
   const st2 = await page2.evaluate(() => document.getElementById("album-status")?.textContent || "");
@@ -367,9 +382,8 @@ const apiD = await startApi(8612);
     return items[24] ? items[24].dataset.idx : null;
   });
   check("增量渲染索引连续（第 25 张 idx=24）", idx25 === "24", `idx=${idx25}`);
-  // 第三页
-  await page2.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-  await page2.waitForFunction(() => document.querySelectorAll(".photo-item").length >= 60, { timeout: 8000 });
+  // 第三页（末页竞态最高发处，同样循环滚动兜底）
+  await scrollUntilPhotos(page2, 60);
   await sleep(600);
   const p3 = await page2.evaluate(() => ({
     count: document.querySelectorAll(".photo-item").length,
