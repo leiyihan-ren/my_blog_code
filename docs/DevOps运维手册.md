@@ -1,6 +1,6 @@
 # DevOps 运维手册
 
-> **版本**：v3.2（2026-10-23 二次核验：边缘缓存观测/据实修正表格/Lighthouse 刷新）
+> **版本**：v3.3（2026-10-23 三次核验：GitHub PAT 权限扩容 / Actions 部署全链路验证通过 / 双通道并存确认）
 > **适用范围**：`leiyihan-ren/my_blog_code` 仓库 + Cloudflare Pages 项目 `leiyihan`
 > **生产地址**：
 > - **自定义域名（正式站，当前服役）：https://leiyihan.dpdns.org**（dpdns.org 子域，CNAME → Cloudflare Pages，HTTPS/Brotli 正常）
@@ -112,7 +112,7 @@ PATCH /repos/:o/:r/git/refs/heads/main    # 推进引用
 | 工作流 | 触发 | 作用 |
 |---|---|---|
 | `ci.yml` / `test.yml` | push / PR | 全链路回归（9 套件 / 467+ 断言），**红即禁止合并** |
-| `deploy.yml` | push main | 构建 `dist/` → wrangler 直传（需 Secrets，见 §5） |
+| `deploy.yml` | push main / workflow_dispatch | 构建 `dist/` → wrangler 直传（**Secrets 已配，2026-10-23 全链路验证通过**，见 §5） |
 
 ---
 
@@ -173,20 +173,37 @@ PATCH /repos/:o/:r/git/refs/heads/main    # 推进引用
 
 ---
 
-## 5. GitHub Actions 部署接管（可选，当前不启用）
+## 5. GitHub Actions 部署通道（已验证可用，双通道并存）
 
-**结论（2026-10-23 用户决定）**：保持 Cloudflare Git 集成开启，走「提交 → 自动部署 → 回查」链路，
-**不启用 Actions 接管、不关闭 Git 构建**。因此 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`
-**当前不需要**，`deploy.yml` 保持优雅待命即可（缺 Secrets 时自动跳过，不影响 Git 集成）。
+**2026-10-23 19:45–19:52 全链路验证通过。** GitHub PAT（`github_pat_11CEB…`，仅覆盖
+`leiyihan-ren/my_blog_code` 一个仓库）经用户直接补权限后具备：**Contents / Secrets / Workflows /
+Actions 均 Read and write**。两个 Cloudflare 凭证已写入仓库 Secrets：
 
-> 已核实：用户提供的 CF API Token（`cfat_` 新格式）有效、具备 `Cloudflare Pages: Edit` 权限。
+| Secret | 值 | 写入时间（UTC+8） |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | `cfat_` 新格式令牌（权限 `Cloudflare Pages: Edit`） | 19:45:39 |
+| `CLOUDFLARE_ACCOUNT_ID` | `5dca3f8d665e2b3d0180b82ead55c6c9` | 19:45:41 |
+
+**验证记录**：`gh workflow run deploy.yml --ref main` 触发 run `39948948987`，21s 完成，
+「检查部署凭据」与「部署到 Cloudflare Pages」两步全绿；CF 侧生成 `trigger=ad_hoc` 的生产部署记录
+（区别于 Git 集成的 `github:push`），线上探针首页/API 均 200。
+
+**当前格局：双通道并存（用户决定保持 Git 集成开启）**
+
+- **Cloudflare Git 集成**：保持开启，push 即自动构建部署（`github:push`）；
+- **GitHub Actions**：Secrets 就位后**下次 push 起自动真部署**（此前未配 Secrets 为空跑跳过，
+  仅 9–11s），亦可随时 `gh workflow run deploy.yml --ref main` 手动触发；
+- 两者构建同一份代码、部署同一项目，**内容一致不冲突**；`concurrency: deploy-production`
+  防止 Actions 自身并发。代价是每次 push 多一次构建（约 20s）；
+- 如需收回单通道：CF → Pages → Settings → Build & deploy → 暂停 Git 集成即可（用户暂不关闭）。
+
+> 已核实：CF API Token（`cfat_` 新格式）有效、具备 `Cloudflare Pages: Edit` 权限。
 > ⚠️ `/user/tokens/verify` 对该新格式令牌会**误报** "Invalid API Token"，判断有效性以实际 API 调用（如列账户/项目）为准。
-
-若将来确需 Actions 接管（构建产物可复现、部署日志集中在 GitHub），再按以下操作，并二选一避免双通道：
-1. 仓库 → **Settings → Secrets and variables → Actions**，添加 `CLOUDFLARE_API_TOKEN`（权限 `Cloudflare Pages: Edit`）与
-   `CLOUDFLARE_ACCOUNT_ID`（`5dca3f8d665e2b3d0180b82ead55c6c9`）；
-2. 推送触发 `deploy.yml`，确认「构建并部署到生产」success；
-3. 关闭 CF Git 自动构建（Pages → Settings → Build & deploy → 暂停 Git 集成），避免双通道重复部署。
+>
+> **PAT 权限备忘**（最易踩的坑）：管理 Actions Secrets 需 **Secrets: R/W**（曾缺，403）；
+> 触发 `workflow_dispatch` 需独立的 **Actions: R/W**——**Workflows 权限只管改工作流文件，
+> 不管运行**。用户已直接在原 token 上补权限，即时生效（fine-grained token 现支持创建后编辑权限，
+> 无需换 token、不影响 gh 登录态）。
 
 ---
 
@@ -307,7 +324,7 @@ SWR 分支查不到即离线 503。修复：SWR 分支加 STATIC_CACHE 兜底 + 
 | CF Image Polish（自动 WebP/AVIF） | **不可用**——需要 zone 级权限，当前 Token 仅 Pages 项目级 | 域名 NS 切到 Cloudflare 后开启 Polish |
 | 自定义域名 HTTPS/边缘优化 | **已生效**——`leiyihan.dpdns.org` 走 CF，HTTPS/Brotli 正常（见 §11） | — |
 | **自定义域 `/api/*` 边缘缓存** | **未生效**——`dpdns.org` zone 非本人账户、无 Cache Everything 规则，动态响应 DYNAMIC（Worker 内部缓存兜底，见 §4.3） | 换到本人 CF 账户下的域名 + 加 `/api/*` Cache Rule |
-| Actions 直传部署 | 待命（**不启用**，Git 集成已满足需求） | 见 §5 |
+| Actions 直传部署 | **已验证可用**（2026-10-23 workflow_dispatch 全链路通过，run `39948948987`）；与 Git 集成双通道并存，内容一致不冲突 | 见 §5 |
 | 边缘缓存手动 Purge | 不可用 | zone 级权限 Token |
 
 ---
@@ -350,12 +367,28 @@ SWR 分支查不到即离线 503。修复：SWR 分支加 STATIC_CACHE 兜底 + 
 
 | 步骤 | 本轮动作 | 结论 |
 |---|---|---|
-| 1 CI/CD | 核验三工作流触发链 | 「push→构建检查(test.yml/deploy.yml)+CF 部署(Git 集成)」已达成；Actions 直传因**缺 CF Secrets（PAT 无 secret 管理权，403）且与 Git 集成双部署冲突**而未启用，保持优雅待命 |
+| 1 CI/CD | 核验三工作流触发链 | 「push→构建检查(test.yml/deploy.yml)+CF 部署(Git 集成)」已达成；19:45 用户给原 PAT 补权限、写入 CF Secrets 后，Actions 直传**全链路验证通过**（run `39948948987`），与 Git 集成双通道并存（详见 §5） |
 | 2 前端性能 | 核验 + 增量 | 2.1 本地仅 PWA 图标/og-image（按规范须 PNG，不转 WebP；照片在远端 Blog 仓为 JPEG）；2.2 prefetch/页邻接已在位，**新增 album.html 对 3 个图片 CDN 的 `dns-prefetch`**；2.3 游戏懒加载已在位 |
 | 3 边缘计算 | 核验 + 据实修正 | s-maxage/swr 在 `/api/github/*` 已在位；**发现内容路由实际无 s-maxage（修正手册表格）**、**自定义域 `/api/*` 边缘 DYNAMIC（§4.3 根因：dpdns.org zone 非本人账户）**；worker 125KB/gzip≈35KB 已精简；Brotli 已启用 |
 | 4 部署+验证 | 复测 | Lighthouse 三页 99/99/99、CLS≈0；压测 793 请求 0×429 0 失败（暴露 API 尾延迟，根因见 §4.3） |
 | 5 文档 | 更新 | 修正 §4.1 表格、新增 §4.3、刷新 Lighthouse/压测数据、更新 §10/§12 |
 
 **仍需用户配置（超出代码仓库、且当前凭证权限不足）**：
-1. `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` → GitHub Secrets（仅当想改用 Actions 直传；当前 Git 集成已满足，非必需）；
+1. ~~`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` → GitHub Secrets~~ **✅ 已完成（2026-10-23 19:45，PAT 补权限后写入并全链路验证，见 §5）**；
 2. **zone 级权限**（换到本人 CF 账户下的域名后）：开 Image Polish、加 `/api/*` Cache Everything 规则、手动 Purge——这是自定义域边缘缓存不生效的根治条件。
+
+### 12.2 三次核验：PAT 权限扩容与 Actions 部署验证（2026-10-23 19:40–19:52）
+
+| 时间 | 动作 | 结果 |
+|---|---|---|
+| 19:40–19:45 | 用户直接在原 fine-grained PAT 上补 **Secrets: R/W** | 读写 Secrets 403 解除；两个 CF 凭证写入并确认 |
+| 19:47 | `gh workflow run` 触发手动部署 | 403——发现触发 dispatch 需独立的 **Actions: R/W**（Workflows 权限只管改工作流文件，不管运行） |
+| 19:50 | 用户补 **Actions: R/W** 后重试 | run `39948948987` 21s 全绿；CF 侧 `ad_hoc` 生产部署记录生成；线上探针 200 |
+
+**PAT 权限边界备忘**（供未来排障）：Contents: R/W → 推送提交；Secrets: R/W → 管理 Actions Secrets；
+Workflows: R/W → 改工作流文件；**Actions: R/W → 触发/管理运行**（四个独立项，最易漏 Actions）。
+Repository access 已收敛到仅 `my_blog_code` 一个仓库；Token 有效期至 2027-01-19。
+
+**观察（判定为非回归）**：`/api/site` 复测 0.7–1.2s（冷启动首打 3s），`cf-cache-status: DYNAMIC`
+属已知特性（§4.3）；pages.dev 对照同接口 1.6s，慢在源侧共性；本次部署代码与线上已运行内容
+零差异，排除部署引入回归。
