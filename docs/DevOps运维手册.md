@@ -1,6 +1,6 @@
 # DevOps 运维手册
 
-> **版本**：v3.1（2026-10-23 域名/GITHUB_TOKEN 核实后修订）
+> **版本**：v3.2（2026-10-23 二次核验：边缘缓存观测/据实修正表格/Lighthouse 刷新）
 > **适用范围**：`leiyihan-ren/my_blog_code` 仓库 + Cloudflare Pages 项目 `leiyihan`
 > **生产地址**：
 > - **自定义域名（正式站，当前服役）：https://leiyihan.dpdns.org**（dpdns.org 子域，CNAME → Cloudflare Pages，HTTPS/Brotli 正常）
@@ -124,23 +124,46 @@ PATCH /repos/:o/:r/git/refs/heads/main    # 推进引用
 "Cache-Control": `public, max-age=${ttl}, s-maxage=${Math.max(3600, ttl)}, stale-while-revalidate=86400`
 ```
 
-| 接口 | max-age（浏览器） | s-maxage（边缘） | 说明 |
-|---|---|---|---|
-| `/api/site` | 300 | 3600 | 站点配置，变更频率低 |
-| `/api/stats` | 60 | 3600 | 统计数，容忍分钟级陈旧 |
-| `/api/popular` | 300 | 3600 | 热门文章 |
-| `/api/posts` | 120 | 3600 | 文章列表 |
-| `/api/messages` | 30 | 3600 | 留言板 |
-| `/api/music`、`/api/timeline`、`/api/links`、`/api/album/photos` | 300 | 3600 | 内容型接口 |
-| `/api/game/scores` | 60 | 3600 | 排行榜 |
-| `/api/github/api/*` | 60 | 3600 | GitHub API 代理 |
-| `/api/github/raw/*`（图片） | 300 | 86400 | 图片不可变，缓存 1 天 |
+| 接口 | max-age（浏览器） | swr | s-maxage（边缘） | 说明 |
+|---|---|---|---|---|
+| `/api/site` | 300 | 1200 | — | 站点配置 |
+| `/api/stats` | 60 | 240 | — | 统计数 |
+| `/api/popular` | 300 | 1200 | — | 热门文章 |
+| `/api/posts` | 120 | 480 | — | 文章列表 |
+| `/api/messages` | 30 | 120 | — | 留言板（**刻意不边缘缓存**，保新鲜） |
+| `/api/music`、`/api/timeline`、`/api/links`、`/api/album/photos` | 300 | 1200 | — | 内容型接口 |
+| `/api/game/scores` | 60 | 240 | — | 排行榜（**刻意不边缘缓存**，保新鲜） |
+| `/api/github/api/*` | 300 | 86400 | 3600 | GitHub API 代理 |
+| `/api/github/raw/*`（图片） | 86400 | 86400 | 86400 | 图片不可变，缓存 1 天 |
+
+> ⚠️ **2026-10-23 据实修正**：内容型路由（`/api/site` 等）实际只设 `max-age + stale-while-revalidate`，
+> **并无 `s-maxage`**（此前表格误标为 3600）。只有 `/api/github/*` 代理路径带 `s-maxage`。
+> 这是有意设计：留言板/排行榜等交互数据靠浏览器短 `max-age` + Worker 内部 Cache API 保新鲜，
+> 不强上边缘长缓存。下文 §4.3 说明了自定义域上边缘缓存不生效的根因。
 
 **语义要点**：
-- `s-maxage` 是**激活 Cloudflare 标准边缘缓存**的开关——没有它响应一律 `DYNAMIC`（不缓存，每次打 origin）；
-- `stale-while-revalidate=86400`：过期后仍可Serve 陈旧响应，同时后台拉新；
-- **HIT 时 Worker 根本不执行**（响应无 `x-response-time` 头，这是判别边缘命中的方法）；
+- `s-maxage` 是**激活 Cloudflare 标准边缘缓存**的开关——没有它响应一律 `cf-cache-status: DYNAMIC`；
+- `stale-while-revalidate`：过期后仍可 Serve 陈旧响应，同时后台拉新；
+- 边缘 **HIT 时 Worker 根本不执行**（无新增 `x-response-time`，这是判别方法）；
 - Cache API 的缓存**不跨 colo 复制**，不同 PoP 首访必 MISS 属正常。
+
+### 4.3 自定义域边缘缓存观测（2026-10-23 实测）
+
+对同一接口 `/api/github/api/repos/leiyihan-ren/Blog` 连打，两个入口行为不同：
+
+| 入口 | 第 1 次 | 第 2 次起 | 结论 |
+|---|---|---|---|
+| `leiyihan.pages.dev` | MISS（304ms） | **cf-cache-status: HIT**（~15ms） | 边缘缓存生效 |
+| `leiyihan.dpdns.org` | DYNAMIC（29ms） | **DYNAMIC**（~25ms） | 边缘不缓存，Worker 每次执行 |
+
+**根因**：`leiyihan.dpdns.org` 是 `dpdns.org`（免费动态 DNS）的子域，走的是 **dpdns.org 这个 zone 的边缘**。
+该 zone 由服务商掌握、不在本人 CF 账户下，没有「Cache Everything」类规则，故动态响应不被边缘缓存；
+而 `pages.dev` 由本人 CF 账户托管，走 Pages 优化的缓存层，`s-maxage` 直接生效。
+
+**影响与缓解**：
+- 自定义域上每个 `/api/*` 请求都会执行 Worker，但 **Worker 内部 Cache API 仍命中**（`x-cache: HIT`，22–29ms），功能与速度不受影响，只是没吃到边缘缓存的极致减免；
+- 高并发下 Worker 逐次执行会放大尾延迟（20 并发压测 API p99≈10s）；
+- **彻底解决需 zone 级权限**：把自定义域换到本人 CF 账户下的域名（NS 指向 Cloudflare），再加一条 `/api/*` 的「Cache Everything」Cache Rule。免费 `dpdns.org` 子域做不到（见 §10、§11）。
 
 ### 4.2 压测注意事项
 
@@ -197,13 +220,16 @@ npx lighthouse https://leiyihan.dpdns.org/ \
   --chrome-flags="--no-sandbox --disable-dev-shm-usage --headless=new"
 ```
 
-**当前基线**（2026-10-22，移动端）：
+**当前基线**（2026-10-23 复测，移动端，本地 mock 服务 + chromium）：
 
-| 页面 | Performance | CLS | 备注 |
-|---|---|---|---|
-| 首页 | 89 | 0 | LCP ~1.4s，TBT 0 |
-| games | 99 | **0**（原 0.277） | 排行榜预留修复 |
-| album | 99 | **0.029**（原 0.119） | footer 精确预留 |
+| 页面 | Performance | CLS | LCP | TBT | 备注 |
+|---|---|---|---|---|---|
+| 首页 | **99** | 0 | 2.0s | 30ms | 原 89 |
+| games | **99** | **0**（原 0.277） | 1.9s | 10ms | 排行榜预留修复 |
+| album | **99** | **0.029**（原 0.119） | 2.0s | 0ms | footer 精确预留 |
+
+> 注：以上为**本地 mock**（API 瞬时返回）结果，LCP 会低于线上真实 GitHub 拉取；
+> 线上真实延迟受 GitHub 内容获取 + §4.3 自定义域边缘缓存现状影响。核心 Web 指标（CLS/TBT）已归零或近零。
 
 ---
 
@@ -215,6 +241,10 @@ node loadtest.mjs   # 20 并发 × 15s × 2 阶段（静态 + API 同 URL 缓存
 
 **判定标准**：无 429、无持续性 5xx。
 **2026-10-22 结果**：1312 请求，0 个 429，1 个瞬时 500（复打 23/23 全 200，判定为冷启动/网络抖动，非系统缺陷）。
+**2026-10-23 复测**（目标 `leiyihan.dpdns.org`，20 并发 × 15s）：793 请求，**0 失败、0 个 429**。
+静态资产 391 全 200（cf-cache-status 以 REVALIDATED 为主）；API 402 全 200，但 `cf-cache-status` 多为 DYNAMIC、
+p99≈10s——根因是自定义域边缘不缓存（见 §4.3），Worker 逐次执行 + 冷缓存时的上游争抢。
+**后续**：换成本人 CF 账户下的域名并加 `/api/*` Cache Everything 规则后，API 将走边缘 HIT，尾延迟可大幅收敛。
 
 ---
 
@@ -276,6 +306,7 @@ SWR 分支查不到即离线 503。修复：SWR 分支加 STATIC_CACHE 兜底 + 
 |---|---|---|
 | CF Image Polish（自动 WebP/AVIF） | **不可用**——需要 zone 级权限，当前 Token 仅 Pages 项目级 | 域名 NS 切到 Cloudflare 后开启 Polish |
 | 自定义域名 HTTPS/边缘优化 | **已生效**——`leiyihan.dpdns.org` 走 CF，HTTPS/Brotli 正常（见 §11） | — |
+| **自定义域 `/api/*` 边缘缓存** | **未生效**——`dpdns.org` zone 非本人账户、无 Cache Everything 规则，动态响应 DYNAMIC（Worker 内部缓存兜底，见 §4.3） | 换到本人 CF 账户下的域名 + 加 `/api/*` Cache Rule |
 | Actions 直传部署 | 待命（**不启用**，Git 集成已满足需求） | 见 §5 |
 | 边缘缓存手动 Purge | 不可用 | zone 级权限 Token |
 
@@ -312,3 +343,19 @@ SWR 分支查不到即离线 503。修复：SWR 分支加 STATIC_CACHE 兜底 + 
 - `72c2877` 前端性能与边缘缓存优化（步骤2/3）
 - `7b048b0` 修复 gh-proxy 缓存 HIT 路径 500
 - `72c5540` CLS 防护收尾（footer 102px 预留 / 排行榜骨架 / 首图提权）
+
+### 12.1 二次核验与极限压榨记录（2026-10-23）
+
+用户要求「主干直推 + 极限压榨 + 全栈上线」。经核验，五步主体在此前已落地，本轮做的是**据实核验 + 增量优化 + 数据刷新**，未重做、未破坏既有逻辑：
+
+| 步骤 | 本轮动作 | 结论 |
+|---|---|---|
+| 1 CI/CD | 核验三工作流触发链 | 「push→构建检查(test.yml/deploy.yml)+CF 部署(Git 集成)」已达成；Actions 直传因**缺 CF Secrets（PAT 无 secret 管理权，403）且与 Git 集成双部署冲突**而未启用，保持优雅待命 |
+| 2 前端性能 | 核验 + 增量 | 2.1 本地仅 PWA 图标/og-image（按规范须 PNG，不转 WebP；照片在远端 Blog 仓为 JPEG）；2.2 prefetch/页邻接已在位，**新增 album.html 对 3 个图片 CDN 的 `dns-prefetch`**；2.3 游戏懒加载已在位 |
+| 3 边缘计算 | 核验 + 据实修正 | s-maxage/swr 在 `/api/github/*` 已在位；**发现内容路由实际无 s-maxage（修正手册表格）**、**自定义域 `/api/*` 边缘 DYNAMIC（§4.3 根因：dpdns.org zone 非本人账户）**；worker 125KB/gzip≈35KB 已精简；Brotli 已启用 |
+| 4 部署+验证 | 复测 | Lighthouse 三页 99/99/99、CLS≈0；压测 793 请求 0×429 0 失败（暴露 API 尾延迟，根因见 §4.3） |
+| 5 文档 | 更新 | 修正 §4.1 表格、新增 §4.3、刷新 Lighthouse/压测数据、更新 §10/§12 |
+
+**仍需用户配置（超出代码仓库、且当前凭证权限不足）**：
+1. `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` → GitHub Secrets（仅当想改用 Actions 直传；当前 Git 集成已满足，非必需）；
+2. **zone 级权限**（换到本人 CF 账户下的域名后）：开 Image Polish、加 `/api/*` Cache Everything 规则、手动 Purge——这是自定义域边缘缓存不生效的根治条件。

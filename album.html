@@ -7,6 +7,10 @@
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="manifest" href="manifest.json">
+  <!-- 图片 CDN 兜底源 DNS 预热：相册图首选同源 /api/github/raw 代理，弱网/失败时切下列跨域镜像，提前解析省一次 RTT -->
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
+  <link rel="dns-prefetch" href="https://cdn.statically.io">
   <meta name="theme-color" content="#4f46e5">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
