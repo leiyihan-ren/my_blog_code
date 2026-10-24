@@ -194,12 +194,12 @@
       <span>文件数：<b id="statCount">—</b></span>
       <span>总大小：<b id="statSize">—</b></span>
       <span>最近更新：<b id="statTime">—</b></span>
-      <span>单文件上限：<b>10MB</b></span>
+      <span>单文件上限：<b>2GB</b></span>
     </div>
 
     <div class="dropzone" id="dropzone">
       <p>📁 拖拽文件到此处上传</p>
-      <p class="dz-hint">支持多文件 · 单文件最大 10MB · 上传即同步到 GitHub 仓库</p>
+      <p class="dz-hint">支持多文件 · 单文件最大 2GB · 超过 8MB 自动分片上传（断点续传）· 上传即同步到 GitHub 仓库</p>
     </div>
 
     <section class="panel" id="uploadPanel" hidden>
@@ -265,7 +265,13 @@
       "use strict";
 
       var PIN_KEY = "drive_pin";
-      var MAX_SIZE = 10 * 1024 * 1024; // 10MB，与后端 CONFIG.drive.maxFileBytes 一致
+      // v6.0 大小策略：≤8MB 直传（Contents API 单次 PUT）；>8MB 走分片（5MB/片）。
+      // 单文件产品级上限 2GB（GitHub 仓库软限制 5GB / API 配额约束下的稳妥值）。
+      var SMALL_LIMIT = 8 * 1024 * 1024;
+      var CHUNK_SIZE = 5 * 1024 * 1024;
+      var MAX_TOTAL = 2 * 1024 * 1024 * 1024;
+      var MAX_CONCURRENT = 2;   // 同时上传的文件数上限（防浏览器卡死）
+      var PART_RETRY = 3;       // 单片失败自动重试次数
       var pin = "";
       try { pin = sessionStorage.getItem(PIN_KEY) || ""; } catch (e) { /* 隐私模式 */ }
 
@@ -285,7 +291,8 @@
         if (!n && n !== 0) return "—";
         if (n < 1024) return n + " B";
         if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
-        return (n / 1048576).toFixed(2) + " MB";
+        if (n < 1073741824) return (n / 1048576).toFixed(2) + " MB";
+        return (n / 1073741824).toFixed(2) + " GB";
       }
 
       function fmtTime(iso) {
@@ -294,6 +301,14 @@
         if (isNaN(d.getTime())) return "—";
         function p(v) { return v < 10 ? "0" + v : v; }
         return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+      }
+
+      /* 路径编码：逐段 encodeURIComponent 后拼回（保留 "/"），与 Worker 端实现一致 */
+      function encodePathSegments(p) {
+        return String(p)
+          .split("/")
+          .map(function (s) { return encodeURIComponent(s); })
+          .join("/");
       }
 
       var ICONS = {
@@ -337,6 +352,7 @@
       }
 
       /* ---------- 文件列表 ---------- */
+      var lastFiles = []; // 上次列表数据：队列渲染时复用，驱动删除锁的实时刷新
       function loadList() {
         $("loadingState").hidden = false;
         $("emptyState").hidden = true;
@@ -344,7 +360,8 @@
         $("fileTable").hidden = true;
         return api("/api/drive/list").then(function (data) {
           $("loadingState").hidden = true;
-          renderFiles(data.files || []);
+          lastFiles = data.files || [];
+          renderFiles(lastFiles);
           renderStats(data);
         }).catch(function (e) {
           $("loadingState").hidden = true;
@@ -362,6 +379,76 @@
         $("listHint").textContent = files.length ? "共 " + files.length + " 个文件" : "";
       }
 
+      /** 上传中（含排队/读取/检查断点/上传中/收尾）的文件名集合——删除锁的依据 */
+      function uploadingNames() {
+        var names = {};
+        uploadTasks.forEach(function (t) {
+          if (t.status === "pending" || t.status === "reading" || t.status === "checking" ||
+              t.status === "uploading" || t.status === "finishing") {
+            names[t.file.name] = true;
+          }
+        });
+        return names;
+      }
+
+      /**
+       * 大文件重组下载：GitHub 无多 blob 拼接 API，下载只能在浏览器端完成——
+       * 读 manifest → 并发 4 路拉分片 raw → Blob 顺序重组 → 触发保存。
+       * Blob 由浏览器磁盘承载，不全量进 JS 堆。
+       */
+      function downloadChunked(f, btn) {
+        var repo = "leiyihan-ren/Blog";
+        btn.disabled = true;
+        btn.textContent = "⏳ 准备中…";
+        return fetch("/api/github/raw/" + repo + "/main/" + encodePathSegments(f.path))
+          .then(function (r) {
+            if (!r.ok) throw new Error("清单读取失败（HTTP " + r.status + "）");
+            return r.json();
+          })
+          .then(function (manifest) {
+            var total = manifest.total || 0;
+            var parts = [];
+            var next = 0;
+            var base = "/api/github/raw/" + repo + "/main/drive/.parts/" + manifest.uploadId + "/part-";
+            function pump() {
+              var batch = [];
+              while (next < total && batch.length < 4) { batch.push(next); next += 1; }
+              if (!batch.length) {
+                var blob = new Blob(parts, { type: "application/octet-stream" });
+                var a = document.createElement("a");
+                a.href = URL.createObjectURL(blob);
+                a.download = manifest.name || f.name;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(function () {
+                  URL.revokeObjectURL(a.href);
+                  a.remove();
+                }, 2000);
+                btn.disabled = false;
+                btn.textContent = "⬇️ 下载";
+                toast("已重组下载 " + (manifest.name || f.name), "ok");
+                return;
+              }
+              return Promise.all(batch.map(function (idx) {
+                var pad = String(idx).padStart(5, "0");
+                return fetch(base + pad).then(function (r) {
+                  if (!r.ok) throw new Error("分片 " + idx + " 拉取失败（HTTP " + r.status + "）");
+                  return r.blob();
+                }).then(function (b) { parts[idx] = b; });
+              })).then(function () {
+                btn.textContent = "⏳ 重组 " + Math.min(next, total) + "/" + total;
+                return pump();
+              });
+            }
+            return pump();
+          })
+          .catch(function (e) {
+            btn.disabled = false;
+            btn.textContent = "⬇️ 下载";
+            toast(e.message || "重组下载失败", "err");
+          });
+      }
+
       function renderFiles(files) {
         var tbody = $("fileTbody");
         tbody.innerHTML = "";
@@ -371,6 +458,7 @@
           return;
         }
         $("emptyState").hidden = true;
+        var locks = uploadingNames();
         files.forEach(function (f) {
           var tr = document.createElement("tr");
 
@@ -381,9 +469,18 @@
           icon.className = "f-icon";
           icon.textContent = fileIcon(f.name);
           var a = document.createElement("a");
-          a.href = f.downloadUrl;
-          a.title = "下载 " + f.name;
-          a.textContent = f.name;
+          if (f.storage === "chunked") {
+            // 大文件无单文件直链：点击名称同样走重组下载
+            a.href = "javascript:void(0)";
+            a.title = "重组下载 " + f.name;
+            a.onclick = function () {
+              if (a._dlBtn) downloadChunked(f, a._dlBtn);
+            };
+          } else {
+            a.href = f.downloadUrl;
+            a.title = "下载 " + f.name;
+          }
+          a.textContent = f.name + (f.storage === "chunked" ? " 🧩" : "");
           nameBox.appendChild(icon);
           nameBox.appendChild(a);
           tdName.appendChild(nameBox);
@@ -402,11 +499,22 @@
           dl.className = "dl";
           dl.textContent = "⬇️ 下载";
           dl.title = "下载";
-          dl.onclick = function () { window.location.href = f.downloadUrl; };
+          a._dlBtn = dl; // 名称链接复用同一个下载按钮作状态回显
+          dl.onclick = function () {
+            if (f.storage === "chunked") downloadChunked(f, dl);
+            else window.location.href = f.downloadUrl;
+          };
           var del = document.createElement("button");
           del.className = "del";
           del.textContent = "🗑️ 删除";
-          del.onclick = function () { askDelete(f); };
+          if (locks[f.name]) {
+            // 锁：该文件正在上传/排队，禁用删除防状态冲突
+            del.disabled = true;
+            del.title = "上传中，暂不可删除";
+            del.textContent = "🔒 上传中";
+          } else {
+            del.onclick = function () { askDelete(f); };
+          }
           tdOps.appendChild(dl);
           tdOps.appendChild(del);
 
@@ -422,6 +530,10 @@
       /* ---------- 删除（二次确认） ---------- */
       var pendingDelete = null;
       function askDelete(f) {
+        if (uploadingNames()[f.name]) {
+          toast("「" + f.name + "」正在上传，请等待完成后再删除", "err");
+          return;
+        }
         pendingDelete = f;
         $("confirmName").textContent = f.name;
         $("confirmModal").classList.add("show");
@@ -450,7 +562,12 @@
         });
       };
 
-      /* ---------- 上传：FileReader → Base64 → XHR（带进度） ---------- */
+      /* ---------- 上传引擎 v6.0 ----------
+       * 小文件（≤8MB）：FileReader 整读 → Base64 → 单次 POST（原路径，零行为变化）
+       * 大文件（>8MB）：File.slice(5MB) 逐片读 → 逐片 POST part → finish。
+       * 峰值内存：小文件 ≤8MB；大文件每片 ≤5MB（Base64 后 ~7MB），
+       * 绝不把整个文件读进内存——浏览器 OOM 从根上消除。
+       */
       function readAsBase64(file) {
         return new Promise(function (resolve, reject) {
           var reader = new FileReader();
@@ -464,37 +581,186 @@
         });
       }
 
-      function uploadOne(task) {
+      /** 分片读取：只把 5MB 薄片读进内存，ArrayBuffer → Base64 */
+      function readChunkBase64(blob) {
+        return blob.arrayBuffer().then(function (buf) {
+          var bytes = new Uint8Array(buf);
+          var bin = "";
+          // 分块拼接避免 String.fromCharCode.apply 的爆栈问题
+          var STEP = 0x8000;
+          for (var i = 0; i < bytes.length; i += STEP) {
+            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + STEP));
+          }
+          return btoa(bin);
+        });
+      }
+
+      /** XHR 上传助手（统一重试/进度/超时逻辑） */
+      function xhrUpload(method, path, payload, onProgress, timeoutMs) {
         return new Promise(function (resolve, reject) {
           var xhr = new XMLHttpRequest();
-          xhr.open("POST", "/api/drive/upload");
+          xhr.open(method, path);
           xhr.setRequestHeader("x-drive-pin", pin);
           xhr.setRequestHeader("Content-Type", "application/json");
-          xhr.timeout = 60000;
-          xhr.upload.onprogress = function (e) {
-            if (e.lengthComputable) {
-              task.progress = Math.round((e.loaded / e.total) * 100);
-              renderQueue();
-            }
-          };
+          xhr.timeout = timeoutMs || 60000;
+          if (onProgress) {
+            xhr.upload.onprogress = function (e) {
+              if (e.lengthComputable) onProgress(e.loaded, e.total);
+            };
+          }
           xhr.onload = function () {
             var data = null;
             try { data = JSON.parse(xhr.responseText); } catch (e) {}
             if (xhr.status >= 200 && xhr.status < 300 && data && data.ok) {
-              task.progress = 100;
               resolve(data);
             } else {
               reject(new Error((data && data.error) || ("上传失败（HTTP " + xhr.status + "）")));
             }
           };
           xhr.onerror = function () { reject(new Error("网络错误：上传中断，请检查网络后重试")); };
-          xhr.ontimeout = function () { reject(new Error("上传超时（60s），请重试")); };
-          xhr.send(JSON.stringify({
-            path: "drive/" + task.file.name,
-            content: task.base64,
-            message: "drive: upload " + task.file.name
-          }));
+          xhr.ontimeout = function () { reject(new Error("上传超时，请重试")); };
+          xhr.send(payload === undefined ? undefined : JSON.stringify(payload));
         });
+      }
+
+      function uploadOne(task) {
+        // 小文件：整读单传（向后兼容的稳定路径）
+        task.status = "reading";
+        renderQueue();
+        return readAsBase64(task.file).then(function (b64) {
+          task.status = "uploading";
+          renderQueue();
+          return xhrUpload("POST", "/api/drive/upload", {
+            path: "drive/" + task.file.name,
+            content: b64,
+            message: "drive: upload " + task.file.name
+          }, function (loaded, total) {
+            task.progress = Math.round((loaded / total) * 100);
+            renderQueue();
+          });
+        }).then(function (data) {
+          task.progress = 100;
+          return data;
+        });
+      }
+
+      function genUploadId() {
+        return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+      }
+
+      /** 单片上传：自动重试 PART_RETRY 次（指数退避 1s/2s/4s），弱网稳定性的核心 */
+      function uploadPartWithRetry(task, index, b64) {
+        var attempt = 0;
+        function fire() {
+          return xhrUpload("POST", "/api/drive/upload/part", {
+            uploadId: task.uploadId,
+            index: index,
+            content: b64
+          }, null, 60000).catch(function (e) {
+            attempt += 1;
+            if (attempt > PART_RETRY) throw e;
+            var wait = Math.pow(2, attempt - 1) * 1000;
+            task.hint = "第 " + (index + 1) + " 片失败，" + (wait / 1000) + "s 后第 " + attempt + " 次重试…";
+            renderQueue();
+            return new Promise(function (r) { setTimeout(r, wait); }).then(fire);
+          });
+        }
+        return fire();
+      }
+
+      /**
+       * 大文件分片上传：
+       * 1) 先问服务端已有哪些分片（断点续传，重试/继续时跳过已传片）
+       * 2) 串行传缺失分片（每片独立 commit，天然断点）
+       * 3) 全部到位 → finish 写 manifest
+       * 任何失败：保留 task.doneBytes，「继续上传」从断点接着来
+       */
+      function uploadChunked(task) {
+        var file = task.file;
+        var total = Math.ceil(file.size / CHUNK_SIZE);
+        task.total = total;
+        task.status = "checking";
+        task.hint = "检查断点…";
+        renderQueue();
+
+        // 1) 断点查询：服务端已落库分片（合并前端本地记录）
+        return xhrUpload("GET", "/api/drive/upload/status?uploadId=" + encodeURIComponent(task.uploadId))
+          .then(function (data) {
+            var serverParts = (data && data.parts) || [];
+            serverParts.forEach(function (i) { task.done[i] = true; });
+            task.bytesDone = Object.keys(task.done).reduce(function (s, k) {
+              return s + chunkLen(file.size, Number(k));
+            }, 0);
+            task.progress = Math.round((task.bytesDone / file.size) * 100);
+            task.status = "uploading";
+            renderQueue();
+
+            // 2) 串行传缺失分片。
+            // 单片彻底失败不中断后续片（弱网稳定性核心）：收集失败序号，
+            // 全部跑完后统一进入失败态——已传分片保留，「继续上传」只补失败的。
+            var failedParts = [];
+            var chain = Promise.resolve();
+            for (var i = 0; i < total; i++) {
+              if (task.done[i]) continue;
+              (function (idx) {
+                chain = chain.then(function () {
+                  if (task.status === "failed" || task.status === "canceled") return;
+                  task.hint = "第 " + (idx + 1) + "/" + total + " 片";
+                  renderQueue();
+                  var blob = file.slice(idx * CHUNK_SIZE, Math.min((idx + 1) * CHUNK_SIZE, file.size));
+                  return readChunkBase64(blob).then(function (b64) {
+                    return uploadPartWithRetry(task, idx, b64);
+                  }).then(function () {
+                    task.done[idx] = true;
+                    task.bytesDone += chunkLen(file.size, idx);
+                    task.progress = Math.round((task.bytesDone / file.size) * 100);
+                    task.hint = "";
+                    renderQueue();
+                  }, function () {
+                    failedParts.push(idx);
+                    task.hint = "第 " + (idx + 1) + " 片失败，继续传后续片…";
+                    renderQueue();
+                  });
+                });
+              })(i);
+            }
+            return chain.then(function () {
+              if (failedParts.length) {
+                throw new Error("分片 " + failedParts.map(function (i) { return i + 1; }).join("、") + " 上传失败");
+              }
+            });
+          })
+          .then(function () {
+            // 3) 收尾：写 manifest
+            task.status = "finishing";
+            task.hint = "写入清单…";
+            renderQueue();
+            return xhrUpload("POST", "/api/drive/upload/finish", {
+              uploadId: task.uploadId,
+              name: file.name,
+              size: file.size,
+              total: total
+            });
+          })
+          .then(function () {
+            task.progress = 100;
+            task.status = "done";
+            task.hint = "";
+            renderQueue();
+          })
+          .catch(function (e) {
+            if (task.status === "canceled") return;
+            task.status = "failed";
+            task.error = e.message || "上传失败";
+            task.hint = "已传 " + Object.keys(task.done).length + "/" + total + " 片，可继续上传";
+            renderQueue();
+            throw e;
+          });
+      }
+
+      /** 某分片的真实字节数（最后一片可能不足 CHUNK_SIZE） */
+      function chunkLen(fileSize, index) {
+        return Math.min((index + 1) * CHUNK_SIZE, fileSize) - index * CHUNK_SIZE;
       }
 
       function renderQueue() {
@@ -505,6 +771,8 @@
           list.innerHTML = "";
           return;
         }
+        // 队列状态变化时同步刷新列表行的删除锁（上传中禁用删除，无需重拉数据）
+        if (lastFiles.length && !$("fileTable").hidden) renderFiles(lastFiles);
         panel.hidden = false;
         list.innerHTML = "";
         var done = 0, failed = 0;
@@ -517,6 +785,7 @@
         uploadTasks.forEach(function (t) {
           var item = document.createElement("div");
           item.className = "up-item" + (t.status === "done" ? " done" : t.status === "failed" ? " failed" : "");
+          item.setAttribute("data-name", t.file.name); // 测试与调试可按文件名定位
 
           var row = document.createElement("div");
           row.className = "up-row";
@@ -524,14 +793,19 @@
           icon.textContent = fileIcon(t.file.name);
           var name = document.createElement("span");
           name.className = "up-name";
-          name.textContent = t.file.name + "（" + fmtBytes(t.file.size) + "）";
+          name.textContent = t.file.name + "（" + fmtBytes(t.file.size) + "）" +
+            (t.mode === "chunked" ? " · 分片 " + (t.total || 0) + " 片" : "");
           var status = document.createElement("span");
           status.className = "up-status" + (t.status === "done" ? " ok" : t.status === "failed" ? " err" : "");
-          status.textContent =
+          var statusText =
             t.status === "done" ? "✅ 完成" :
-            t.status === "failed" ? "❌ " + (t.error || "失败") :
+            t.status === "failed" ? "❌ " + (t.error || "失败") + (t.hint ? "（" + t.hint + "）" : "") :
             t.status === "reading" ? "读取中…" :
+            t.status === "checking" ? (t.hint || "检查断点…") :
+            t.status === "finishing" ? (t.hint || "写入清单…") :
+            t.hint ? t.hint + " " + (t.progress || 0) + "%" :
             t.progress > 0 ? t.progress + "%" : "等待中…";
+          status.textContent = statusText;
           row.appendChild(icon);
           row.appendChild(name);
           row.appendChild(status);
@@ -548,7 +822,7 @@
           if (t.status === "failed") {
             var retry = document.createElement("button");
             retry.className = "up-retry";
-            retry.textContent = "重试";
+            retry.textContent = t.mode === "chunked" ? "继续上传（断点续传）" : "重试";
             retry.onclick = function () { retryTask(t); };
             row.appendChild(retry);
           }
@@ -557,44 +831,53 @@
       }
 
       var uploadTasks = [];
-      var uploading = false;
+      var activeCount = 0; // 当前上传中的任务数（并发上限 MAX_CONCURRENT）
 
       function retryTask(t) {
         t.status = "pending";
-        t.progress = 0;
         t.error = "";
         renderQueue();
         pumpQueue();
       }
 
+      /**
+       * 并发队列：最多 MAX_CONCURRENT 个文件同时上传。
+       * 拖入 10 个大文件也只跑 2 个，其余排队——浏览器不卡死。
+       */
       function pumpQueue() {
-        if (uploading) return;
-        var next = uploadTasks.find(function (t) { return t.status === "pending"; });
-        if (!next) {
-          // 全部完成：有成功则刷新列表
-          if (uploadTasks.some(function (t) { return t.status === "done"; })) loadList();
-          return;
+        while (activeCount < MAX_CONCURRENT) {
+          var next = uploadTasks.find(function (t) { return t.status === "pending"; });
+          if (!next) {
+            // 全部结束（无活动任务且无等待）：有成功则刷新列表
+            if (activeCount === 0 && uploadTasks.some(function (t) { return t.status === "done"; })) {
+              loadList();
+            }
+            return;
+          }
+          activeCount += 1;
+          startTask(next).then(function () {
+            activeCount -= 1;
+            pumpQueue();
+          });
         }
-        uploading = true;
-        next.status = "reading";
+      }
+
+      function startTask(task) {
+        task.status = task.mode === "chunked" ? "checking" : "reading";
         renderQueue();
-        readAsBase64(next.file).then(function (b64) {
-          next.base64 = b64;
-          next.status = "uploading";
+        var job = task.mode === "chunked" ? uploadChunked(task) : uploadOne(task);
+        return job.then(function () {
+          if (task.status !== "canceled") task.status = "done";
           renderQueue();
-          return uploadOne(next);
-        }).then(function () {
-          next.status = "done";
-          uploading = false;
-          renderQueue();
-          pumpQueue();
         }).catch(function (e) {
-          next.status = "failed";
-          next.error = e.message || "上传失败";
-          uploading = false;
+          if (task.status !== "canceled") {
+            task.status = "failed";
+            task.error = e.message || "上传失败";
+          }
           renderQueue();
-          toast("「" + next.file.name + "」上传失败：" + next.error, "err");
-          pumpQueue(); // 继续队列中后续文件
+          if (task.status === "failed") {
+            toast("「" + task.file.name + "」上传失败：" + task.error, "err");
+          }
         });
       }
 
@@ -603,12 +886,39 @@
         if (!files.length) return;
         var rejected = [];
         files.forEach(function (f) {
-          if (f.size > MAX_SIZE) {
-            rejected.push(f.name + "（" + fmtBytes(f.size) + "，超过 10MB）");
+          if (f.size > MAX_TOTAL) {
+            rejected.push(f.name + "（" + fmtBytes(f.size) + "，超过 2GB 上限）");
           } else if (f.size === 0) {
             rejected.push(f.name + "（空文件）");
+          } else if (f.size > SMALL_LIMIT) {
+            // 大文件：分片模式（5MB/片，断点续传）
+            // 同名覆盖：复用列表中已有条目的 uploadId（parts 与 manifest 覆盖同一处，
+            // 避免重复条目；列表中没有则是新文件，生成新 uploadId）
+            var exist = lastFiles.find(function (x) {
+              return x.name === f.name && x.storage === "chunked";
+            });
+            uploadTasks.push({
+              file: f,
+              mode: "chunked",
+              uploadId: exist && exist.uploadId ? exist.uploadId : genUploadId(),
+              total: Math.ceil(f.size / CHUNK_SIZE),
+              done: {},       // 已成功分片序号表
+              bytesDone: 0,
+              progress: 0,
+              status: "pending",
+              error: "",
+              hint: ""
+            });
           } else {
-            uploadTasks.push({ file: f, base64: "", progress: 0, status: "pending", error: "" });
+            // 小文件：直传模式（原路径）
+            uploadTasks.push({
+              file: f,
+              mode: "direct",
+              progress: 0,
+              status: "pending",
+              error: "",
+              hint: ""
+            });
           }
         });
         if (rejected.length) {

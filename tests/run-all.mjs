@@ -23,6 +23,8 @@ const SUITES = [
   { name: "边缘缓存回归", file: "step6-edge-cache.mjs" },
   { name: "GitHub 云盘 API", file: "step7-drive-api.mjs" },
   { name: "云盘页面端到端", file: "step7-drive-ui.mjs" },
+  { name: "大文件分片协议 API", file: "step8-drive-chunked.mjs" },
+  { name: "大文件分片端到端", file: "step9-drive-chunked-ui.mjs" },
 ];
 
 function runSuite(file) {

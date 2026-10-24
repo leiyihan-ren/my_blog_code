@@ -35,11 +35,25 @@ const CONFIG = {
     repo: "leiyihan-ren/Blog",
     branch: "main",
     dir: "drive",
-    // 单文件大小上限：GitHub Contents API 绝对上限 100MB，Base64 编码膨胀 33%，
-    // 10MB → 约 13.3MB 载荷，留足余量防 Worker 内存压力与上游超时（前端同值拦截）
-    maxFileBytes: 10 * 1024 * 1024,
-    // 读请求体上限：Base64 膨胀 33% + JSON 外壳，10MB 文件约 13.5MB，留至 16MB
+    // ===== v6.0 大文件架构（分片模式）=====
+    // 小文件直传上限：≤ 此值走 Contents API 单次 PUT（Base64 膨胀 33% 后约
+    // 10.7MB，远低于 GitHub 100MB 绝对上限与 CF body 限制）。超过此值进入
+    // 分片模式：前端 File.slice(5MB) → Worker 透传 → GitHub Blobs/Contents
+    // 逐片落库，浏览器端重组下载。GitHub 无「多 blob 拼接单文件」API，
+    // 故分片在仓库里就是 N 个独立 part 文件 + 1 个 manifest，下载时前端重组。
+    maxFileBytes: 8 * 1024 * 1024,
+    // 小文件直传的 body 上限：8MB → 约 10.7MB Base64，留至 16MB
     maxBodyBytes: 16 * 1024 * 1024,
+    // 分片大小（字节）：5MB。Base64 后 6.7MB body，任何网络/平台限制下都稳妥；
+    // 分片数 = 文件大小 / 5MB，GitHub 配额 5000 次/小时下单文件可传约 24GB
+    chunkSize: 5 * 1024 * 1024,
+    // 分片模式的单文件产品级上限：2GB。
+    // 约束来源：GitHub 仓库软限制（官方建议单仓 <5GB，超 50MB 单文件仅 git push
+    // 会警告，Contents/Blobs API 不受此限）；Git Data API blob 上限 100MB
+    // （分片 5MB 远低于）；GitHub API 配额 5000 次/小时（2GB=410 片，可控）。
+    maxChunkedFileBytes: 2 * 1024 * 1024 * 1024,
+    // 分片上传的 body 上限：5MB → 6.7MB Base64 + JSON 外壳，留至 8.5MB
+    maxPartBodyBytes: 8.5 * 1024 * 1024,
     // 写操作超时（毫秒）：读路径的 8s 不够上传大文件，单独放宽
     writeTimeoutMs: 30000,
     // 目录列表的 isolate 内缓存（毫秒）：列表含每文件一次 commits 查询（N+1），
@@ -1451,16 +1465,22 @@ async function handleGithubProxy(request, env, ctx, url, store) {
 // 前端 drive.html 专用入口。所有操作经本代理转发 GitHub Contents API，
 // Token 只在 Worker 内注入，前端永不接触；写操作一律要求 x-drive-pin 口令。
 //
-//   GET    /api/drive/list?path=drive[/子目录]  目录列表（含每文件 sha 与上传时间）
-//   POST   /api/drive/upload  {path, content, message}  新建/覆盖（后端自动判别是否带 sha）
-//   PUT    /api/drive/update  {path, content, message}  更新（后端先 GET sha，拿不到则 404）
-//   DELETE /api/drive/delete  {path, message}           删除（后端先 GET sha）
+//   GET    /api/drive/list?path=drive[/子目录]       目录列表（小文件 + 大文件清单）//   POST   /api/drive/upload  {path, content, message}  小文件新建/覆盖（≤8MB）
+//   PUT    /api/drive/update  {path, content, message}  小文件更新（后端先 GET sha）
+//   DELETE /api/drive/delete  {path, message}           删除（manifest 走批量删 parts）
 //
-// 下载不经过本代理：/api/github/raw/<repo>/<branch>/<path>（边缘缓存 + CDN 兜底）。
+//   ---- v6.0 大文件分片协议（>8MB）----
+//   GET    /api/drive/upload/status?uploadId=xxx   断点查询：已落库分片序号
+//   POST   /api/drive/upload/part                  分片上传（后端直存 part 文件）
+//   POST   /api/drive/upload/finish                收尾：写 manifest 清单
+//
+// 下载不经过本代理：小文件走 /api/github/raw/<repo>/<branch>/<path>；
+// 大文件由前端读 manifest 后逐片拉 raw 并用 Blob 重组（GitHub 无多 blob
+// 拼接单文件的 API，S3 式 multipart 在 GitHub 模型里不存在，故重组只能在
+// 浏览器端完成——浏览器对 Blob 有磁盘优化，不炸 JS 堆）。
 // SHA 逻辑（GitHub Contents API 硬性要求）：新建文件不传 sha；更新/删除必须先
 // GET /contents/<path> 拿到当前 sha，否则 GitHub 返回 409/422。
-// 大小上限：单文件 10MB（Base64 膨胀 33% 后约 13.3MB，远低于 GitHub 100MB 绝对上限，
-// 同时避免 Worker 内存压力与上游超时）。
+// 大小上限：小文件直传 8MB；>8MB 必须走分片（单文件产品级上限 2GB）。
 // ============================================================
 
 /** isolate 内目录列表缓存（30s）：列表含 N+1 次 commits 查询，重复刷新直接复用 */
@@ -1586,6 +1606,130 @@ async function driveSaveFile(env, path, content, message, requireSha) {
   });
 }
 
+// ------------------------------------------------------------
+// v6.0 大文件分片协议（>8MB）
+// ------------------------------------------------------------
+// 仓库内布局：
+//   drive/.m-<uploadId>.json               大文件清单（name/size/total/chunkBytes）
+//   drive/.parts/<uploadId>/part-00001..N  分片文件（每片 ≤5MB，Contents API 直存）
+// 上传 = 前端切片逐片 POST（每片独立 commit，天然断点）；收尾写 manifest。
+// 删除 = 读 manifest → 列 parts 目录 → 逐片 DELETE → DELETE manifest。
+// 下载 = 前端读 manifest 后逐片拉 raw，Blob 重组（见 drive.html）。
+
+/** uploadId 净化：前端生成的短 id（时间戳 base36 + 随机），严防路径穿越 */
+function sanitizeUploadId(raw) {
+  const id = String(raw || "").trim();
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return null;
+  return id;
+}
+
+/** 分片文件路径：drive/.parts/<uploadId>/part-00001 */
+function drivePartPath(uploadId, index) {
+  return `${CONFIG.drive.dir}/.parts/${uploadId}/part-${String(index).padStart(5, "0")}`;
+}
+
+/** manifest 路径：drive/.m-<uploadId>.json（顶层扁平文件，点前缀避开普通文件） */
+function driveManifestPath(uploadId) {
+  return `${CONFIG.drive.dir}/.m-${uploadId}.json`;
+}
+
+/** 分片上传的 body 读取：5MB Base64 → 6.7MB，上限 8.5MB（含 JSON 外壳） */
+async function readDrivePartJson(request) {
+  try {
+    const text = await request.text();
+    if (text.length > CONFIG.drive.maxPartBodyBytes) return { __tooLarge: true };
+    return safeJsonParse(text);
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 断点查询：列出 uploadId 已落库的分片序号。
+ * 前端「继续上传」时先问服务端，跳过已传分片，实现断点续传。
+ */
+async function driveChunkStatus(env, uploadId) {
+  const res = await ghApiRequest(
+    driveContentsUrl(CONFIG.drive.repo, CONFIG.drive.branch, `${CONFIG.drive.dir}/.parts/${uploadId}`),
+    null,
+    env,
+    null
+  );
+  if (res.status === 404) return driveOk({ ok: true, uploadId, parts: [] });
+  if (!res.ok) return githubWriteError(res);
+  const items = await res.json();
+  const parts = (Array.isArray(items) ? items : [])
+    .filter((it) => it && it.type === "file" && /^part-\d{5}$/.test(it.name || ""))
+    .map((it) => parseInt(it.name.slice(5), 10))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  return driveOk({ ok: true, uploadId, parts });
+}
+
+/**
+ * 分片上传：把一片 Base64 内容写入 drive/.parts/<uploadId>/part-NNNNN。
+ * 已存在则带 sha 覆盖（重传同一片是幂等的），保证重试安全。
+ */
+async function driveChunkSave(env, uploadId, index, content) {
+  const path = drivePartPath(uploadId, index);
+  const metaRes = await ghApiRequest(driveContentsUrl(CONFIG.drive.repo, CONFIG.drive.branch, path), null, env, null);
+  let sha = null;
+  if (metaRes.ok) {
+    const meta = await metaRes.json();
+    sha = meta && meta.sha ? meta.sha : null;
+  } else if (metaRes.status !== 404) {
+    return githubWriteError(metaRes);
+  }
+  const body = {
+    message: `drive: part ${uploadId}/${index}`,
+    content: String(content).replace(/\s+/g, ""),
+    branch: CONFIG.drive.branch,
+  };
+  if (sha) body.sha = sha;
+  const res = await ghApiWrite(driveContentsUrl(CONFIG.drive.repo, CONFIG.drive.branch, path), env, "PUT", body);
+  if (!res.ok) return githubWriteError(res);
+  driveListMemo.data = null; // parts 目录变化不影响顶层列表，但保守失效
+  return driveOk({ ok: true, uploadId, index, existed: !!sha });
+}
+
+/**
+ * 收尾：校验分片数量后写 manifest（drive/.manifests/<uploadId>.json）。
+ * parts 此时已全部落库（逐片 commit），此处只落一份清单文件。
+ */
+async function driveChunkFinish(env, uploadId, name, size, total) {
+  const nTotal = Number(total);
+  if (!Number.isInteger(nTotal) || nTotal < 1 || nTotal > 100000) {
+    return driveErr("分片总数不合法（1-100000）", 400);
+  }
+  const statusRes = await driveChunkStatus(env, uploadId);
+  if (!(statusRes instanceof Response)) return statusRes;
+  const status = await statusRes.json();
+  if (!status || status.parts.length !== nTotal) {
+    return driveErr(
+      `分片不完整：已收 ${status ? status.parts.length : 0}/${nTotal} 片，请继续上传缺失分片`,
+      409
+    );
+  }
+  const manifest = {
+    uploadId,
+    name: String(name || "unnamed").slice(0, 200),
+    size: Number(size) || 0,
+    total: nTotal,
+    chunkBytes: CONFIG.drive.chunkSize,
+    createdAt: new Date().toISOString(),
+  };
+  const manifestContent = jsonToBase64(JSON.stringify(manifest));
+  return driveSaveFile(env, driveManifestPath(uploadId), manifestContent, `drive: manifest ${manifest.name}`, false);
+}
+
+/** UTF-8 字符串 → Base64（manifest 落库用；TextEncoder 处理多字节安全） */
+function jsonToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 1) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
 /**
  * /api/drive/* 统一入口。
  * 口令校验 → 路径净化 → 大小兜底 → 转发 GitHub Contents API。
@@ -1617,16 +1761,52 @@ async function handleDrive(request, env, ctx, url) {
     }
     if (!res.ok) return githubWriteError(res);
     const items = await res.json();
-    const files = (Array.isArray(items) ? items : [])
-      .filter((it) => it && it.type === "file")
-      .slice(0, 50)
-      .map((it) => ({
-        name: it.name,
-        path: it.path,
-        size: it.size || 0,
-        sha: it.sha,
-        downloadUrl: `/api/github/raw/${repo}/${branch}/${encodePathSegments(it.path)}`,
-      }));
+    const all = Array.isArray(items) ? items : [];
+    // 顶层普通文件：排除分片协议的内部目录（.manifests / .parts）
+    const topFiles = all.filter(
+      (it) => it && it.type === "file" && !String(it.path || "").startsWith(`${CONFIG.drive.dir}/.`)
+    );
+    // manifest 文件（drive/.m-<id>.json）→ 大文件条目（storage: "chunked"，前端重组下载）
+    const manifestItems = all.filter(
+      (it) => it && it.type === "file" && /^drive\/\.m-[A-Za-z0-9_-]{1,64}\.json$/.test(String(it.path || ""))
+    );
+    const files = topFiles.slice(0, 50).map((it) => ({
+      name: it.name,
+      path: it.path,
+      size: it.size || 0,
+      sha: it.sha,
+      storage: "contents",
+      downloadUrl: `/api/github/raw/${repo}/${branch}/${encodePathSegments(it.path)}`,
+    }));
+
+    // 读 manifest 内容还原大文件条目（UTF-8 安全：atob 出字节流再 TextDecoder）
+    const chunked = await Promise.all(
+      manifestItems.slice(0, 50).map(async (it) => {
+        try {
+          const mRes = await ghApiRequest(driveContentsUrl(repo, branch, it.path), null, env, null);
+          if (!mRes.ok) return null;
+          const m = await mRes.json();
+          const bytes = Uint8Array.from(atob(String(m.content || "").replace(/\s+/g, "")), (c) =>
+            c.charCodeAt(0)
+          );
+          const manifest = JSON.parse(new TextDecoder().decode(bytes));
+          return {
+            name: String(manifest.name || it.name).slice(0, 200),
+            path: it.path,
+            size: Number(manifest.size) || 0,
+            sha: it.sha,
+            storage: "chunked",
+            uploadId: String(manifest.uploadId || ""),
+            downloadUrl: null, // 大文件：前端逐片拉取 Blob 重组，无单文件直链
+          };
+        } catch (e) {
+          return null;
+        }
+      })
+    );
+    chunked.forEach((c) => {
+      if (c) files.push(c);
+    });
 
     // 每文件的上传时间：对每个文件查一次该路径的最近 commit（N+1 次请求，
     // 个人云盘文件量小可接受；由 30s isolate 缓存兜底，不会每次刷新都打）。
@@ -1665,6 +1845,59 @@ async function handleDrive(request, env, ctx, url) {
     return driveOk(payload);
   }
 
+  // ---- v6.0 分片上传：断点查询（已落库分片序号，断点续传的依据）----
+  if (request.method === "GET" && sub === "upload/status") {
+    const uploadId = sanitizeUploadId(url.searchParams.get("uploadId"));
+    if (!uploadId) return driveErr("uploadId 不合法", 400);
+    return driveChunkStatus(env, uploadId);
+  }
+
+  // ---- v6.0 分片上传：单片上传（≤5MB Base64，Worker 零缓冲转发）----
+  if (request.method === "POST" && sub === "upload/part") {
+    const body = await readDrivePartJson(request);
+    if (body && body.__tooLarge) {
+      return driveErr(
+        `分片请求体超过 ${(CONFIG.drive.maxPartBodyBytes / 1048576).toFixed(1)}MB 上限（分片应为 ${CONFIG.drive.chunkSize / 1048576}MB）`,
+        413
+      );
+    }
+    if (!body || typeof body.uploadId !== "string" || typeof body.content !== "string") {
+      return driveErr("参数缺失：需要 uploadId 与 content（Base64 分片）", 400);
+    }
+    const uploadId = sanitizeUploadId(body.uploadId);
+    if (!uploadId) return driveErr("uploadId 不合法", 400);
+    const index = Number(body.index);
+    if (!Number.isInteger(index) || index < 0 || index > 100000) {
+      return driveErr("分片序号不合法（0-100000）", 400);
+    }
+    if (!/^[A-Za-z0-9+/\s]+=*$/.test(body.content)) {
+      return driveErr("content 必须是 Base64 字符串", 400);
+    }
+    const bytes = base64ByteLength(body.content);
+    if (bytes < 0) return driveErr("Base64 解码失败", 400);
+    if (bytes > CONFIG.drive.chunkSize) {
+      return driveErr(
+        `分片大小 ${(bytes / 1048576).toFixed(1)}MB 超过 ${CONFIG.drive.chunkSize / 1048576}MB 分片上限`,
+        413
+      );
+    }
+    return driveChunkSave(env, uploadId, index, body.content);
+  }
+
+  // ---- v6.0 分片上传：收尾（校验分片齐全后写 manifest）----
+  if (request.method === "POST" && sub === "upload/finish") {
+    const body = await readDriveJson(request);
+    if (!body || typeof body.uploadId !== "string") {
+      return driveErr("参数缺失：需要 uploadId", 400);
+    }
+    const uploadId = sanitizeUploadId(body.uploadId);
+    if (!uploadId) return driveErr("uploadId 不合法", 400);
+    if (typeof body.name !== "string" || !body.name.trim()) {
+      return driveErr("参数缺失：需要 name", 400);
+    }
+    return driveChunkFinish(env, uploadId, body.name.trim(), Number(body.size) || 0, body.total);
+  }
+
   // ---- 上传（新建 / 覆盖）----
   if (request.method === "POST" && sub === "upload") {
     const body = await readDriveJson(request);
@@ -1679,7 +1912,10 @@ async function handleDrive(request, env, ctx, url) {
     const bytes = base64ByteLength(body.content);
     if (bytes < 0) return driveErr("Base64 解码失败", 400);
     if (bytes > CONFIG.drive.maxFileBytes) {
-      return driveErr(`文件大小 ${(bytes / 1048576).toFixed(1)}MB 超过 10MB 上限`, 413);
+      return driveErr(
+        `文件大小 ${(bytes / 1048576).toFixed(1)}MB 超过 ${CONFIG.drive.maxFileBytes / 1048576}MB 直传上限，请使用分片上传（单文件最大 2GB）`,
+        413
+      );
     }
     return driveSaveFile(env, path, body.content, body.message, false);
   }
@@ -1698,7 +1934,10 @@ async function handleDrive(request, env, ctx, url) {
     const bytes = base64ByteLength(body.content);
     if (bytes < 0) return driveErr("Base64 解码失败", 400);
     if (bytes > CONFIG.drive.maxFileBytes) {
-      return driveErr(`文件大小 ${(bytes / 1048576).toFixed(1)}MB 超过 10MB 上限`, 413);
+      return driveErr(
+        `文件大小 ${(bytes / 1048576).toFixed(1)}MB 超过 ${CONFIG.drive.maxFileBytes / 1048576}MB 直传上限，请使用分片上传（单文件最大 2GB）`,
+        413
+      );
     }
     return driveSaveFile(env, path, body.content, body.message, true);
   }
@@ -1711,6 +1950,52 @@ async function handleDrive(request, env, ctx, url) {
     }
     const path = sanitizeDrivePath(body.path);
     if (!path) return driveErr("非法路径：必须位于云盘目录内且不含 .. 穿越", 400);
+
+    // ---- v6.0：大文件（manifest）删除 = 删全部分片 + 删 manifest ----
+    const mManifest = path.match(/^drive\/\.m-([A-Za-z0-9_-]{1,64})\.json$/);
+    if (mManifest) {
+      const uploadId = mManifest[1];
+      const message = body.message || `drive: delete manifest ${uploadId}`;
+      // 1) 列 parts 目录，逐片 Contents DELETE（每片独立 commit；中途失败可重试，幂等）
+      let removed = 0;
+      const listRes = await ghApiRequest(
+        driveContentsUrl(repo, branch, `${CONFIG.drive.dir}/.parts/${uploadId}`),
+        null,
+        env,
+        null
+      );
+      if (listRes.ok) {
+        const parts = await listRes.json();
+        const partItems = (Array.isArray(parts) ? parts : []).filter(
+          (it) => it && it.type === "file" && it.sha
+        );
+        for (const it of partItems) {
+          const dRes = await ghApiWrite(driveContentsUrl(repo, branch, it.path), env, "DELETE", {
+            message,
+            sha: it.sha,
+            branch,
+          });
+          if (!dRes.ok && dRes.status !== 404) return githubWriteError(dRes);
+          removed += 1;
+        }
+      } else if (listRes.status !== 404) {
+        return githubWriteError(listRes);
+      }
+      // 2) 删 manifest 自身
+      const metaRes = await ghApiRequest(driveContentsUrl(repo, branch, path), null, env, null);
+      if (metaRes.status === 404) return driveErr("文件不存在或已被删除", 404);
+      if (!metaRes.ok) return githubWriteError(metaRes);
+      const meta = await metaRes.json();
+      if (!meta || !meta.sha) return driveErr("无法获取文件 sha（GitHub 元数据异常）", 502);
+      const res = await ghApiWrite(driveContentsUrl(repo, branch, path), env, "DELETE", {
+        message,
+        sha: meta.sha,
+        branch,
+      });
+      if (!res.ok) return githubWriteError(res);
+      driveListMemo.data = null;
+      return driveOk({ ok: true, path, removedParts: removed });
+    }
 
     const metaRes = await ghApiRequest(driveContentsUrl(repo, branch, path), null, env, null);
     if (metaRes.status === 404) return driveErr("文件不存在或已被删除", 404);
@@ -1728,7 +2013,7 @@ async function handleDrive(request, env, ctx, url) {
     return driveOk({ ok: true, path });
   }
 
-  return driveErr("不支持的云盘操作（list / upload / update / delete）", 404);
+  return driveErr("不支持的云盘操作（list / upload / update / delete / upload:status|part|finish）", 404);
 }
 
 /** URL 路径分段编码，避免仓库名/文件名中的特殊字符破坏 URL */

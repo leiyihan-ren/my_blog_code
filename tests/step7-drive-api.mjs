@@ -206,11 +206,11 @@ console.log("== D 组：云盘 API 单元测试（Node 直测 worker） ==");
   ghBehavior.putStatus = 201;
 }
 
-// D12 超大文件（>10MB）→ 413
+// D12 超大文件（>8MB 直传上限）→ 413 提示走分片
 {
-  const big = "A".repeat(13_981_016); // 解码后 10485762 B > 10MB
+  const big = "A".repeat(11_184_820); // 解码后 8388615 B > 8MB（8388608）
   const r = await drive("POST", "upload", { body: { path: "drive/big.bin", content: big } });
-  check("D12 超 10MB → 413", r.status === 413 && /10MB/.test(r.json.error), `got ${r.status} ${r.json && r.json.error}`);
+  check("D12 超 8MB 直传 → 413 并提示分片", r.status === 413 && /分片/.test(r.json.error), `got ${r.status} ${r.json && r.json.error}`);
 }
 
 // D13 路径穿越 → 400
