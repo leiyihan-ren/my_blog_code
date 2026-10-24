@@ -12,6 +12,9 @@
 // store: path → { sha, content(base64), size, type }
 const store = new Map();
 const ghCalls = [];
+// 409 注入：模拟 GitHub 读副本滞后（目录列表里的 sha 过期）
+const delete409Once = new Set();   // path → 下次 DELETE 返回 409 一次（自愈后应成功）
+const delete409Always = new Set(); // path → DELETE 永远 409（验证有界重试后明确报错）
 
 function shaOf(path, content) {
   // 简化 sha：路径+内容长度（测试只关心「有没有 sha、sha 是否变化」）
@@ -83,6 +86,19 @@ function installStoreMock() {
     }
     if (method === "DELETE" && metaMatch) {
       const p = decodeURIComponent(metaMatch[1]);
+      // 读副本滞后模拟：返回 409，同时把 store 里的 sha 轮换
+      // （worker 自愈的 GET 会拿到与首次 DELETE 不同的新 sha → 触发刷新重删）
+      if (delete409Once.has(p)) {
+        delete409Once.delete(p);
+        const v = store.get(p);
+        if (v) v.sha = v.sha + "-rotated";
+        return new Response(JSON.stringify({ message: "conflict" }), { status: 409 });
+      }
+      if (delete409Always.has(p)) {
+        const v = store.get(p);
+        if (v) v.sha = v.sha + "-rot" + Math.random().toString(36).slice(2, 6);
+        return new Response(JSON.stringify({ message: "conflict" }), { status: 409 });
+      }
       if (!store.has(p)) {
         return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       }
@@ -249,6 +265,43 @@ const FILE_SIZE = 12 * 1024 * 1024; // 12MB → 3 片（5+5+2）
   // 删后 list 无残留
   const r2 = await drive("GET", "list");
   check("C7e 删后主列表干净（无 manifest/parts 残留）", r2.json.files.length === 0, JSON.stringify(r2.json.files));
+}
+
+// C13 删除 409 自愈（GitHub 读副本滞后）：刷新 sha 重删，有界重试，不死循环
+{
+  const uid = "m5abc-409";
+  // 重建一套 3 片 + manifest
+  for (let i = 0; i < 3; i++) {
+    await drive("POST", "upload/part", { body: { uploadId: uid, index: i, content: chunkB64(70 + i, 1024) } });
+  }
+  await drive("POST", "upload/finish", { body: { uploadId: uid, total: 3, name: "conflict.bin", size: 1024 } });
+
+  // C13a：part-00000 首次 DELETE 409（sha 轮换）→ 自愈刷新重删成功
+  delete409Once.add(`drive/.parts/${uid}/part-00000`);
+  ghCalls.length = 0;
+  const r = await drive("DELETE", "delete", { body: { path: `drive/.m-${uid}.json` } });
+  const partDels = ghCalls.filter((c) => c.method === "DELETE" && c.url.includes("part-00000"));
+  check("C13a 409 自愈：删除成功且报告 3 片", r.status === 200 && r.json.ok && r.json.removedParts === 3, JSON.stringify(r.json));
+  check("C13b 自愈路径：该片 DELETE 共 2 次（首次 409 + 刷新重删）", partDels.length === 2, `got ${partDels.length}`);
+  const gone = await drive("GET", "upload/status", { query: `?uploadId=${uid}` });
+  check("C13c 自愈后分片真删除（status 为空）", gone.json.parts.length === 0, JSON.stringify(gone.json));
+}
+{
+  // C13d：持续 409 → 有界重试（最多 3 次）后明确报错，不死循环
+  const uid = "m5abc-409b";
+  for (let i = 0; i < 3; i++) {
+    await drive("POST", "upload/part", { body: { uploadId: uid, index: i, content: chunkB64(80 + i, 1024) } });
+  }
+  await drive("POST", "upload/finish", { body: { uploadId: uid, total: 3, name: "conflict2.bin", size: 1024 } });
+  delete409Always.add(`drive/.m-${uid}.json`);
+  ghCalls.length = 0;
+  const r = await drive("DELETE", "delete", { body: { path: `drive/.m-${uid}.json` } });
+  const manDels = ghCalls.filter((c) => c.method === "DELETE" && c.url.includes(`.m-${uid}.json`));
+  check("C13d 持续 409 → 返回 409 与友好提示（不崩溃）", r.status === 409 && /SHA 冲突/.test(r.json.error || ""), `got ${r.status} ${r.json && r.json.error}`);
+  check("C13e 重试有界：manifest DELETE 恰好 4 次（1+3，无死循环）", manDels.length === 4, `got ${manDels.length}`);
+  // 清理：解除注入后删干净，避免影响后续断言
+  delete409Always.delete(`drive/.m-${uid}.json`);
+  await drive("DELETE", "delete", { body: { path: `drive/.m-${uid}.json` } });
 }
 
 // C8 分片超 5MB → 413

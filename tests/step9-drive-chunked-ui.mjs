@@ -8,6 +8,7 @@
 //   V5 并发控制：3 个 11MB 文件 → mock 侧峰值并发 ≤2
 //   V6 大文件重组下载：Blob 总字节 = 文件大小
 //   V7 小文件直传路径不受影响（回归）
+//   V8 32MB 端到端：7 片上传+进度条 → 列表 → 重组下载 32MB Blob → 删除注入 409 自愈
 // 运行：node tests/step9-drive-chunked-ui.mjs
 // 注意：所有上传项按 data-name 定位（队列并发下避免任务间串扰）。
 // ============================================================
@@ -20,8 +21,9 @@ const { chromium } = pkg;
 
 /* ---------- Mock GitHub（内存 store：parts/manifest/普通文件） ---------- */
 const store = new Map(); // path → {sha, content(b64), size}
-const ghLog = { partPuts: [], manifestPuts: [], partFails: 0 };
+const ghLog = { partPuts: [], manifestPuts: [], partFails: 0, deletes: [], del409: [] };
 const partFail = {}; // part index → 剩余注入失败次数
+const delete409Once = new Set(); // path → 下次 DELETE 返回 409 一次（读副本滞后模拟）
 let inFlight = 0, maxInFlight = 0;
 
 function listUnder(prefix) {
@@ -109,7 +111,16 @@ globalThis.fetch = async (input, init) => {
   }
   if (meta && method === "DELETE") {
     const p = decodeURIComponent(meta[1]);
+    // 409 注入：模拟 GitHub 读副本滞后（sha 过期），验证 worker 自愈重删
+    if (delete409Once.has(p)) {
+      delete409Once.delete(p);
+      ghLog.del409.push(p);
+      const v = store.get(p);
+      if (v) v.sha = v.sha + "-rotated";
+      return j({ message: "conflict" }, 409);
+    }
     store.delete(p);
+    ghLog.deletes.push(p);
     return j({ commit: { sha: "d" } });
   }
   if (u.includes("/commits?path=")) {
@@ -442,6 +453,85 @@ async function main() {
     await page.waitForSelector(doneSel("tiny.txt"), { timeout: 20000 });
     check("V7a 小文件上传完成", true);
     check("V7b 小文件不走分片（零 part PUT）", ghLog.partPuts.length === 0, `partPuts=${ghLog.partPuts.length}`);
+
+    // V8 32MB 端到端（20-50MB 区间）：7 片上传 → 进度条 → 列表可见
+    //     → 重组下载 32MB Blob → 删除时注入 409 读副本滞后 → worker 自愈后删除成功
+    ghLog.partPuts.length = 0;
+    ghLog.deletes.length = 0;
+    await page.setInputFiles("#fileInput", {
+      name: "movie-32mb.bin",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.alloc(32 * 1024 * 1024, 0x46),
+    });
+    // 上传中：进度条真实推进（fill 宽度 > 0）
+    await page.waitForFunction(
+      () => {
+        const it = document.querySelector('.up-item[data-name="movie-32mb.bin"]');
+        if (!it) return false;
+        const fill = it.querySelector(".up-bar i");
+        return !!fill && parseFloat(fill.style.width) > 0;
+      },
+      null,
+      { timeout: 60000 }
+    );
+    check("V8a 上传中进度条实时推进", true);
+    const hintSeen = await page.evaluate(() => {
+      const it = document.querySelector('.up-item[data-name="movie-32mb.bin"]');
+      return it ? /第 \d\/7 片/.test(it.textContent) : false;
+    });
+    check("V8b 队列显示分片进度（第 x/7 片）", hintSeen);
+    await page.waitForSelector(doneSel("movie-32mb.bin"), { timeout: 150000 });
+    check("V8c 32MB 文件上传完成", true);
+    check(
+      "V8d 7 个分片按序落库（6×5MB + 1×2MB）",
+      ghLog.partPuts.length === 7 && ghLog.partPuts.every((p, i) => p.index === i),
+      JSON.stringify(ghLog.partPuts.map((p) => p.index))
+    );
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("#fileTbody tr")].some((tr) => (tr.textContent || "").includes("movie-32mb.bin")),
+      null,
+      { timeout: 10000 }
+    );
+    check("V8e 列表出现 🧩 32MB 大文件条目", true);
+
+    // V8f 重组下载：32MB Blob
+    await page.evaluate(() => { window.__blobSizes = []; });
+    const blob32 = await page.evaluate(async () => {
+      const rows = [...document.querySelectorAll("#fileTbody tr")];
+      const row = rows.find((tr) => (tr.textContent || "").includes("movie-32mb.bin"));
+      row.querySelector(".dl").click();
+      for (let i = 0; i < 200; i++) {
+        if (window.__blobSizes && window.__blobSizes.length) return window.__blobSizes[0];
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return 0;
+    });
+    check("V8f 重组下载生成 32MB Blob", blob32 === 32 * 1024 * 1024, `blobSize=${blob32}`);
+
+    // V8g 删除：注入首片 409（读副本滞后）→ worker 自愈刷新重删 → UI 删除成功
+    const uid32 = ghLog.partPuts[0].path.match(/drive\/\.parts\/([^/]+)\//)[1];
+    delete409Once.add(`drive/.parts/${uid32}/part-00000`);
+    await page.evaluate(() => {
+      const rows = [...document.querySelectorAll("#fileTbody tr")];
+      const row = rows.find((tr) => (tr.textContent || "").includes("movie-32mb.bin"));
+      row.querySelector(".del").click();
+    });
+    await page.waitForSelector("#confirmModal.show", { timeout: 8000 });
+    await page.click("#btnConfirmDel");
+    await page.waitForFunction(
+      () => ![...document.querySelectorAll("#fileTbody tr")].some((tr) => (tr.textContent || "").includes("movie-32mb.bin")),
+      null,
+      { timeout: 30000 }
+    );
+    check("V8g 409 自愈后 UI 删除成功（列表行消失）", true);
+    const p0 = `drive/.parts/${uid32}/part-00000`;
+    check(
+      "V8h 自愈路径：首片 409 一次 + 刷新重删成功一次",
+      ghLog.del409.filter((p) => p === p0).length === 1 && ghLog.deletes.filter((p) => p === p0).length === 1,
+      `del409=${JSON.stringify(ghLog.del409)} deletes0=${ghLog.deletes.filter((p) => p === p0).length}`
+    );
+    const all32 = ghLog.deletes.filter((p) => p.includes(uid32));
+    check("V8i 7 片 + manifest 全部删除（自愈不影响其余）", all32.length === 8, `got ${all32.length}`);
   } finally {
     await browser.close();
     staticServer.close();

@@ -876,6 +876,26 @@ async function ghApiWrite(url, env, method, body) {
   return res;
 }
 
+/**
+ * Contents DELETE 的 409 自愈重试（有界，绝不死循环）。
+ * GitHub 连续大量写入后，读副本可能短暂滞后（最终一致性），目录列表/元数据里
+ * 拿到的 sha 会过期，导致 DELETE 返回 409（"... is at X but expected Y"）。
+ * 处理：重新 GET 最新 sha 再删，最多重试 3 次；刷新不到新 sha（真冲突/已删除）
+ * 或 3 次后仍 409，则原样返回错误，由前端提示「刷新列表后重试」。
+ */
+async function ghDeleteContents(url, env, message, branch, initialSha) {
+  let sha = initialSha;
+  let res = await ghApiWrite(url, env, "DELETE", { message, sha, branch });
+  for (let retry = 0; res.status === 409 && retry < 3; retry += 1) {
+    const meta = await ghApiRequest(url, null, env, null);
+    const m = meta.ok ? await meta.json().catch(() => null) : null;
+    if (!m || !m.sha || m.sha === sha) break; // 刷新不到新 sha：重试无意义，停止
+    sha = m.sha;
+    res = await ghApiWrite(url, env, "DELETE", { message, sha, branch });
+  }
+  return res;
+}
+
 /** 目录列表数据源（jsDelivr data API 只返回当前层级，需适配成统一结构） */
 const GH_LIST_SOURCES = {
   github: {
@@ -1970,11 +1990,7 @@ async function handleDrive(request, env, ctx, url) {
           (it) => it && it.type === "file" && it.sha
         );
         for (const it of partItems) {
-          const dRes = await ghApiWrite(driveContentsUrl(repo, branch, it.path), env, "DELETE", {
-            message,
-            sha: it.sha,
-            branch,
-          });
+          const dRes = await ghDeleteContents(driveContentsUrl(repo, branch, it.path), env, message, branch, it.sha);
           if (!dRes.ok && dRes.status !== 404) return githubWriteError(dRes);
           removed += 1;
         }
@@ -1987,11 +2003,7 @@ async function handleDrive(request, env, ctx, url) {
       if (!metaRes.ok) return githubWriteError(metaRes);
       const meta = await metaRes.json();
       if (!meta || !meta.sha) return driveErr("无法获取文件 sha（GitHub 元数据异常）", 502);
-      const res = await ghApiWrite(driveContentsUrl(repo, branch, path), env, "DELETE", {
-        message,
-        sha: meta.sha,
-        branch,
-      });
+      const res = await ghDeleteContents(driveContentsUrl(repo, branch, path), env, message, branch, meta.sha);
       if (!res.ok) return githubWriteError(res);
       driveListMemo.data = null;
       return driveOk({ ok: true, path, removedParts: removed });
@@ -2003,11 +2015,13 @@ async function handleDrive(request, env, ctx, url) {
     const meta = await metaRes.json();
     if (!meta || !meta.sha) return driveErr("无法获取文件 sha（GitHub 元数据异常）", 502);
 
-    const res = await ghApiWrite(driveContentsUrl(repo, branch, path), env, "DELETE", {
-      message: body.message || `drive: delete ${path}`,
-      sha: meta.sha,
+    const res = await ghDeleteContents(
+      driveContentsUrl(repo, branch, path),
+      env,
+      body.message || `drive: delete ${path}`,
       branch,
-    });
+      meta.sha
+    );
     if (!res.ok) return githubWriteError(res);
     driveListMemo.data = null; // 写成功：立即使列表缓存失效，保证刷新拿到最新内容
     return driveOk({ ok: true, path });
