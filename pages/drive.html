@@ -413,7 +413,7 @@
           var statusText =
             t.status === S.DONE ? "✅ 完成" :
             t.status === S.FAILED ? "❌ " + (t.error || "失败") + (t.hint ? "（" + t.hint + "）" : "") :
-            t.status === S.PAUSED ? "⏸️ 已暂停" + (t.progress ? "（" + t.progress + "%）" : "") :
+            t.status === S.PAUSED ? "⏸️ " + (t.hint || "已暂停") :
             t.status === S.READING ? "读取中…" :
             t.status === S.CHECKING ? (t.hint || "检查断点…") :
             t.status === S.FINISHING ? (t.hint || "写入清单…") :
@@ -434,19 +434,20 @@
           item.appendChild(bar);
 
           // v7.1 状态机按钮：失败→继续上传（断点续传）；活动→暂停；暂停→恢复；均可取消
+          // v7.2 等待文件态（awaitingFile）：不给恢复按钮（无 File 句柄），仅提示重新选择 + 可取消
           if (t.status === S.FAILED) {
             var retry = document.createElement("button");
             retry.className = "up-retry";
             retry.textContent = t.mode === "chunked" ? "继续上传（断点续传）" : "重试";
             retry.onclick = function () { UploadService.retry(t); };
             row.appendChild(retry);
-          } else if (UploadService.STATE.PAUSED === t.status) {
+          } else if (t.status === S.PAUSED && !t.awaitingFile) {
             var resumeBtn = document.createElement("button");
             resumeBtn.className = "up-retry";
             resumeBtn.textContent = "▶️ 恢复";
             resumeBtn.onclick = function () { UploadService.resume(t); };
             row.appendChild(resumeBtn);
-          } else if (t.status !== S.DONE) {
+          } else if (t.status !== S.DONE && t.status !== S.PAUSED) {
             var pauseBtn = document.createElement("button");
             pauseBtn.className = "up-pause";
             pauseBtn.textContent = "⏸️ 暂停";
@@ -468,12 +469,17 @@
       /* ---------- 事件绑定 ---------- */
       /* ---------- v7.1 beforeunload：上传中离开页面提醒，防误关丢进度 ----------
        * 已传分片在服务端有断点，关页面本质可恢复——但确认弹窗给用户知情权，
-       * 避免「以为传完了」直接关标签。暂停/失败/完成态不拦（isBusy=false）。 */
+       * 避免「以为传完了」直接关标签。暂停/失败/完成态不拦（isBusy=false）。
+       * v7.2：离开前同步落盘崩溃恢复数据，堵死防抖窗口内强关丢状态。
+       * pagehide 不可取消（无法弹确认），仅负责落盘。 */
       window.addEventListener("beforeunload", function (e) {
-        if (!UploadService.isBusy()) return;
-        e.preventDefault(); // Chrome ≥51：必须设置 returnValue 才弹确认框
-        e.returnValue = "";
+        if (UploadService.isBusy()) {
+          e.preventDefault(); // Chrome ≥51：必须设置 returnValue 才弹确认框
+          e.returnValue = "";
+        }
+        UploadService.flushPersist();
       });
+      window.addEventListener("pagehide", function () { UploadService.flushPersist(); });
 
       $("btnUpload").onclick = function () { $("fileInput").click(); };
       $("fileInput").onchange = function () {
@@ -534,6 +540,9 @@
       });
 
       /* ---------- 启动 ---------- */
+      /* v7.2 崩溃恢复：此时渲染层助手（$/fmtBytes/renderQueue）已就绪，
+         恢复非空时会经 notify → renderQueue 画队列——必须放在启动区而非 IIFE 顶部 */
+      UploadService.restore();
       if (pin) {
         loadList(); // 带旧 PIN 直接加载；失效则 api() 自动弹重验
       } else {

@@ -121,7 +121,7 @@ my-blog/
 ├── scripts/              # 构建与路由工具（不部署）
 │   ├── build-pages.mjs   #   整站同步到 Pages 候选输出目录（dist/public/build）
 │   └── route-map.mjs     #   页面路由唯一事实来源（_worker.js 重写表与之同步，step10 守护）
-├── tests/                # 15 套件自动化测试（不部署）
+├── tests/                # 16 套件自动化测试（不部署）
 └── docs/                 # 技术文档
     ├── 核心组件依赖拓扑.md        # 页面/脚本/Worker/KV/外部依赖全景 + 关键不变量
     ├── 播放器与游戏接口文档.md    # 播放器状态机 + GameCore API + 子游戏注册契约
@@ -137,6 +137,10 @@ my-blog/
 > `services/uploadService.js`，`pages/drive.html` 只读 `UploadService.tasks()` 渲染。
 > 文件级并发上限 3；上传中离开页面有 `beforeunload` 确认；断网时单片指数退避重试，
 > 网络恢复（`online` 事件）自动续跑失败任务。
+>
+> **v7.2 崩溃恢复说明**：上传中误关/崩溃标签页，未完成的分片任务元数据持久化到
+> localStorage；重开页面恢复为「等待文件」态，重新选择同名文件即断点续传
+> （beforeunload/pagehide 同步落盘，堵死防抖窗口）。
 
 ## 各页面详解（小白必读）
 
@@ -345,11 +349,11 @@ wrangler pages deploy .  # 部署当前目录
 
 项目不依赖任何构建步骤，直接用任意静态服务器 + Node 即可测试。
 
-### v7.1 测试体系（`tests/` 目录，15 套件）
+### v7.2 测试体系（`tests/` 目录，16 套件）
 
 ```bash
 npm install                       # 安装 playwright（devDependency）
-npm test                          # 全量回归：15 套件顺序执行，任一失败退出码非 0
+npm test                          # 全量回归：16 套件顺序执行，任一失败退出码非 0
 ```
 
 | 套件 | 断言 | 覆盖 |
@@ -368,6 +372,7 @@ npm test                          # 全量回归：15 套件顺序执行，任�
 | `step8-drive-chunked.mjs` | 36 | 大文件分片协议：断点续传/失败收集/409 自愈有界重试 |
 | `step9-drive-chunked-ui.mjs` | 28 | 大文件端到端：32MB 七片/进度条/弱网重试/重组下载/删除锁/并发峰值 ≤3 |
 | `step11-drive-state-machine.mjs` | 25 | v7.1 状态机：暂停/恢复/取消/断网退避/online 自动重连/beforeunload/并发 3 |
+| `step12-drive-stress.mjs` | 21 | v7.2 魔鬼压测：连点上传 100 次/50MB 十片/强关浏览器断点续传/6 文件并发限流 |
 | `step10-routes-verify.mjs` | 23 | v7.0 守护：路由表同步/Worker 重写行为/243 处链接完整性/SW 注册路径/无相对引用 |
 
 测试零硬编码路径：`tests/_helpers.mjs` 从 `import.meta.url` 推导仓库根目录并动态导入

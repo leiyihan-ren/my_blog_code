@@ -16,6 +16,10 @@
  *   任意活动态 ──cancel()──→ canceled（出队；服务端已传分片保留供续传）
  *   ACTIVE_STATES 占并发槽；paused/failed/done/canceled 均不占槽。
  *
+ * 崩溃恢复（v7.2，强关浏览器不断点）：
+ *   未完成的分片任务元数据（uploadId/已传分片表）防抖持久化到 localStorage；
+ *   页面重开 restore() 将其恢复为「等待文件」态，用户重新选择同名文件即续传。
+ *
  * 协议（与 _worker.js CONFIG.drive 一致，改动需两边同步 + 跑 step7/8/9/11）：
  *   小文件 ≤8MB：FileReader 整读 → Base64 → 单次 POST /api/drive/upload
  *   大文件 >8MB：File.slice(5MB) 逐片读 → 逐片 POST part → finish 写 manifest
@@ -26,6 +30,8 @@
  *   UploadService.init(hooks)     注入宿主能力（getPin/toast/onChange/onAllDone/findChunkedId/saveBlob）
  *   UploadService.addFiles(list)  入队（含合规校验：>2GB 拦截、空文件拦截）
  *   UploadService.retry(task)     失败任务重试（断点续传）
+ *   UploadService.restore()       页面加载时恢复上次未完成的分片任务（等待文件态）
+ *   UploadService.flushPersist()  同步落盘崩溃恢复数据（beforeunload/pagehide 用）
  *   UploadService.pause(task)     暂停任务（abort 在途 XHR，释放并发槽）
  *   UploadService.resume(task)    恢复暂停任务（从断点继续）
  *   UploadService.pauseAll()      暂停全部活动任务（返回暂停个数）
@@ -88,6 +94,12 @@ window.UploadService = (function () {
 
   var uploadTasks = [];
   var activeCount = 0; // 当前上传中的任务数（并发上限 MAX_CONCURRENT）
+
+  /** 统一通知：状态变化 → 页面重渲染 + 崩溃恢复持久化（防抖 400ms 合并高频进度 tick） */
+  function notify() {
+    hooks.onChange();
+    schedulePersist();
+  }
 
   /* ---------- 工具 ---------- */
 
@@ -203,18 +215,18 @@ window.UploadService = (function () {
   /* ---------- 小文件直传 ---------- */
   function uploadOne(task) {
     task.status = STATE.READING;
-    hooks.onChange();
+    notify();
     return readAsBase64(task.file).then(function (b64) {
       throwIfPaused(task); // 读取期间被暂停：不再发送
       task.status = STATE.UPLOADING;
-      hooks.onChange();
+      notify();
       return xhrUpload("POST", "/api/drive/upload", {
         path: "drive/" + task.file.name,
         content: b64,
         message: "drive: upload " + task.file.name
       }, function (loaded, total) {
         task.progress = Math.round((loaded / total) * 100);
-        hooks.onChange();
+        notify();
       }, 60000, task);
     }).then(function (data) {
       task.progress = 100;
@@ -236,7 +248,7 @@ window.UploadService = (function () {
         if (attempt > PART_RETRY) throw e;
         var wait = Math.pow(2, attempt - 1) * 1000;
         task.hint = "第 " + (index + 1) + " 片失败，" + (wait / 1000) + "s 后第 " + attempt + " 次重试…";
-        hooks.onChange();
+        notify();
         return new Promise(function (r) { setTimeout(r, wait); }).then(function () {
           throwIfPaused(task); // 退避等待期间被暂停：不再发送
           return fire();
@@ -261,7 +273,7 @@ window.UploadService = (function () {
           if (attempt > PART_RETRY) throw e;
           var wait = Math.pow(2, attempt - 1) * 1000;
           task.hint = "检查断点失败，" + (wait / 1000) + "s 后第 " + attempt + " 次重试…";
-          hooks.onChange();
+          notify();
           return new Promise(function (r) { setTimeout(r, wait); }).then(function () {
             throwIfPaused(task);
             return fire();
@@ -284,7 +296,7 @@ window.UploadService = (function () {
     task.total = total;
     task.status = STATE.CHECKING;
     task.hint = "检查断点…";
-    hooks.onChange();
+    notify();
 
     // 1) 断点查询：服务端已落库分片（合并前端本地记录；GET 幂等，带退避重试）
     return uploadStatusWithRetry(task)
@@ -297,7 +309,7 @@ window.UploadService = (function () {
         }, 0);
         task.progress = Math.round((task.bytesDone / file.size) * 100);
         task.status = STATE.UPLOADING;
-        hooks.onChange();
+        notify();
 
         // 2) 串行传缺失分片。
         // 单片彻底失败不中断后续片（弱网稳定性核心）：收集失败序号，
@@ -311,7 +323,7 @@ window.UploadService = (function () {
               if (task.status === STATE.FAILED || task.status === STATE.CANCELED ||
                   task.status === STATE.PAUSED) return;
               task.hint = "第 " + (idx + 1) + "/" + total + " 片";
-              hooks.onChange();
+              notify();
               var blob = file.slice(idx * CHUNK_SIZE, Math.min((idx + 1) * CHUNK_SIZE, file.size));
               return readChunkBase64(blob).then(function (b64) {
                 return uploadPartWithRetry(task, idx, b64);
@@ -320,11 +332,11 @@ window.UploadService = (function () {
                 task.bytesDone += chunkLen(file.size, idx);
                 task.progress = Math.round((task.bytesDone / file.size) * 100);
                 task.hint = "";
-                hooks.onChange();
+                notify();
               }, function () {
                 failedParts.push(idx);
                 task.hint = "第 " + (idx + 1) + " 片失败，继续传后续片…";
-                hooks.onChange();
+                notify();
               });
             });
           })(i);
@@ -339,7 +351,7 @@ window.UploadService = (function () {
         // 3) 收尾：写 manifest
         task.status = STATE.FINISHING;
         task.hint = "写入清单…";
-        hooks.onChange();
+        notify();
         return xhrUpload("POST", "/api/drive/upload/finish", {
           uploadId: task.uploadId,
           name: file.name,
@@ -351,7 +363,7 @@ window.UploadService = (function () {
         task.progress = 100;
         task.status = STATE.DONE;
         task.hint = "";
-        hooks.onChange();
+        notify();
       })
       .catch(function (e) {
         // 暂停/取消：静默收场，绝不误报 failed（断点已保留，恢复即续传）
@@ -359,7 +371,7 @@ window.UploadService = (function () {
         task.status = STATE.FAILED;
         task.error = e.message || "上传失败";
         task.hint = "已传 " + Object.keys(task.done).length + "/" + total + " 片，可继续上传";
-        hooks.onChange();
+        notify();
         throw e;
       });
   }
@@ -369,11 +381,11 @@ window.UploadService = (function () {
    * 暂停的任务 abort 在途 XHR 后经本队列释放并发槽，恢复时重新入队。 */
   function startTask(task) {
     task.status = task.mode === "chunked" ? STATE.CHECKING : STATE.READING;
-    hooks.onChange();
+    notify();
     var job = task.mode === "chunked" ? uploadChunked(task) : uploadOne(task);
     return job.then(function () {
       if (task.status !== STATE.CANCELED && task.status !== STATE.PAUSED) task.status = STATE.DONE;
-      hooks.onChange();
+      notify();
     }).catch(function (e) {
       // 暂停/取消：静默（断点已保留）；其余落 failed 并Toast——单点失败不拖垮队列
       if (task.status !== STATE.CANCELED && task.status !== STATE.PAUSED) {
@@ -381,16 +393,21 @@ window.UploadService = (function () {
         task.error = (e && e.message) || "上传失败";
         hooks.toast("「" + task.file.name + "」上传失败：" + task.error, "err");
       }
-      hooks.onChange();
+      notify();
     });
   }
 
   function retryTask(t) {
     if (RESUMABLE_STATES.indexOf(t.status) < 0) return false;
+    if (t.awaitingFile) {
+      // 无 File 句柄：提醒用户重新选择同名文件（addFiles 会自动装配并续传）
+      hooks.toast("请重新选择「" + t.file.name + "」以继续上传", "err");
+      return false;
+    }
     t.status = STATE.PENDING;
     t.error = "";
     t.hint = "";
-    hooks.onChange();
+    notify();
     pumpQueue();
     return true;
   }
@@ -400,7 +417,7 @@ window.UploadService = (function () {
     if (ACTIVE_STATES.indexOf(t.status) < 0) return false;
     t.status = STATE.PAUSED;
     t.hint = "已暂停";
-    hooks.onChange();
+    notify();
     if (t._abort) { try { t._abort(); } catch (e) { /* 已终态 */ } }
     return true;
   }
@@ -430,7 +447,7 @@ window.UploadService = (function () {
     if (t._abort) { try { t._abort(); } catch (e) { /* 已终态 */ } }
     var i = uploadTasks.indexOf(t);
     if (i >= 0) uploadTasks.splice(i, 1);
-    hooks.onChange();
+    notify();
     return true;
   }
 
@@ -501,6 +518,91 @@ window.UploadService = (function () {
       });
   }
 
+  /* ---------- 崩溃恢复：未完成分片任务的本地持久化（v7.2 强关浏览器不断点） ----------
+   * File 对象无法持久化，但 uploadId + 已传分片表可以：
+   *   崩溃/误关 → 重开页面 → restore() 把未完成任务恢复为「等待文件」态
+   *   （paused + awaitingFile，hint 提示重新选择同名文件）
+   *   用户再次选入同名同尺寸文件 → 装配 File 句柄 → 断点续传（服务端分片复用）。
+   * 直传小文件无断点概念，不持久化。localStorage 不可用（隐私模式）时静默降级。 */
+  var RESUME_KEY = "drive_upload_resume";
+  var persistTimer = null;
+
+  function safeLocalStorage() {
+    try { if (typeof localStorage !== "undefined") return localStorage; } catch (e) { /* 隐私模式 */ }
+    return null;
+  }
+
+  function schedulePersist() {
+    if (persistTimer) return;
+    persistTimer = setTimeout(function () { persistTimer = null; persistTasks(); }, 400);
+  }
+
+  /** 持久化条件：分片模式 + 非终态（活动/暂停/失败/等待文件都记住） */
+  function needsPersist(t) {
+    return t.mode === "chunked" && t.status !== STATE.DONE && t.status !== STATE.CANCELED;
+  }
+
+  function persistTasks() {
+    var ls = safeLocalStorage();
+    if (!ls) return;
+    var records = uploadTasks.filter(needsPersist).map(function (t) {
+      return {
+        uploadId: t.uploadId,
+        name: t.file.name,
+        size: t.file.size,
+        total: t.total || Math.ceil(t.file.size / CHUNK_SIZE),
+        done: Object.keys(t.done || {}).map(Number),
+      };
+    });
+    try {
+      if (records.length) ls.setItem(RESUME_KEY, JSON.stringify(records));
+      else ls.removeItem(RESUME_KEY);
+    } catch (e) { /* 配额满等：恢复是尽力而为，不阻断上传 */ }
+  }
+
+  /** 同步落盘：beforeunload/pagehide 时调用，堵死「防抖 400ms 内强关丢状态」的窗口 */
+  function flushPersist() {
+    if (persistTimer) { clearTimeout(persistTimer); persistTimer = null; }
+    persistTasks();
+  }
+
+  /** 恢复：页面加载时调用，把上次未完成的分片任务以「等待文件」态放回队列 */
+  function restoreTasks() {
+    var ls = safeLocalStorage();
+    if (!ls) return 0;
+    var records = [];
+    try { records = JSON.parse(ls.getItem(RESUME_KEY) || "[]"); } catch (e) { records = []; }
+    if (!Array.isArray(records)) records = [];
+    var restored = 0;
+    records.forEach(function (r) {
+      if (!r || !r.uploadId || !r.name || !r.size) return;
+      if (uploadTasks.some(function (t) { return t.uploadId === r.uploadId; })) return; // 已在队列
+      var doneMap = {};
+      (r.done || []).forEach(function (i) { doneMap[i] = true; });
+      var total = r.total || Math.ceil(r.size / CHUNK_SIZE);
+      var bytesDone = Object.keys(doneMap).reduce(function (s, k) {
+        return s + chunkLen(r.size, Number(k));
+      }, 0);
+      uploadTasks.push({
+        file: { name: r.name, size: r.size }, // 无 File 句柄：等用户重新选择
+        mode: "chunked",
+        uploadId: r.uploadId,
+        total: total,
+        done: doneMap,
+        bytesDone: bytesDone,
+        progress: Math.round((bytesDone / r.size) * 100),
+        status: STATE.PAUSED,
+        error: "",
+        hint: "已传 " + Object.keys(doneMap).length + "/" + total + " 片，重新选择「" + r.name + "」即可续传",
+        _abort: null,
+        awaitingFile: true,
+      });
+      restored += 1;
+    });
+    if (restored) notify();
+    return restored;
+  }
+
   /* ---------- 对外 API ---------- */
 
   /** 入队（原 handleFiles）：合规校验 + 按大小分流直传/分片 */
@@ -514,6 +616,19 @@ window.UploadService = (function () {
       } else if (f.size === 0) {
         rejected.push(f.name + "（空文件）");
       } else if (f.size > SMALL_LIMIT) {
+        // 崩溃恢复装配：同名同尺寸的「等待文件」任务 → 装上 File 句柄从断点继续
+        var pendingRestore = null;
+        for (var i = 0; i < uploadTasks.length; i++) {
+          var t = uploadTasks[i];
+          if (t.awaitingFile && t.file.name === f.name && t.file.size === f.size) { pendingRestore = t; break; }
+        }
+        if (pendingRestore) {
+          pendingRestore.file = f;
+          pendingRestore.awaitingFile = false;
+          pendingRestore.status = STATE.PENDING;
+          pendingRestore.hint = "";
+          return; // 不新入队，继续遍历其余文件
+        }
         // 大文件：分片模式（5MB/片，断点续传）
         // 同名覆盖：复用列表中已有条目的 uploadId（parts 与 manifest 覆盖同一处，
         // 避免重复条目；列表中没有则是新文件，生成新 uploadId）
@@ -547,7 +662,7 @@ window.UploadService = (function () {
     if (rejected.length) {
       hooks.toast("已拦截不合规文件：" + rejected.join("；"), "err");
     }
-    hooks.onChange();
+    notify();
     pumpQueue();
   }
 
@@ -592,6 +707,8 @@ window.UploadService = (function () {
     init: init,
     addFiles: addFiles,
     retry: retryTask,
+    restore: restoreTasks,
+    flushPersist: flushPersist,
     pause: pauseTask,
     resume: resumeTask,
     pauseAll: pauseAll,

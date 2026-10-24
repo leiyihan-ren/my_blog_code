@@ -26,7 +26,7 @@
 "use strict";
 
 /* ⚠️ 每次发布新版本时必须 +1，否则用户可能停留在旧缓存 */
-const CACHE_VERSION = "v3.1.0";
+const CACHE_VERSION = "v3.2.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
