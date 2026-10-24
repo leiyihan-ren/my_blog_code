@@ -1,5 +1,14 @@
 // 音乐播放器组件 - 自动注入到页面底部
-// 版本：v2（播放模式 / 拖动进度 / 系统媒体控制 / 状态机重构）
+// 版本：v3（v7.0 性能重构：初始化推迟到浏览器空闲）
+// ---------------------------------------------------------------
+// v7.0 首屏性能压榨：播放器是「非关键 chrome 元素」——CSS 已在 body 预留
+// 底部空间（无 CLS），首屏渲染不依赖它。把 36KB 的解析 + 执行 + 歌单 API
+// 请求全部挪出关键路径：defer 脚本执行完毕后不立即跑 IIFE，而是等浏览器
+// 空闲（requestIdleCallback，超时兜底 1.2s）再启动。
+// 无页面内联脚本依赖播放器就绪（耦合点仅 window.showToast 可选复用），
+// 故延迟初始化零行为风险；离线/弱网下 loadMusic 自身的降级逻辑不变。
+// ---------------------------------------------------------------
+var bootMusicPlayer = function() {
 (function() {
   "use strict";
 
@@ -1030,3 +1039,11 @@
   syncPlayUI();
   loadMusic();
 })();
+};
+
+/* v7.0：空闲启动——首屏关键路径零播放器成本 */
+if (typeof requestIdleCallback === "function") {
+  requestIdleCallback(bootMusicPlayer, { timeout: 1200 });
+} else {
+  setTimeout(bootMusicPlayer, 0);
+}
