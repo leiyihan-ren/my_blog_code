@@ -57,6 +57,9 @@
       border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;
     }
     .panel-title .muted { font-weight: 400; font-size: 12px; color: var(--text-mute); }
+    /* 上传面板：标题+摘要靠左，队列级按钮右对齐（不影响其他面板的 space-between） */
+    #uploadPanel .panel-title { justify-content: flex-start; }
+    .up-global-btns { display: inline-flex; gap: 10px; margin-left: auto; }
 
     /* 上传队列 */
     .up-item { padding: 12px 18px; border-bottom: 1px solid var(--border); }
@@ -76,10 +79,21 @@
     }
     .up-item.done .up-bar > i { background: var(--success); }
     .up-item.failed .up-bar > i { background: var(--danger-solid); }
+    .up-item.paused .up-bar > i { background: var(--text-mute); }
     .up-retry {
       border: none; background: none; color: var(--primary-text); cursor: pointer;
       font-size: 12px; padding: 2px 6px; text-decoration: underline;
     }
+    .up-pause {
+      border: none; background: none; color: var(--text-mute); cursor: pointer;
+      font-size: 12px; padding: 2px 6px; text-decoration: underline;
+    }
+    .up-pause:hover { color: var(--primary-text); }
+    .up-cancel {
+      border: none; background: none; color: var(--text-mute); cursor: pointer;
+      font-size: 12px; padding: 2px 6px; line-height: 1;
+    }
+    .up-cancel:hover { color: var(--danger-solid); }
 
     /* 文件表格 */
     .file-table { width: 100%; border-collapse: collapse; font-size: 14px; }

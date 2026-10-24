@@ -1,6 +1,6 @@
 {
   "name": "my-blog",
-  "version": "7.0.0",
+  "version": "7.1.0",
   "private": true,
   "description": "Cloudflare Worker 博客：PWA + 动态内容 + SEO/CSP 加固 + GitHub 云盘 + 全链路测试",
   "type": "module",
@@ -24,6 +24,7 @@
     "test:edge": "node tests/step6-edge-cache.mjs",
     "test:drive": "node tests/step7-drive-api.mjs && node tests/step7-drive-ui.mjs",
     "test:chunked": "node tests/step8-drive-chunked.mjs && node tests/step9-drive-chunked-ui.mjs",
+    "test:statemachine": "node tests/step11-drive-state-machine.mjs",
     "test:routes": "node tests/step10-routes-verify.mjs"
   },
   "devDependencies": {

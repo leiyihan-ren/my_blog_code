@@ -58,7 +58,7 @@
     </div>
 
     <section class="panel" id="uploadPanel" hidden>
-      <div class="panel-title">上传队列 <span class="muted" id="upSummary"></span></div>
+      <div class="panel-title">上传队列 <span class="muted" id="upSummary"></span><span id="upGlobalBtns" class="up-global-btns"></span></div>
       <div id="uploadList"></div>
     </section>
 
@@ -358,6 +358,7 @@
       function renderQueue() {
         var panel = $("uploadPanel");
         var list = $("uploadList");
+        var S = UploadService.STATE; // 状态枚举：渲染层只读，不造字符串
         if (!UploadService.tasks().length) {
           panel.hidden = true;
           list.innerHTML = "";
@@ -367,16 +368,36 @@
         if (lastFiles.length && !$("fileTable").hidden) renderFiles(lastFiles);
         panel.hidden = false;
         list.innerHTML = "";
-        var done = 0, failed = 0;
+        var done = 0, failed = 0, paused = 0;
         UploadService.tasks().forEach(function (t) {
-          if (t.status === "done") done++;
-          if (t.status === "failed") failed++;
+          if (t.status === S.DONE) done++;
+          if (t.status === S.FAILED) failed++;
+          if (t.status === S.PAUSED) paused++;
         });
-        $("upSummary").textContent = "共 " + UploadService.tasks().length + " 个 · 完成 " + done + (failed ? " · 失败 " + failed : "");
+        $("upSummary").textContent = "共 " + UploadService.tasks().length + " 个 · 完成 " + done +
+          (failed ? " · 失败 " + failed : "") + (paused ? " · 暂停 " + paused : "");
+
+        // 队列级操作：有暂停→全部恢复；有活动→全部暂停（v7.1 状态机）
+        var gb = $("upGlobalBtns");
+        gb.innerHTML = "";
+        if (paused > 0) {
+          var btnResumeAll = document.createElement("button");
+          btnResumeAll.className = "up-retry";
+          btnResumeAll.textContent = "▶️ 全部恢复";
+          btnResumeAll.onclick = function () { UploadService.resumeAll(); };
+          gb.appendChild(btnResumeAll);
+        }
+        if (UploadService.tasks().some(function (t) { return UploadService.isUploading(t.file.name); })) {
+          var btnPauseAll = document.createElement("button");
+          btnPauseAll.className = "up-pause";
+          btnPauseAll.textContent = "⏸️ 全部暂停";
+          btnPauseAll.onclick = function () { UploadService.pauseAll(); };
+          gb.appendChild(btnPauseAll);
+        }
 
         UploadService.tasks().forEach(function (t) {
           var item = document.createElement("div");
-          item.className = "up-item" + (t.status === "done" ? " done" : t.status === "failed" ? " failed" : "");
+          item.className = "up-item" + (t.status === S.DONE ? " done" : t.status === S.FAILED ? " failed" : t.status === S.PAUSED ? " paused" : "");
           item.setAttribute("data-name", t.file.name); // 测试与调试可按文件名定位
 
           var row = document.createElement("div");
@@ -388,13 +409,14 @@
           name.textContent = t.file.name + "（" + fmtBytes(t.file.size) + "）" +
             (t.mode === "chunked" ? " · 分片 " + (t.total || 0) + " 片" : "");
           var status = document.createElement("span");
-          status.className = "up-status" + (t.status === "done" ? " ok" : t.status === "failed" ? " err" : "");
+          status.className = "up-status" + (t.status === S.DONE ? " ok" : t.status === S.FAILED ? " err" : "");
           var statusText =
-            t.status === "done" ? "✅ 完成" :
-            t.status === "failed" ? "❌ " + (t.error || "失败") + (t.hint ? "（" + t.hint + "）" : "") :
-            t.status === "reading" ? "读取中…" :
-            t.status === "checking" ? (t.hint || "检查断点…") :
-            t.status === "finishing" ? (t.hint || "写入清单…") :
+            t.status === S.DONE ? "✅ 完成" :
+            t.status === S.FAILED ? "❌ " + (t.error || "失败") + (t.hint ? "（" + t.hint + "）" : "") :
+            t.status === S.PAUSED ? "⏸️ 已暂停" + (t.progress ? "（" + t.progress + "%）" : "") :
+            t.status === S.READING ? "读取中…" :
+            t.status === S.CHECKING ? (t.hint || "检查断点…") :
+            t.status === S.FINISHING ? (t.hint || "写入清单…") :
             t.hint ? t.hint + " " + (t.progress || 0) + "%" :
             t.progress > 0 ? t.progress + "%" : "等待中…";
           status.textContent = statusText;
@@ -405,24 +427,54 @@
           var bar = document.createElement("div");
           bar.className = "up-bar";
           var fill = document.createElement("i");
-          fill.style.width = (t.status === "done" ? 100 : t.progress || 0) + "%";
+          fill.style.width = (t.status === S.DONE ? 100 : t.progress || 0) + "%";
           bar.appendChild(fill);
 
           item.appendChild(row);
           item.appendChild(bar);
 
-          if (t.status === "failed") {
+          // v7.1 状态机按钮：失败→继续上传（断点续传）；活动→暂停；暂停→恢复；均可取消
+          if (t.status === S.FAILED) {
             var retry = document.createElement("button");
             retry.className = "up-retry";
             retry.textContent = t.mode === "chunked" ? "继续上传（断点续传）" : "重试";
             retry.onclick = function () { UploadService.retry(t); };
             row.appendChild(retry);
+          } else if (UploadService.STATE.PAUSED === t.status) {
+            var resumeBtn = document.createElement("button");
+            resumeBtn.className = "up-retry";
+            resumeBtn.textContent = "▶️ 恢复";
+            resumeBtn.onclick = function () { UploadService.resume(t); };
+            row.appendChild(resumeBtn);
+          } else if (t.status !== S.DONE) {
+            var pauseBtn = document.createElement("button");
+            pauseBtn.className = "up-pause";
+            pauseBtn.textContent = "⏸️ 暂停";
+            pauseBtn.onclick = function () { UploadService.pause(t); };
+            row.appendChild(pauseBtn);
+          }
+          if (t.status !== S.DONE) {
+            var cancelBtn = document.createElement("button");
+            cancelBtn.className = "up-cancel";
+            cancelBtn.textContent = "✖";
+            cancelBtn.title = "取消该任务（已传分片保留，可续传）";
+            cancelBtn.onclick = function () { UploadService.cancel(t); };
+            row.appendChild(cancelBtn);
           }
           list.appendChild(item);
         });
       }
 
       /* ---------- 事件绑定 ---------- */
+      /* ---------- v7.1 beforeunload：上传中离开页面提醒，防误关丢进度 ----------
+       * 已传分片在服务端有断点，关页面本质可恢复——但确认弹窗给用户知情权，
+       * 避免「以为传完了」直接关标签。暂停/失败/完成态不拦（isBusy=false）。 */
+      window.addEventListener("beforeunload", function (e) {
+        if (!UploadService.isBusy()) return;
+        e.preventDefault(); // Chrome ≥51：必须设置 returnValue 才弹确认框
+        e.returnValue = "";
+      });
+
       $("btnUpload").onclick = function () { $("fileInput").click(); };
       $("fileInput").onchange = function () {
         UploadService.addFiles(this.files);

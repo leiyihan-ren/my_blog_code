@@ -110,7 +110,7 @@ my-blog/
 │       └── hanoi.js      #     汉诺塔大师（最优步数挑战）
 ├── services/             # 网络请求与业务引擎
 │   ├── request.js        #   全站统一请求层 BlogApi（超时/重试/错误归一）
-│   └── uploadService.js  #   云盘上传/下载引擎：分片切割/断点续传/重试退避/并发队列
+│   └── uploadService.js  #   云盘上传/下载引擎：分片切割/断点续传/重试退避/并发队列/暂停恢复取消状态机
 ├── styles/               # 样式
 │   ├── common.css        #   全站公共样式 + 设计变量（主题色/暗色模式）
 │   └── drive.css         #   云盘页专属样式
@@ -121,7 +121,7 @@ my-blog/
 ├── scripts/              # 构建与路由工具（不部署）
 │   ├── build-pages.mjs   #   整站同步到 Pages 候选输出目录（dist/public/build）
 │   └── route-map.mjs     #   页面路由唯一事实来源（_worker.js 重写表与之同步，step10 守护）
-├── tests/                # 14 套件自动化测试（不部署）
+├── tests/                # 15 套件自动化测试（不部署）
 └── docs/                 # 技术文档
     ├── 核心组件依赖拓扑.md        # 页面/脚本/Worker/KV/外部依赖全景 + 关键不变量
     ├── 播放器与游戏接口文档.md    # 播放器状态机 + GameCore API + 子游戏注册契约
@@ -132,6 +132,11 @@ my-blog/
 > **v7.0 架构说明**：页面物理上在 `pages/`，但对外 URL 全部保持根级（`/drive.html` 不变）。
 > `_worker.js` 的重写层把根级 URL 映射到 `pages/` 物理文件，旧书签、外链、SEO 收录、
 > Service Worker 预缓存清单零破坏。页面内所有引用均为根绝对路径，与物理目录解耦。
+
+> **v7.1 状态机说明**：云盘上传的全部状态流转（空闲/上传中/暂停/错误/重试/取消）归
+> `services/uploadService.js`，`pages/drive.html` 只读 `UploadService.tasks()` 渲染。
+> 文件级并发上限 3；上传中离开页面有 `beforeunload` 确认；断网时单片指数退避重试，
+> 网络恢复（`online` 事件）自动续跑失败任务。
 
 ## 各页面详解（小白必读）
 
@@ -340,11 +345,11 @@ wrangler pages deploy .  # 部署当前目录
 
 项目不依赖任何构建步骤，直接用任意静态服务器 + Node 即可测试。
 
-### v7.0 测试体系（`tests/` 目录，14 套件）
+### v7.1 测试体系（`tests/` 目录，15 套件）
 
 ```bash
 npm install                       # 安装 playwright（devDependency）
-npm test                          # 全量回归：14 套件顺序执行，任一失败退出码非 0
+npm test                          # 全量回归：15 套件顺序执行，任一失败退出码非 0
 ```
 
 | 套件 | 断言 | 覆盖 |
@@ -361,7 +366,8 @@ npm test                          # 全量回归：14 套件顺序执行，任�
 | `step7-drive-api.mjs` | 33 | 云盘 API：PIN 校验/列目录/上传/删除/路径穿越防御/8MB 阈值 |
 | `step7-drive-ui.mjs` | 14 | 云盘页面端到端：PIN 模态/上传/下载/删除确认/导航 active |
 | `step8-drive-chunked.mjs` | 36 | 大文件分片协议：断点续传/失败收集/409 自愈有界重试 |
-| `step9-drive-chunked-ui.mjs` | 28 | 大文件端到端：32MB 七片/进度条/弱网重试/重组下载/删除锁 |
+| `step9-drive-chunked-ui.mjs` | 28 | 大文件端到端：32MB 七片/进度条/弱网重试/重组下载/删除锁/并发峰值 ≤3 |
+| `step11-drive-state-machine.mjs` | 25 | v7.1 状态机：暂停/恢复/取消/断网退避/online 自动重连/beforeunload/并发 3 |
 | `step10-routes-verify.mjs` | 23 | v7.0 守护：路由表同步/Worker 重写行为/243 处链接完整性/SW 注册路径/无相对引用 |
 
 测试零硬编码路径：`tests/_helpers.mjs` 从 `import.meta.url` 推导仓库根目录并动态导入

@@ -5,7 +5,7 @@
 //   V2 弱网重试：第 1 片首次请求 500 → 前端自动重试成功
 //   V3 断点续传：第 2 片连续失败耗尽重试 → 「继续上传」→ 只补失败片
 //   V4 删除锁：同名大文件上传中 → 删除按钮禁用 → 完成后恢复；覆盖不产生重复条目
-//   V5 并发控制：3 个 11MB 文件 → mock 侧峰值并发 ≤2
+//   V5 并发控制：3 个 11MB 文件 → mock 侧峰值并发 ≤3（v7.1 起上限 3）
 //   V6 大文件重组下载：Blob 总字节 = 文件大小
 //   V7 小文件直传路径不受影响（回归）
 //   V8 32MB 端到端：7 片上传+进度条 → 列表 → 重组下载 32MB Blob → 删除注入 409 自愈
@@ -379,7 +379,7 @@ async function main() {
       JSON.stringify(ghLog.partPuts.map((p) => p.path))
     );
 
-    // V5 并发控制：3 个 11MB 文件 → 峰值并发 ≤2
+    // V5 并发控制：3 个 11MB 文件 → 峰值并发 ≤3（v7.1：MAX_CONCURRENT 2→3）
     maxInFlight = 0;
     const files = [];
     for (let i = 0; i < 3; i++) {
@@ -396,7 +396,8 @@ async function main() {
       { timeout: 180000 }
     );
     check("V5a 3 个 11MB 文件全部完成", true);
-    check("V5b 分片并发峰值 ≤2（队列限流生效）", maxInFlight <= 2, `峰值=${maxInFlight}`);
+    check("V5b 分片并发峰值 ≤3（队列限流生效，v7.1 并发 3）", maxInFlight <= 3, `峰值=${maxInFlight}`);
+    check("V5c 3 并发确有并行（峰值 ≥2，非退化为串行）", maxInFlight >= 2, `峰值=${maxInFlight}`);
 
     // V6 大文件重组下载：先校验 manifest 与分片直链可用，再点击下载验证 Blob 重组
     await page.addInitScript(() => { window.__blobSizes = []; });

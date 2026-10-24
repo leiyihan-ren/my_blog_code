@@ -1,5 +1,5 @@
 // ============================================================
-// 全链路测试总runner：顺序执行 8 个测试套件，汇总通过/失败
+// 全链路测试总runner：顺序执行 15 个测试套件，汇总通过/失败
 // 任一失败 → 进程退出码 1（CI 直接判红）
 // 用法：node tests/run-all.mjs
 // 环境变量：CHROMIUM_PATH 指定 Chromium 可执行文件路径
@@ -25,6 +25,7 @@ const SUITES = [
   { name: "云盘页面端到端", file: "step7-drive-ui.mjs" },
   { name: "大文件分片协议 API", file: "step8-drive-chunked.mjs" },
   { name: "大文件分片端到端", file: "step9-drive-chunked-ui.mjs" },
+  { name: "云盘状态机（v7.1）", file: "step11-drive-state-machine.mjs" },
   { name: "路由重写与链接守护", file: "step10-routes-verify.mjs" },
 ];
 
