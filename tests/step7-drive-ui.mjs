@@ -11,6 +11,7 @@
 // 运行：node tests/step7-drive-ui.mjs
 // ============================================================
 import worker, { ROOT } from "./_helpers.mjs";
+import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -143,8 +144,7 @@ async function main() {
         return res.end(body);
       }
       let fp = p;
-      if (fp.endsWith("/")) fp += "index.html";
-      const file = path.join(ROOT, fp);
+      const file = path.join(ROOT, staticFilePath(p)); // v7.0：经 route-map 映射到 pages/ 等物理路径
       if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end("nf"); }
       const ext = path.extname(file).toLowerCase();
       const mime = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json", ".png": "image/png" }[ext] || "application/octet-stream";
@@ -222,7 +222,7 @@ async function main() {
     check("U5c 上传走 PUT 且新文件不带 sha", ghDrive.putBodies.length >= 1 && !ghDrive.putBodies[ghDrive.putBodies.length - 1].sha, JSON.stringify(ghDrive.putBodies.slice(-1)));
 
     // U7 导航含云盘且 active
-    const navActive = await page.getAttribute('.nav-links a[href="drive.html"]', "class");
+    const navActive = await page.getAttribute('.nav-links a[href="/drive.html"]', "class");
     check("U7 导航云盘项 active", navActive === "active", navActive);
   } finally {
     await browser.close();

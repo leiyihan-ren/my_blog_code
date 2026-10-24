@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#4f46e5">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -26,7 +26,7 @@
   <meta name="twitter:card" content="summary">
   <meta name="twitter:description" content="阅读博客文章全文，参与评论交流。">
   <title>文章 - 我的博客</title>
-  <link rel="stylesheet" href="common.css">
+  <link rel="stylesheet" href="/styles/common.css">
     <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -694,25 +694,25 @@
     if (__tc) __tc.setAttribute("content", __dark ? "#0f0f1a" : "#4f46e5");
   } catch (e) {}
 </script>
-<script src="common.js"></script>
-<script src="js/utils.js"></script>
-<script src="js/request.js"></script>
+<script src="/utils/common.js"></script>
+<script src="/utils/blog-utils.js"></script>
+<script src="/services/request.js"></script>
 <main>
   <div class="progress-bar" id="progressBar"></div>
 
   <nav class="navbar">
     <div class="nav-inner">
-      <a href="index.html" class="logo" id="nav-logo">我的博客</a>
+      <a href="/index.html" class="logo" id="nav-logo">我的博客</a>
       <div class="nav-right">
         <ul class="nav-links">
-          <li><a href="index.html">首页</a></li>
-          <li><a href="blog.html">博客</a></li>
-          <li><a href="album.html">相册</a></li>
-          <li><a href="timeline.html">时间线</a></li>
-          <li><a href="guestbook.html">留言</a></li>
-          <li><a href="games.html">游戏</a></li>
-          <li><a href="links.html">友链</a></li>
-          <li><a href="drive.html">云盘</a></li>
+          <li><a href="/index.html">首页</a></li>
+          <li><a href="/blog.html">博客</a></li>
+          <li><a href="/album.html">相册</a></li>
+          <li><a href="/timeline.html">时间线</a></li>
+          <li><a href="/guestbook.html">留言</a></li>
+          <li><a href="/games.html">游戏</a></li>
+          <li><a href="/links.html">友链</a></li>
+          <li><a href="/drive.html">云盘</a></li>
         </ul>
         <button class="theme-btn" title="切换主题" aria-label="切换主题">🌙</button>
         <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
@@ -720,17 +720,17 @@
     </div>
   </nav>
   <div class="mobile-menu" id="mobileMenu">
-    <a href="index.html">首页</a>
-    <a href="blog.html">博客</a>
-    <a href="album.html">相册</a>
-    <a href="timeline.html">时间线</a>
-    <a href="guestbook.html">留言</a>
-    <a href="games.html">游戏</a>
-    <a href="links.html">友链</a>
+    <a href="/index.html">首页</a>
+    <a href="/blog.html">博客</a>
+    <a href="/album.html">相册</a>
+    <a href="/timeline.html">时间线</a>
+    <a href="/guestbook.html">留言</a>
+    <a href="/games.html">游戏</a>
+    <a href="/links.html">友链</a>
   </div>
 
   <div class="container">
-    <a href="blog.html" class="back-link">← 返回文章列表</a>
+    <a href="/blog.html" class="back-link">← 返回文章列表</a>
     <div id="article-container"></div>
   </div>
 
@@ -994,11 +994,11 @@
             </button>
           </div>
           <div class="post-nav">
-            ${prev ? `<a href="post.html?id=${escapeHtml(prev.id)}" class="post-nav-card">
+            ${prev ? `<a href="/post.html?id=${escapeHtml(prev.id)}" class="post-nav-card">
               <div class="post-nav-label">← 上一篇</div>
               <div class="post-nav-title">${escapeHtml(prev.title)}</div>
             </a>` : '<div class="post-nav-card post-nav-empty"><div class="post-nav-label">← 上一篇</div><div class="post-nav-title">没有了</div></div>'}
-            ${next ? `<a href="post.html?id=${escapeHtml(next.id)}" class="post-nav-card post-nav-next">
+            ${next ? `<a href="/post.html?id=${escapeHtml(next.id)}" class="post-nav-card post-nav-next">
               <div class="post-nav-label">下一篇 →</div>
               <div class="post-nav-title">${escapeHtml(next.title)}</div>
             </a>` : '<div class="post-nav-card post-nav-empty post-nav-next"><div class="post-nav-label">下一篇 →</div><div class="post-nav-title">没有了</div></div>'}
@@ -1589,11 +1589,11 @@
       const navEl = document.querySelector(".post-nav");
       if (!navEl) return;
       navEl.innerHTML = `
-        ${prev ? `<a href="post.html?id=${escapeHtml(prev.id)}" class="post-nav-card">
+        ${prev ? `<a href="/post.html?id=${escapeHtml(prev.id)}" class="post-nav-card">
           <div class="post-nav-label">← 上一篇</div>
           <div class="post-nav-title">${escapeHtml(prev.title)}</div>
         </a>` : '<div class="post-nav-card post-nav-empty"><div class="post-nav-label">← 上一篇</div><div class="post-nav-title">没有了</div></div>'}
-        ${next ? `<a href="post.html?id=${escapeHtml(next.id)}" class="post-nav-card post-nav-next">
+        ${next ? `<a href="/post.html?id=${escapeHtml(next.id)}" class="post-nav-card post-nav-next">
           <div class="post-nav-label">下一篇 →</div>
           <div class="post-nav-title">${escapeHtml(next.title)}</div>
         </a>` : '<div class="post-nav-card post-nav-empty post-nav-next"><div class="post-nav-label">下一篇 →</div><div class="post-nav-title">没有了</div></div>'}
@@ -1611,6 +1611,6 @@
     <div class="toc-title">📑 目录</div>
     <ul class="toc-list" id="tocList"></ul>
   </nav>
-<script src="music-player.js" defer></script>
+<script src="/components/music-player.js" defer></script>
 </body>
 </html>

@@ -560,6 +560,30 @@ function staticCacheControl(pathname) {
   return "public, max-age=3600";
 }
 
+// ============================================================
+// 静态页面重写层（v7.0 目录重构）
+// ------------------------------------------------------------
+// 源码下沉 pages/ 后，对外 URL 仍保持根级干净路径：
+//   /drive.html → /pages/drive.html
+// 旧书签、外链、SW 预缓存清单、SEO 收录全部零破坏。
+// 查询串原样保留（post.html?id=xxx 正常可用）。
+// ⚠️ 本表与 scripts/route-map.mjs 是同一份事实的两处拷贝，
+//    tests/step10-routes-verify.mjs 有同步断言，改动必须两边同步。
+// ============================================================
+const PAGE_REWRITES = {
+  "/": "/pages/index.html",
+  "/index.html": "/pages/index.html",
+  "/admin.html": "/pages/admin.html",
+  "/album.html": "/pages/album.html",
+  "/blog.html": "/pages/blog.html",
+  "/drive.html": "/pages/drive.html",
+  "/games.html": "/pages/games.html",
+  "/guestbook.html": "/pages/guestbook.html",
+  "/links.html": "/pages/links.html",
+  "/post.html": "/pages/post.html",
+  "/timeline.html": "/pages/timeline.html",
+};
+
 /** 为静态资源响应附加安全响应头 */
 function addStaticSecurityHeaders(response, pathname) {
   const headers = new Headers(response.headers);
@@ -3952,7 +3976,19 @@ export default {
 
     // 非 API 请求：交给静态资源处理器，并附加安全头与缓存策略
     if (env.ASSETS) {
-      return addStaticSecurityHeaders(await env.ASSETS.fetch(request), url.pathname);
+      // v7.0 页面重写：对外根级 URL → pages/ 物理文件（查询串原样保留）。
+      // 传原始 pathname 给安全头逻辑，缓存策略仍按对外 URL 判定
+      //（.html/sw.js/manifest.json → max-age=0，其余 1 小时）。
+      let target = request;
+      const mapped = PAGE_REWRITES[url.pathname];
+      if (mapped) {
+        const rewritten = new URL(mapped + url.search, url.origin);
+        target = new Request(rewritten, {
+          method: request.method,
+          headers: request.headers,
+        });
+      }
+      return addStaticSecurityHeaders(await env.ASSETS.fetch(target), url.pathname);
     }
     return new Response("Not Found", { status: 404 });
   },

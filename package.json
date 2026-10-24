@@ -1,8 +1,8 @@
 {
   "name": "my-blog",
-  "version": "3.0.0",
+  "version": "7.0.0",
   "private": true,
-  "description": "Cloudflare Worker 博客：PWA + 动态内容 + SEO/CSP 加固 + 全链路测试",
+  "description": "Cloudflare Worker 博客：PWA + 动态内容 + SEO/CSP 加固 + GitHub 云盘 + 全链路测试",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -20,7 +20,11 @@
     "test:a11y": "node tests/step4-a11y-audit.mjs",
     "test:lightbox": "node tests/step4-lightbox-trap.mjs",
     "test:stress": "node tests/step3-ui-stress.mjs",
-    "test:common": "node tests/step5-common-verify.mjs"
+    "test:common": "node tests/step5-common-verify.mjs",
+    "test:edge": "node tests/step6-edge-cache.mjs",
+    "test:drive": "node tests/step7-drive-api.mjs && node tests/step7-drive-ui.mjs",
+    "test:chunked": "node tests/step8-drive-chunked.mjs && node tests/step9-drive-chunked-ui.mjs",
+    "test:routes": "node tests/step10-routes-verify.mjs"
   },
   "devDependencies": {
     "playwright": "^1.58.1"

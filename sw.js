@@ -26,42 +26,47 @@
 "use strict";
 
 /* ⚠️ 每次发布新版本时必须 +1，否则用户可能停留在旧缓存 */
-const CACHE_VERSION = "v3.0.2";
+const CACHE_VERSION = "v3.1.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
-const OFFLINE_URL = "./index.html";
+const OFFLINE_URL = "/index.html";
 const RUNTIME_MAX_ENTRIES = 80; // 运行时缓存（音乐/图片）上限，超出按插入序淘汰
 
-/* 预缓存清单：全站外壳 —— 断网可直接打开，小游戏/播放器离线可运行 */
+/* 预缓存清单：全站外壳 —— 断网可直接打开，小游戏/播放器/云盘离线可运行
+ * v7.0：资源已下沉 pages/ styles/ utils/ services/ components/ 目录，
+ * 但对外 URL 全部保持根级（_worker.js 重写层映射到物理文件），
+ * 故本清单仍按「浏览器实际请求的 URL」罗列，无需关心物理路径。 */
 const PRECACHE_URLS = [
-  "./index.html",
-  "./blog.html",
-  "./games.html",
-  "./album.html",
-  "./links.html",
-  "./timeline.html",
-  "./guestbook.html",
-  "./post.html",
-  "./admin.html",
-  "./drive.html",
-  "./common.css",
-  "./common.js",
-  "./js/utils.js",
-  "./js/request.js",
-  "./music-player.js",
-  "./game-core.js",
-  "./games/breakout.js",
-  "./games/g2048.js",
-  "./games/hanoi.js",
-  "./games/memory.js",
-  "./games/mines.js",
-  "./games/reaction.js",
-  "./games/snake.js",
-  "./manifest.json",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./icons/apple-touch-icon.png",
-  "./icons/favicon.svg",
+  "/index.html",
+  "/blog.html",
+  "/games.html",
+  "/album.html",
+  "/links.html",
+  "/timeline.html",
+  "/guestbook.html",
+  "/post.html",
+  "/admin.html",
+  "/drive.html",
+  "/styles/common.css",
+  "/styles/drive.css",
+  "/utils/common.js",
+  "/utils/blog-utils.js",
+  "/services/request.js",
+  "/services/uploadService.js",
+  "/components/music-player.js",
+  "/components/game-core.js",
+  "/components/games/breakout.js",
+  "/components/games/g2048.js",
+  "/components/games/hanoi.js",
+  "/components/games/memory.js",
+  "/components/games/mines.js",
+  "/components/games/reaction.js",
+  "/components/games/snake.js",
+  "/manifest.json",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/apple-touch-icon.png",
+  "/icons/favicon.svg",
 ];
 
 /* ---------- install：预缓存外壳（单项失败不拖垮整体） ---------- */

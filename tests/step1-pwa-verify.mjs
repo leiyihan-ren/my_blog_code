@@ -12,6 +12,7 @@
 // 运行：node tests/step1-pwa-verify.mjs
 // ============================================================
 import worker, { ROOT } from "./_helpers.mjs";
+import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -51,8 +52,7 @@ const server = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "application/json" });
       return res.end("{}");
     }
-    if (p.endsWith("/")) p += "index.html";
-    const file = path.join(ROOT, p);
+    const file = path.join(ROOT, staticFilePath(p)); // v7.0：经 route-map 映射到 pages/ 等物理路径
     if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404); return res.end("nf");
     }
@@ -77,7 +77,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* ---- 测试前保存原始文件内容，结束后文件系统级恢复（git 管不了未跟踪文件） ---- */
 const SW_PATH = path.join(ROOT, "sw.js");
-const IDX_PATH = path.join(ROOT, "index.html");
+const IDX_PATH = path.join(ROOT, "pages", "index.html"); // v7.0：页面已下沉 pages/
 const SW_ORIG = fs.readFileSync(SW_PATH, "utf8");
 const IDX_ORIG = fs.readFileSync(IDX_PATH, "utf8");
 const restore = () => {
@@ -145,7 +145,8 @@ const swState = await pageA.evaluate(async () => {
 });
 check("SW 注册成功且激活控制页面", swState.hasController, swState.scriptURL);
 check("SW scope 覆盖全站", swState.scope.endsWith("/"), swState.scope);
-const STATIC_CACHE = "my-blog-static-v3.0.2";
+const swVer = /CACHE_VERSION = "(v[\d.]+)"/.exec(fs.readFileSync(path.join(ROOT, "sw.js"), "utf8"));
+const STATIC_CACHE = `my-blog-static-${swVer[1]}`;
 check(`预缓存容器 ${STATIC_CACHE} 已创建`, swState.cacheKeys.includes(STATIC_CACHE), swState.cacheKeys.join(","));
 
 const precached = await pageA.evaluate(async (cacheName) => {
@@ -155,10 +156,14 @@ const precached = await pageA.evaluate(async (cacheName) => {
 }, STATIC_CACHE);
 const EXPECT_CORE = [
   "/index.html", "/blog.html", "/games.html", "/album.html", "/links.html",
-  "/timeline.html", "/guestbook.html", "/post.html", "/admin.html",
-  "/common.css", "/common.js", "/music-player.js", "/game-core.js",
-  "/games/breakout.js", "/games/g2048.js", "/games/hanoi.js",
-  "/games/memory.js", "/games/mines.js", "/games/reaction.js", "/games/snake.js",
+  "/timeline.html", "/guestbook.html", "/post.html", "/admin.html", "/drive.html",
+  "/styles/common.css", "/styles/drive.css",
+  "/utils/common.js", "/utils/blog-utils.js",
+  "/services/request.js", "/services/uploadService.js",
+  "/components/music-player.js", "/components/game-core.js",
+  "/components/games/breakout.js", "/components/games/g2048.js", "/components/games/hanoi.js",
+  "/components/games/memory.js", "/components/games/mines.js", "/components/games/reaction.js",
+  "/components/games/snake.js",
   "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png",
 ];
 const missing = EXPECT_CORE.filter((u) => !precached.includes(u));
@@ -267,7 +272,7 @@ console.log("\n═══ P7 HTML 内容新鲜度（网络优先，旧缓存不�
 console.log("\n═══ P6 SW 版本控制：新版本发布后用户不停留旧页面 ═══");
 await pageA.close(); // 关闭旧页面，避免其 controllerchange 自动刷新干扰
 const swSrc = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
-const OLD_VER = "v3.0.2", NEW_VER = "v3.0.3";
+const OLD_VER = swVer[1], NEW_VER = swVer[1].replace(/(\d+)$/, (m) => String(Number(m) + 1));
 if (!swSrc.includes(`"${OLD_VER}"`)) {
   check("sw.js 含可替换版本常量", false, "未找到版本常量");
 } else {

@@ -3,20 +3,20 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#4f46e5">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="我的博客">
   <meta name="robots" content="noindex, nofollow">
   <title>管理后台 - 我的博客</title>
-  <link rel="stylesheet" href="common.css">
-  <script src="common.js"></script>
-<script src="js/utils.js"></script>
-<script src="js/request.js"></script>
+  <link rel="stylesheet" href="/styles/common.css">
+  <script src="/utils/common.js"></script>
+<script src="/utils/blog-utils.js"></script>
+<script src="/services/request.js"></script>
     <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -517,7 +517,7 @@
   } catch (e) {}
 </script>
   <main class="container">
-    <a href="index.html" class="back-link">← 返回网站</a>
+    <a href="/index.html" class="back-link">← 返回网站</a>
 
     <!-- 登录页面 -->
     <div class="card login-card" id="login-page">
@@ -738,7 +738,7 @@
         <div class="tab-content" id="tab-links">
           <h2>友链管理</h2>
           <p style="color:var(--text-mute);font-size:13px;margin-bottom:14px">
-            添加后会展示在 <a href="links.html" target="_blank" class="help-link" style="color:var(--primary-text)">友情链接页</a>，「排序」数字越小越靠前。
+            添加后会展示在 <a href="/links.html" target="_blank" class="help-link" style="color:var(--primary-text)">友情链接页</a>，「排序」数字越小越靠前。
           </p>
           <button class="btn btn-primary btn-sm" style="margin-bottom:16px" onclick="openLinkModal()">+ 添加友链</button>
           <div id="links-list"></div>
@@ -748,7 +748,7 @@
         <div class="tab-content" id="tab-games">
           <h2>游戏管理</h2>
           <p style="color:var(--text-mute);font-size:13px;margin-bottom:14px">
-            查看 <a href="games.html" target="_blank" class="help-link" style="color:var(--primary-text)">游戏大厅</a> 的各游戏排行榜，可清空单个游戏的全部成绩。
+            查看 <a href="/games.html" target="_blank" class="help-link" style="color:var(--primary-text)">游戏大厅</a> 的各游戏排行榜，可清空单个游戏的全部成绩。
           </p>
           <div id="games-list"></div>
         </div>

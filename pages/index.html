@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
-  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#4f46e5">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -25,7 +25,7 @@
 <link rel="canonical" href="https://leiyihan.dpdns.org/index.html">
   <meta name="twitter:card" content="summary">
   <title>首页 - 我的博客</title>
-  <link rel="stylesheet" href="common.css">
+  <link rel="stylesheet" href="/styles/common.css">
     <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -580,23 +580,23 @@
     if (__tc) __tc.setAttribute("content", __dark ? "#0f0f1a" : "#4f46e5");
   } catch (e) {}
 </script>
-<script src="common.js"></script>
-<script src="js/utils.js"></script>
-<script src="js/request.js"></script>
+<script src="/utils/common.js"></script>
+<script src="/utils/blog-utils.js"></script>
+<script src="/services/request.js"></script>
 <main>
   <nav class="navbar">
     <div class="nav-inner">
-      <a href="index.html" class="logo" id="nav-logo">我的博客</a>
+      <a href="/index.html" class="logo" id="nav-logo">我的博客</a>
       <div class="nav-right">
         <ul class="nav-links">
-          <li><a href="index.html" class="active">首页</a></li>
-          <li><a href="blog.html">博客</a></li>
-          <li><a href="album.html">相册</a></li>
-          <li><a href="timeline.html">时间线</a></li>
-          <li><a href="guestbook.html">留言</a></li>
-          <li><a href="games.html">游戏</a></li>
-          <li><a href="links.html">友链</a></li>
-          <li><a href="drive.html">云盘</a></li>
+          <li><a href="/index.html" class="active">首页</a></li>
+          <li><a href="/blog.html">博客</a></li>
+          <li><a href="/album.html">相册</a></li>
+          <li><a href="/timeline.html">时间线</a></li>
+          <li><a href="/guestbook.html">留言</a></li>
+          <li><a href="/games.html">游戏</a></li>
+          <li><a href="/links.html">友链</a></li>
+          <li><a href="/drive.html">云盘</a></li>
         </ul>
         <button class="theme-btn" title="切换主题" aria-label="切换主题">🌙</button>
         <button class="nav-toggle" id="navToggle" aria-label="菜单">
@@ -606,13 +606,13 @@
     </div>
   </nav>
   <div class="mobile-menu" id="mobileMenu">
-    <a href="index.html" class="active">首页</a>
-    <a href="blog.html">博客</a>
-    <a href="album.html">相册</a>
-    <a href="timeline.html">时间线</a>
-    <a href="guestbook.html">留言</a>
-    <a href="games.html">游戏</a>
-    <a href="links.html">友链</a>
+    <a href="/index.html" class="active">首页</a>
+    <a href="/blog.html">博客</a>
+    <a href="/album.html">相册</a>
+    <a href="/timeline.html">时间线</a>
+    <a href="/guestbook.html">留言</a>
+    <a href="/games.html">游戏</a>
+    <a href="/links.html">友链</a>
   </div>
 
   <div class="hero">
@@ -677,13 +677,13 @@
 
     <h2 class="section-title reveal">
       📝 最新文章
-      <a href="blog.html" class="more">查看全部 →</a>
+      <a href="/blog.html" class="more">查看全部 →</a>
     </h2>
     <div id="latest-posts" class="reveal"></div>
 
     <h2 class="section-title reveal">
       🔥 热门文章
-      <a href="games.html" class="more">去玩两把 →</a>
+      <a href="/games.html" class="more">去玩两把 →</a>
     </h2>
     <div id="popular-posts" class="reveal"></div>
   </div>
@@ -764,7 +764,7 @@
           : escapeHtml(content.replace(/\n/g, " ").slice(0, 120)) + "...";
         return `
         <div class="post-card" style="animation:fadeUp 0.5s ease ${i * 0.1}s both" onclick="location.href='post.html?id=${escapeHtml(p.id)}'">
-          <h3><a href="post.html?id=${escapeHtml(p.id)}">${escapeHtml(p.title)}</a></h3>
+          <h3><a href="/post.html?id=${escapeHtml(p.id)}">${escapeHtml(p.title)}</a></h3>
           <div class="post-meta">
             <span>📅 ${escapeHtml(p.date)}</span>
             <span>📖 ${Math.ceil(content.length / 300)} 分钟阅读</span>
@@ -788,7 +788,7 @@
         <div class="rank-card" style="animation:fadeUp 0.5s ease ${i * 0.08}s both" onclick="location.href='post.html?id=${escapeHtml(p.id)}'">
           <div class="rank-no">${medals[i] || (i + 1)}</div>
           <div class="rank-main">
-            <div class="rank-title"><a href="post.html?id=${escapeHtml(p.id)}">${escapeHtml(p.title)}</a></div>
+            <div class="rank-title"><a href="/post.html?id=${escapeHtml(p.id)}">${escapeHtml(p.title)}</a></div>
             <div class="rank-meta">👁️ ${(p.views || 0).toLocaleString()} 阅读 · ❤️ ${p.likes || 0} 赞</div>
           </div>
         </div>
@@ -911,6 +911,6 @@
     }
     init();
   </script>
-<script src="music-player.js" defer></script>
+<script src="/components/music-player.js" defer></script>
 </body>
 </html>

@@ -5,6 +5,7 @@
 // 运行：node tests/step4-a11y-audit.mjs
 // ============================================================
 import worker, { ROOT } from "./_helpers.mjs";
+import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import pkg from "playwright";
 import fs from "node:fs";
@@ -105,9 +106,7 @@ const MIME = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript
 const staticServer = http.createServer((req, res) => {
   try {
     const p = decodeURIComponent(new URL(req.url, "http://x").pathname);
-    let fp = p;
-    if (fp.endsWith("/")) fp += "index.html";
-    const file = path.join(ROOT, fp);
+    const file = path.join(ROOT, staticFilePath(p)); // v7.0：经 route-map 映射到 pages/ 等物理路径
     if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end("nf"); }
     const ext = path.extname(file);
     res.writeHead(200, { "Content-Type": MIME[ext] || "application/octet-stream" });

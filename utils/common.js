@@ -102,7 +102,9 @@
       window.location.reload();
     });
     const register = () => {
-      navigator.serviceWorker.register("sw.js").catch((e) => {
+      // v7.0：页面物理位置在 pages/ 但对外 URL 仍是根级（Worker 重写），
+      // 必须用绝对路径注册，否则会解析到 /pages/sw.js 而 404。
+      navigator.serviceWorker.register("/sw.js").catch((e) => {
         console.warn("[pwa] Service Worker 注册失败：", e && e.message);
       });
     };

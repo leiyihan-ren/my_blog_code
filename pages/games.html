@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#4f46e5">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -25,7 +25,7 @@
 <link rel="canonical" href="https://leiyihan.dpdns.org/games.html">
   <meta name="twitter:card" content="summary">
 <title>游戏大厅 - 我的博客</title>
-<link rel="stylesheet" href="common.css">
+<link rel="stylesheet" href="/styles/common.css">
     <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
@@ -500,23 +500,23 @@
     if (__tc) __tc.setAttribute("content", __dark ? "#0f0f1a" : "#4f46e5");
   } catch (e) {}
 </script>
-<script src="common.js"></script>
-<script src="js/utils.js"></script>
-<script src="js/request.js"></script>
+<script src="/utils/common.js"></script>
+<script src="/utils/blog-utils.js"></script>
+<script src="/services/request.js"></script>
 <main>
 <nav class="navbar">
   <div class="nav-inner">
-    <a href="index.html" class="logo" id="nav-logo">我的博客</a>
+    <a href="/index.html" class="logo" id="nav-logo">我的博客</a>
     <div class="nav-right">
       <ul class="nav-links">
-        <li><a href="index.html">首页</a></li>
-        <li><a href="blog.html">博客</a></li>
-        <li><a href="album.html">相册</a></li>
-        <li><a href="timeline.html">时间线</a></li>
-        <li><a href="guestbook.html">留言</a></li>
-        <li><a href="games.html" class="active">游戏</a></li>
-        <li><a href="links.html">友链</a></li>
-          <li><a href="drive.html">云盘</a></li>
+        <li><a href="/index.html">首页</a></li>
+        <li><a href="/blog.html">博客</a></li>
+        <li><a href="/album.html">相册</a></li>
+        <li><a href="/timeline.html">时间线</a></li>
+        <li><a href="/guestbook.html">留言</a></li>
+        <li><a href="/games.html" class="active">游戏</a></li>
+        <li><a href="/links.html">友链</a></li>
+          <li><a href="/drive.html">云盘</a></li>
       </ul>
       <button class="theme-btn" title="切换主题" aria-label="切换主题">🌙</button>
       <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
@@ -524,13 +524,13 @@
   </div>
 </nav>
 <div class="mobile-menu" id="mobileMenu">
-  <a href="index.html">首页</a>
-  <a href="blog.html">博客</a>
-  <a href="album.html">相册</a>
-  <a href="timeline.html">时间线</a>
-  <a href="guestbook.html">留言</a>
-  <a href="games.html" class="active">游戏</a>
-  <a href="links.html">友链</a>
+  <a href="/index.html">首页</a>
+  <a href="/blog.html">博客</a>
+  <a href="/album.html">相册</a>
+  <a href="/timeline.html">时间线</a>
+  <a href="/guestbook.html">留言</a>
+  <a href="/games.html" class="active">游戏</a>
+  <a href="/links.html">友链</a>
 </div>
 
 <div class="container">
@@ -589,8 +589,8 @@
 <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="game-core.js"></script>
-<script src="music-player.js" defer></script>
+<script src="/components/game-core.js"></script>
+<script src="/components/music-player.js" defer></script>
 <script>
 "use strict";
 const Core = window.GameCore;
@@ -599,13 +599,13 @@ const $ = Core.$;
 /* ---------- 懒加载占位注册（2.3 代码分割）----------
  * 仅注册展示用元数据（游戏网格/排行榜），重型游戏代码在首次打开时
  * 由 GameCore.openGame 按需注入对应 games/<id>.js，避免一次性加载全部游戏。 */
-Core.register("snake", { meta: { id: "snake", name: "贪吃蛇", icon: "🐍", desc: "吃掉食物变长，别撞墙也别咬到自己，三档速度任选", tips: "方向键 ↑↓←→ 或 WASD 控制方向；触屏可滑动或使用虚拟方向键。吃到食物 +10 分。", src: "games/snake.js" }, create: null });
-Core.register("breakout", { meta: { id: "breakout", name: "打砖块", icon: "🧱", desc: "弹球击碎所有砖块，别让球掉下去", tips: "移动鼠标或触屏拖动控制挡板，也可用 ←→。球落到底部失去一条命，共 3 条命。", src: "games/breakout.js" }, create: null });
-Core.register("2048", { meta: { id: "2048", name: "2048", icon: "🔢", desc: "滑动合并数字，挑战 2048 方块", tips: "方向键或滑动屏幕移动全部方块，相同数字相撞会合并，目标凑出 2048。", src: "games/g2048.js" }, create: null });
-Core.register("memory", { meta: { id: "memory", name: "记忆翻牌", icon: "🃏", desc: "翻开卡片找出全部配对，步数越少越好", tips: "点击卡片翻面，找出两张相同的即可消除。步数越少、用时越短，得分越高。", src: "games/memory.js" }, create: null });
-Core.register("mines", { meta: { id: "mines", name: "扫雷", icon: "💣", desc: "避开所有地雷，用数字推理安全区", tips: "左键翻开格子，右键或长按插旗标记地雷。全部安全格翻开即胜利。", src: "games/mines.js" }, create: null });
-Core.register("reaction", { meta: { id: "reaction", name: "闪电靶场", icon: "⚡", desc: "目标稍纵即逝，比拼反应与连击", tips: "目标点亮后立刻点击，或用数字键 1~9 直击对应靶格。连续击中触发连击倍率。", src: "games/reaction.js" }, create: null });
-Core.register("hanoi", { meta: { id: "hanoi", name: "汉诺塔大师", icon: "🗼", desc: "经典汉诺塔：大不压小，用最优步数完成挑战", tips: "把全部盘子从最左柱移到最右柱。每次只能移动一根盘子，不能把大盘子压到小盘子上。", src: "games/hanoi.js" }, create: null });
+Core.register("snake", { meta: { id: "snake", name: "贪吃蛇", icon: "🐍", desc: "吃掉食物变长，别撞墙也别咬到自己，三档速度任选", tips: "方向键 ↑↓←→ 或 WASD 控制方向；触屏可滑动或使用虚拟方向键。吃到食物 +10 分。", src: "/components/games/snake.js" }, create: null });
+Core.register("breakout", { meta: { id: "breakout", name: "打砖块", icon: "🧱", desc: "弹球击碎所有砖块，别让球掉下去", tips: "移动鼠标或触屏拖动控制挡板，也可用 ←→。球落到底部失去一条命，共 3 条命。", src: "/components/games/breakout.js" }, create: null });
+Core.register("2048", { meta: { id: "2048", name: "2048", icon: "🔢", desc: "滑动合并数字，挑战 2048 方块", tips: "方向键或滑动屏幕移动全部方块，相同数字相撞会合并，目标凑出 2048。", src: "/components/games/g2048.js" }, create: null });
+Core.register("memory", { meta: { id: "memory", name: "记忆翻牌", icon: "🃏", desc: "翻开卡片找出全部配对，步数越少越好", tips: "点击卡片翻面，找出两张相同的即可消除。步数越少、用时越短，得分越高。", src: "/components/games/memory.js" }, create: null });
+Core.register("mines", { meta: { id: "mines", name: "扫雷", icon: "💣", desc: "避开所有地雷，用数字推理安全区", tips: "左键翻开格子，右键或长按插旗标记地雷。全部安全格翻开即胜利。", src: "/components/games/mines.js" }, create: null });
+Core.register("reaction", { meta: { id: "reaction", name: "闪电靶场", icon: "⚡", desc: "目标稍纵即逝，比拼反应与连击", tips: "目标点亮后立刻点击，或用数字键 1~9 直击对应靶格。连续击中触发连击倍率。", src: "/components/games/reaction.js" }, create: null });
+Core.register("hanoi", { meta: { id: "hanoi", name: "汉诺塔大师", icon: "🗼", desc: "经典汉诺塔：大不压小，用最优步数完成挑战", tips: "把全部盘子从最左柱移到最右柱。每次只能移动一根盘子，不能把大盘子压到小盘子上。", src: "/components/games/hanoi.js" }, create: null });
 
 /* ---------- 主题 ---------- */
 

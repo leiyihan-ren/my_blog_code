@@ -13,6 +13,7 @@
 // 注意：所有上传项按 data-name 定位（队列并发下避免任务间串扰）。
 // ============================================================
 import worker, { ROOT } from "./_helpers.mjs";
+import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -235,8 +236,7 @@ async function main() {
         return res.end(body);
       }
       let fp = p;
-      if (fp.endsWith("/")) fp += "index.html";
-      const file = path.join(ROOT, fp);
+      const file = path.join(ROOT, staticFilePath(p)); // v7.0：经 route-map 映射到 pages/ 等物理路径
       if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end("nf"); }
       const ext = path.extname(file).toLowerCase();
       const mime = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json" }[ext] || "application/octet-stream";

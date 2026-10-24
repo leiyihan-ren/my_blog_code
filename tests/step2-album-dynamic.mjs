@@ -13,6 +13,7 @@
 // 运行：node tests/step2-album-dynamic.mjs
 // ============================================================
 import worker, { ROOT } from "./_helpers.mjs";
+import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -169,9 +170,7 @@ const staticServer = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ error: String(e) }));
       }
     }
-    let fp = p;
-    if (fp.endsWith("/")) fp += "index.html";
-    const file = path.join(ROOT, fp);
+    const file = path.join(ROOT, staticFilePath(p)); // v7.0：经 route-map 映射到 pages/ 等物理路径
     if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); return res.end("nf"); }
     const ext = path.extname(file);
     const headers = { "Content-Type": MIME[ext] || "application/octet-stream" };

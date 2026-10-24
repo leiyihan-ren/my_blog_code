@@ -25,6 +25,7 @@ const SUITES = [
   { name: "云盘页面端到端", file: "step7-drive-ui.mjs" },
   { name: "大文件分片协议 API", file: "step8-drive-chunked.mjs" },
   { name: "大文件分片端到端", file: "step9-drive-chunked-ui.mjs" },
+  { name: "路由重写与链接守护", file: "step10-routes-verify.mjs" },
 ];
 
 function runSuite(file) {

@@ -82,31 +82,56 @@
 
 ```
 my-blog/
-├── _worker.js          # 唯一后端入口：全部 API + 数据访问 + 安全校验
-├── wrangler.toml       # Cloudflare 部署配置（KV 绑定说明）
-├── index.html          # 首页：Hero、统计、关于我、热门文章
-├── blog.html           # 文章列表 + 搜索
-├── post.html           # 文章详情：阅读量、点赞、评论、上一篇/下一篇
-├── album.html          # 相册（GitHub 图片源，经 /api/album/photos 多镜像加载）
-├── timeline.html       # 时间线
-├── guestbook.html      # 留言板
-├── games.html          # 游戏大厅（5 款游戏 + 全站排行榜）
-├── game-core.js        # 游戏公共框架：基类/输入适配/舞台控制/排行榜/注册表
-├── games/              # 每款游戏一个文件，自注册到框架
-│   ├── snake.js        #   贪吃蛇（三档速度、转向缓冲、虚拟方向键）
-│   ├── breakout.js     #   打砖块（拖尾、碎裂粒子、3 条命）
-│   ├── g2048.js        #   2048（新块/合并动画、触屏滑动）
-│   ├── memory.js       #   记忆翻牌（3D 翻转、步数计分）
-│   └── mines.js        #   扫雷（首击安全、原地更新、长按插旗）
-├── links.html          # 友情链接 + 申请面板
-├── admin.html          # 管理后台（内容/友链/游戏/备份）
-├── music-player.js     # 全站底部音乐播放器组件
-└── docs/               # 技术文档
+├── _worker.js            # 唯一后端入口：全部 API + 数据访问 + 安全校验 + 页面重写层
+├── wrangler.toml         # Cloudflare 部署配置（KV 绑定说明）
+├── sw.js                 # Service Worker（PWA 离线/缓存/版本更新）
+├── manifest.json         # PWA 清单
+├── pages/                # 页面（v7.0 下沉目录；对外 URL 仍是根级，由 _worker.js 重写）
+│   ├── index.html        #   首页：Hero、统计、关于我、热门文章
+│   ├── blog.html         #   文章列表 + 搜索
+│   ├── post.html         #   文章详情：阅读量、点赞、评论、上一篇/下一篇
+│   ├── album.html        #   相册（GitHub 图片源，经 /api/album/photos 多镜像加载）
+│   ├── timeline.html     #   时间线
+│   ├── guestbook.html    #   留言板
+│   ├── games.html        #   游戏大厅（7 款游戏 + 全站排行榜）
+│   ├── links.html        #   友情链接 + 申请面板
+│   ├── admin.html        #   管理后台（内容/友链/游戏/备份）
+│   └── drive.html        #   GitHub 极客云盘（分片上传/断点续传/重组下载）
+├── components/           # UI 组件
+│   ├── music-player.js   #   全站底部音乐播放器组件
+│   ├── game-core.js      #   游戏公共框架：基类/输入适配/舞台控制/排行榜/注册表
+│   └── games/            #   每款游戏一个文件，自注册到框架
+│       ├── snake.js      #     贪吃蛇（三档速度、转向缓冲、虚拟方向键）
+│       ├── breakout.js   #     打砖块（拖尾、碎裂粒子、3 条命）
+│       ├── g2048.js      #     2048（新块/合并动画、触屏滑动）
+│       ├── memory.js     #     记忆翻牌（3D 翻转、步数计分）
+│       ├── mines.js      #     扫雷（首击安全、原地更新、长按插旗）
+│       ├── reaction.js   #     闪电靶场（反应力连击）
+│       └── hanoi.js      #     汉诺塔大师（最优步数挑战）
+├── services/             # 网络请求与业务引擎
+│   ├── request.js        #   全站统一请求层 BlogApi（超时/重试/错误归一）
+│   └── uploadService.js  #   云盘上传/下载引擎：分片切割/断点续传/重试退避/并发队列
+├── styles/               # 样式
+│   ├── common.css        #   全站公共样式 + 设计变量（主题色/暗色模式）
+│   └── drive.css         #   云盘页专属样式
+├── utils/                # 工具与公共行为
+│   ├── common.js         #   安全存储/主题切换/移动端菜单/滚动效果/SW 注册
+│   └── blog-utils.js     #   BlogUtils 纯函数（HTML 转义/日期格式化/toast）
+├── icons/                # PWA 与 favicon 图标
+├── scripts/              # 构建与路由工具（不部署）
+│   ├── build-pages.mjs   #   整站同步到 Pages 候选输出目录（dist/public/build）
+│   └── route-map.mjs     #   页面路由唯一事实来源（_worker.js 重写表与之同步，step10 守护）
+├── tests/                # 14 套件自动化测试（不部署）
+└── docs/                 # 技术文档
     ├── 核心组件依赖拓扑.md        # 页面/脚本/Worker/KV/外部依赖全景 + 关键不变量
     ├── 播放器与游戏接口文档.md    # 播放器状态机 + GameCore API + 子游戏注册契约
     ├── 开发与避坑指南.md          # 压测与重构中真实踩过的坑 + 提交前检查单
     └── UI与无障碍优化清单.md      # 第二阶段 UI/a11y 整改记录（2.1-2.4）
 ```
+
+> **v7.0 架构说明**：页面物理上在 `pages/`，但对外 URL 全部保持根级（`/drive.html` 不变）。
+> `_worker.js` 的重写层把根级 URL 映射到 `pages/` 物理文件，旧书签、外链、SEO 收录、
+> Service Worker 预缓存清单零破坏。页面内所有引用均为根绝对路径，与物理目录解耦。
 
 ## 各页面详解（小白必读）
 
@@ -315,11 +340,11 @@ wrangler pages deploy .  # 部署当前目录
 
 项目不依赖任何构建步骤，直接用任意静态服务器 + Node 即可测试。
 
-### v3.0 测试体系（`tests/` 目录，8 套件 467 项断言）
+### v7.0 测试体系（`tests/` 目录，14 套件）
 
 ```bash
 npm install                       # 安装 playwright（devDependency）
-npm test                          # 全量回归：8 套件顺序执行，任一失败退出码非 0
+npm test                          # 全量回归：14 套件顺序执行，任一失败退出码非 0
 ```
 
 | 套件 | 断言 | 覆盖 |
@@ -332,6 +357,12 @@ npm test                          # 全量回归：8 套件顺序执行，任一
 | `step4-a11y-audit.mjs` | 165 | 9 页面 × 3 视口 × 明暗主题：溢出/alt/可访问名称/Tab 可达 |
 | `step4-lightbox-trap.mjs` | 7 | 灯箱焦点移入/陷阱/Esc/归还 |
 | `step5-common-verify.mjs` | 102 | 9 页面主题/移动菜单/滚动效果/零 JS 错误 |
+| `step6-edge-cache.mjs` | 8 | 边缘缓存 TTL/写后清理/带 Authorization 不缓存 |
+| `step7-drive-api.mjs` | 33 | 云盘 API：PIN 校验/列目录/上传/删除/路径穿越防御/8MB 阈值 |
+| `step7-drive-ui.mjs` | 14 | 云盘页面端到端：PIN 模态/上传/下载/删除确认/导航 active |
+| `step8-drive-chunked.mjs` | 36 | 大文件分片协议：断点续传/失败收集/409 自愈有界重试 |
+| `step9-drive-chunked-ui.mjs` | 28 | 大文件端到端：32MB 七片/进度条/弱网重试/重组下载/删除锁 |
+| `step10-routes-verify.mjs` | 23 | v7.0 守护：路由表同步/Worker 重写行为/243 处链接完整性/SW 注册路径/无相对引用 |
 
 测试零硬编码路径：`tests/_helpers.mjs` 从 `import.meta.url` 推导仓库根目录并动态导入
 `_worker.js`，Chromium 经 `CHROMIUM_PATH` 环境变量指定（不设则用 Playwright 自带浏览器）。
@@ -346,7 +377,7 @@ CI：`.github/workflows/test.yml`，push/PR 自动跑 `npm test`。
 
 ## 游戏大厅架构
 
-游戏区采用「框架 + 注册表」模式，新增一款游戏只需在 `games/` 目录加一个自注册文件，并在 `games.html` 中引入：
+游戏区采用「框架 + 注册表」模式，新增一款游戏只需在 `components/games/` 目录加一个自注册文件，并在 `games.html` 中引入：
 
 ```
 games.html ──► game-core.js（框架）
@@ -357,7 +388,7 @@ games.html ──► game-core.js（框架）
                  ├─ 舞台控制       openGame / 开始 / 暂停 / 恢复 / 重开 / 覆盖层 / 计分板
                  ├─ 排行榜         loadRanks / renderRankTabs / submitScore（个人最佳 localStorage）
                  └─ 注册表         Map 保序（避免 "2048" 这类数字键乱序）+ meta 拍平
-              └─► games/*.js（各游戏自注册，core 不关心具体游戏）
+              └─► components/games/*.js（各游戏自注册，core 不关心具体游戏）
 ```
 
 设计要点：
