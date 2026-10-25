@@ -226,7 +226,9 @@ window.UploadService = (function () {
       task.status = STATE.UPLOADING;
       notify();
       return xhrUpload("POST", "/api/drive/upload", {
-        path: "drive/" + task.file.name,
+        // v8.0：__driveDir 为「drive/ 之下」的相对子目录（folder 上传/进入子目录上传时由
+        // 渲染层打在 File 对象上；缺省为空 = 根目录，旧行为逐字节不变）
+        path: "drive/" + (task.file.__driveDir ? task.file.__driveDir + "/" : "") + task.file.name,
         content: b64,
         message: "drive: upload " + task.file.name
       }, function (loaded, total) {
@@ -361,7 +363,8 @@ window.UploadService = (function () {
           uploadId: task.uploadId,
           name: file.name,
           size: file.size,
-          total: total
+          total: total,
+          dir: task.file.__driveDir || "" // v8.0：manifest 与上传目标目录保持一致
         }, null, 60000, task);
       })
       .then(function () {
@@ -571,6 +574,7 @@ window.UploadService = (function () {
         size: t.file.size,
         total: t.total || Math.ceil(t.file.size / CHUNK_SIZE),
         done: Object.keys(t.done || {}).map(Number),
+        dir: t.file.__driveDir || "", // v8.0：子目录归属随断点一起持久化
       };
     });
     try {
@@ -603,7 +607,7 @@ window.UploadService = (function () {
         return s + chunkLen(r.size, Number(k));
       }, 0);
       uploadTasks.push({
-        file: { name: r.name, size: r.size }, // 无 File 句柄：等用户重新选择
+        file: { name: r.name, size: r.size, __driveDir: r.dir || "" }, // 无 File 句柄：等用户重新选择
         mode: "chunked",
         uploadId: r.uploadId,
         total: total,
@@ -635,11 +639,12 @@ window.UploadService = (function () {
       } else if (f.size === 0) {
         rejected.push(f.name + "（空文件）");
       } else if (f.size > SMALL_LIMIT) {
-        // 崩溃恢复装配：同名同尺寸的「等待文件」任务 → 装上 File 句柄从断点继续
+        // 崩溃恢复装配：同名同尺寸同目录的「等待文件」任务 → 装上 File 句柄从断点继续
         var pendingRestore = null;
         for (var i = 0; i < uploadTasks.length; i++) {
           var t = uploadTasks[i];
-          if (t.awaitingFile && t.file.name === f.name && t.file.size === f.size) { pendingRestore = t; break; }
+          if (t.awaitingFile && t.file.name === f.name && t.file.size === f.size &&
+              (t.file.__driveDir || "") === (f.__driveDir || "")) { pendingRestore = t; break; }
         }
         if (pendingRestore) {
           pendingRestore.file = f;
@@ -724,6 +729,7 @@ window.UploadService = (function () {
 
   return {
     init: init,
+    _hooks: hooks, // v8.0：暴露 hook 表只读引用——批量下载需临时替换 saveBlob 捕获 Blob（不触碰分片/重试内核）
     addFiles: addFiles,
     retry: retryTask,
     restore: restoreTasks,

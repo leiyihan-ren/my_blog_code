@@ -90,7 +90,53 @@ a:active, button:active, [role="button"]:active,
 body.dark::-webkit-scrollbar-thumb { background: rgba(var(--accent-rgb),0.3); }
 body.dark::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb),0.5); }
 
-/* ---- 选中态：主题色高亮（明暗自适应） ---- */
+/* ---- v8.0 玻璃态设计令牌（明暗双值；配合 .glass 工具类与既有半透明组件使用） ---- */
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-shadow: 0 8px 32px rgba(31, 38, 135, 0.10);
+  --glass-blur: 16px;
+  --nav-glass: saturate(180%) blur(16px);
+  --sheen: linear-gradient(135deg, rgba(255,255,255,0.28), rgba(255,255,255,0) 45%);
+}
+body.dark {
+  --glass-bg: rgba(26, 26, 46, 0.66);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.38);
+  --sheen: linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0) 45%);
+}
+
+/* ---- v8.0 毛玻璃工具类：任何卡片/浮层加 class="glass" 即得（主题自适应） ---- */
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+/* ---- v8.0 导航栏毛玻璃：在既有 --nav-bg 半透明底上叠加模糊（渐进增强，
+   不支持 backdrop-filter 的浏览器静默回退为原不透明效果，无副作用） ---- */
+.navbar {
+  -webkit-backdrop-filter: var(--nav-glass);
+  backdrop-filter: var(--nav-glass);
+}
+
+/* ---- v8.0 卡片微渐变 + 悬停浮起：统一三段式过渡（transform/shadow/边框） ---- */
+.post-card, .link-card, .game-card, .timeline-item, .photo-card {
+  transition: transform 0.28s var(--ease), box-shadow 0.28s var(--ease), border-color 0.28s var(--ease);
+}
+.post-card:hover, .link-card:hover, .game-card:hover, .timeline-item:hover, .photo-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 36px rgba(var(--primary-rgb), 0.13);
+  border-color: rgba(var(--primary-rgb), 0.35);
+}
+body.dark .post-card:hover, body.dark .link-card:hover, body.dark .game-card:hover,
+body.dark .timeline-item:hover, body.dark .photo-card:hover {
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+}
+
+/* ---- v8.0 选中态：主题色高亮（明暗自适应） ---- */
 ::selection { background: rgba(var(--primary-rgb), 0.22); color: inherit; }
 body.dark ::selection { background: rgba(var(--accent-rgb), 0.34); color: inherit; }
 

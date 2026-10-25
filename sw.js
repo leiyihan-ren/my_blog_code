@@ -33,9 +33,9 @@
 "use strict";
 
 /* ⚠️ 每次发布新版本时必须 +1，否则用户可能停留在旧缓存 */
-// v3.3.0：P0 修复——管理面 API 不再走 SWR 缓存（发布/删除后列表不刷新的根因），
-//         公共 JSON 读改 network-first + 离线回退；/api/github/* 图片保持 SWR。
-const CACHE_VERSION = "v3.3.0";
+// v3.4.0：v8.0 全生态重塑——新增全局 UI 组件库 components/ui.js（对话框/Toast 收拢），
+//         预缓存清单同步纳入；drive 页新增 vendor/jszip.min.js 本地化依赖（见下）。
+const CACHE_VERSION = "v3.4.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -60,6 +60,8 @@ const PRECACHE_URLS = [
   "/styles/drive.css",
   "/utils/common.js",
   "/utils/blog-utils.js",
+  "/components/ui.js",
+  "/vendor/jszip.min.js",
   "/services/request.js",
   "/services/uploadService.js",
   "/components/music-player.js",

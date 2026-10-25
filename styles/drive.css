@@ -188,6 +188,76 @@
       padding: 2px 8px; border-radius: 6px; word-break: break-all;
     }
 
+    /* v8.0 面包屑导航 */
+    .crumbs {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+      padding: 0 0 12px; font-size: 13px;
+    }
+    .crumb {
+      border: none; background: transparent; color: var(--text-light); cursor: pointer;
+      padding: 5px 10px; border-radius: 8px; font-size: 13px; max-width: 200px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      transition: background .15s var(--ease), color .15s var(--ease);
+    }
+    .crumb:hover { background: rgba(var(--primary-rgb), .1); color: var(--primary-text); }
+    .crumb.current { color: var(--text); font-weight: 600; cursor: default; }
+    .crumb.current:hover { background: transparent; }
+    .crumb-sep { color: var(--text-mute); user-select: none; }
+
+    /* v8.0 子目录 chips 网格 */
+    .dir-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px; padding: 0 0 14px;
+    }
+    .dir-chip {
+      display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+      background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px;
+      cursor: pointer; text-align: left; font-size: 13px; color: var(--text);
+      transition: transform .18s var(--ease), border-color .18s var(--ease), box-shadow .18s var(--ease);
+    }
+    .dir-chip:hover {
+      transform: translateY(-2px); border-color: rgba(var(--primary-rgb), .4);
+      box-shadow: 0 8px 20px rgba(var(--primary-rgb), .12);
+    }
+    .dir-chip .dir-ic { font-size: 20px; flex-shrink: 0; }
+    .dir-chip .dir-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+
+    /* v8.0 批量操作条 */
+    .batch-bar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 10px 14px; margin-bottom: 12px; border-radius: 12px;
+      background: rgba(var(--primary-rgb), .07); border: 1px solid rgba(var(--primary-rgb), .22);
+      font-size: 13px;
+    }
+    .batch-all { display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-light); }
+    .batch-count { font-weight: 600; color: var(--primary-text); margin-right: auto; }
+    .btn-sm { padding: 6px 14px; font-size: 13px; border-radius: 999px; }
+
+    /* v8.0 表格多选列 */
+    .td-check { width: 36px; text-align: center; }
+    .td-check input, .row-chk { width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary); }
+
+    /* v8.0 预览按钮（操作列） */
+    .f-ops .pv { color: var(--text-mute); }
+    .f-ops .pv:hover { background: rgba(var(--primary-rgb), .1); color: var(--primary-text); }
+
+    /* v8.0 在线预览模态 */
+    .modal-preview { max-width: 720px; max-height: 86vh; display: flex; flex-direction: column; }
+    .preview-body {
+      overflow: auto; min-height: 120px; max-height: 62vh; border-radius: 12px;
+      background: var(--bg); border: 1px solid var(--border); margin-bottom: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .preview-body img { max-width: 100%; max-height: 60vh; display: block; border-radius: 8px; }
+    .preview-body .preview-media { width: 100%; max-height: 60vh; display: block; }
+    .preview-body .preview-code {
+      width: 100%; margin: 0; padding: 14px; font-size: 12.5px; line-height: 1.6;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap; word-break: break-all; color: var(--text); text-align: left;
+    }
+    .preview-body .preview-tip { margin: 0; padding: 28px 16px; color: var(--text-mute); font-size: 13px; }
+    .modal-preview .modal-btns a.btn { text-decoration: none; display: inline-flex; align-items: center; }
+
     @media (max-width: 640px) {
       .drive-wrap { padding-top: 84px; }
       .f-time { display: none; }
@@ -197,4 +267,7 @@
       .file-search { flex: 1; width: auto; }
       .file-search:focus { width: auto; }
       .up-group-head { padding: 9px 14px; }
+      .dir-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+      .batch-bar { gap: 8px; }
+      .modal-preview { max-height: 90vh; }
     }

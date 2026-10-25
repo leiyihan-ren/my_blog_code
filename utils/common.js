@@ -169,113 +169,14 @@
     });
   }
 
-  /* ---- v7.3 全局对话框基建：confirmDialog / promptDialog ----
-     替代各页面散落的原生 confirm()/prompt()（样式不可控、移动端体验差、
-     Playwright 默认 dismiss 导致自动化测试覆盖不到删除流程）。
-     Promise API：await confirmDialog({...}) → boolean；await promptDialog({...}) → string|null。
-     懒创建单例：首次调用才注入 DOM，幂等；Esc=取消，回车=确认。 */
-  const DLG_ID = "cx-dialog";
-  function dlgEl() { return document.getElementById(DLG_ID); }
-  function ensureDialogCss() {
-    if (document.getElementById("cx-dialog-css")) return;
-    const style = document.createElement("style");
-    style.id = "cx-dialog-css";
-    style.textContent =
-      ".cx-mask{position:fixed;inset:0;background:rgba(15,15,26,.55);display:none;align-items:center;justify-content:center;z-index:2000;padding:20px;backdrop-filter:blur(3px)}" +
-      ".cx-mask.show{display:flex}" +
-      ".cx-box{background:var(--card-bg,#fff);color:var(--text,#1a1a2e);border:1px solid var(--border,#e5e7eb);border-radius:16px;padding:24px;width:100%;max-width:400px;box-shadow:0 18px 60px rgba(0,0,0,.25);animation:cxIn .2s var(--ease-spring,ease)}" +
-      "@keyframes cxIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}" +
-      ".cx-box h3{margin:0 0 8px;font-size:17px}" +
-      ".cx-msg{margin:0 0 16px;font-size:14px;line-height:1.6;color:var(--text-mute,#6b7280);white-space:pre-wrap;word-break:break-all}" +
-      ".cx-input{width:100%;box-sizing:border-box;border:1px solid var(--border,#e5e7eb);border-radius:10px;padding:11px 14px;font-size:15px;background:var(--bg,#fff);color:var(--text,#1a1a2e);margin-bottom:16px;outline:none}" +
-      ".cx-input:focus{border-color:var(--primary,#4f46e5)}" +
-      ".cx-btns{display:flex;gap:10px;justify-content:flex-end}" +
-      ".cx-btn{border:1px solid var(--border,#e5e7eb);background:var(--card-bg,#fff);color:var(--text,#1a1a2e);border-radius:999px;padding:9px 18px;font-size:14px;cursor:pointer;transition:all .18s ease}" +
-      ".cx-btn:hover{border-color:var(--primary,#4f46e5);color:var(--primary-text,#4f46e5)}" +
-      ".cx-btn-primary{background:var(--primary,#4f46e5);border-color:var(--primary,#4f46e5);color:#fff}" +
-      ".cx-btn-primary:hover{background:var(--primary-hover,#4338ca);color:#fff}" +
-      ".cx-btn-danger{color:var(--danger-solid,#dc2626);border-color:var(--danger-solid,#dc2626);background:transparent}" +
-      ".cx-btn-danger:hover{background:var(--danger-bg,#fef2f2);color:var(--danger-solid,#dc2626);border-color:var(--danger-solid,#dc2626)}" +
-      ".cx-btn:disabled{opacity:.55;cursor:not-allowed}";
-    document.head.appendChild(style);
-  }
-  function openDialog(opts) {
-    ensureDialogCss();
-    let mask = dlgEl();
-    if (mask) mask.remove(); // 单例：复用时先移除旧实例（含残留监听）
-    mask = document.createElement("div");
-    mask.className = "cx-mask";
-    mask.id = DLG_ID;
-    const box = document.createElement("div");
-    box.className = "cx-box";
-    const h3 = document.createElement("h3");
-    h3.textContent = opts.title || "请确认";
-    const msg = document.createElement("p");
-    msg.className = "cx-msg";
-    msg.textContent = opts.message || "";
-    box.appendChild(h3);
-    box.appendChild(msg);
-    let input = null;
-    if (opts.mode === "prompt") {
-      input = document.createElement("input");
-      input.className = "cx-input";
-      input.type = "text";
-      input.value = opts.defaultValue || "";
-      input.placeholder = opts.placeholder || "";
-      input.maxLength = opts.maxLength || 200;
-      box.appendChild(input);
-    }
-    const btns = document.createElement("div");
-    btns.className = "cx-btns";
-    const cancelBtn = document.createElement("button");
-    cancelBtn.className = "cx-btn";
-    cancelBtn.textContent = opts.cancelText || "取消";
-    const okBtn = document.createElement("button");
-    // 角色类 cx-btn-primary 恒定（调用方/测试稳定选择「确认按钮」）；danger 仅作样式修饰
-    okBtn.className = "cx-btn cx-btn-primary" + (opts.danger ? " cx-btn-danger" : "");
-    okBtn.textContent = opts.confirmText || "确认";
-    btns.appendChild(cancelBtn);
-    btns.appendChild(okBtn);
-    box.appendChild(btns);
-    mask.appendChild(box);
-    document.body.appendChild(mask);
-    requestAnimationFrame(() => mask.classList.add("show"));
-    if (input) { input.focus(); input.select(); }
-
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = (val) => {
-        if (done) return;
-        done = true;
-        document.removeEventListener("keydown", onKey);
-        mask.classList.remove("show");
-        setTimeout(() => mask.remove(), 180);
-        resolve(val);
-      };
-      const onKey = (e) => {
-        if (e.key === "Escape") { e.preventDefault(); finish(opts.mode === "prompt" ? null : false); }
-        else if (e.key === "Enter" && (e.target !== input || opts.mode === "prompt")) {
-          e.preventDefault();
-          finish(opts.mode === "prompt" ? (input.value || "").trim() || null : true);
-        }
-      };
-      cancelBtn.onclick = () => finish(opts.mode === "prompt" ? null : false);
-      okBtn.onclick = () => {
-        if (opts.mode === "prompt") {
-          const v = (input.value || "").trim();
-          finish(v || null); // 空输入按取消处理（与原生 prompt 空串语义对齐调用方校验）
-        } else finish(true);
-      };
-      mask.addEventListener("mousedown", (e) => { if (e.target === mask) finish(opts.mode === "prompt" ? null : false); });
-      document.addEventListener("keydown", onKey);
-      if (input) input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); okBtn.click(); } });
-    });
-  }
+  /* ---- v8.0 对话框基建已收拢至 components/ui.js（UI 组件域）。
+     此处仅保留桥接：函数体内懒解析 window.UI，调用必然发生在
+     用户交互时（ui.js 早已同步加载完毕），无加载顺序依赖。 ---- */
   window.confirmDialog = function (opts) {
-    return openDialog(Object.assign({ mode: "confirm" }, typeof opts === "string" ? { message: opts } : opts));
+    return window.UI.confirm(typeof opts === "string" ? { message: opts } : opts);
   };
   window.promptDialog = function (opts) {
-    return openDialog(Object.assign({ mode: "prompt" }, typeof opts === "string" ? { message: opts } : opts));
+    return window.UI.prompt(typeof opts === "string" ? { message: opts } : opts);
   };
 
   /* ---- v7.3 弱网兜底：断网横幅（offline/online 事件 + 首屏 onLine 检查） ---- */

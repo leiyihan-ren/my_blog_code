@@ -39,9 +39,11 @@
       </div>
       <div class="drive-actions">
         <button class="btn btn-primary" id="btnUpload">⬆️ 上传文件</button>
+        <button class="btn" id="btnUploadFolder" title="上传整个文件夹（保留目录结构）">📁 上传文件夹</button>
         <button class="btn" id="btnRefresh">🔄 刷新</button>
         <button class="btn" id="btnPin">🔑 修改口令</button>
         <input type="file" id="fileInput" multiple hidden>
+        <input type="file" id="folderInput" webkitdirectory multiple hidden>
       </div>
     </header>
 
@@ -53,8 +55,8 @@
     </div>
 
     <div class="dropzone" id="dropzone">
-      <p>📁 拖拽文件到此处上传</p>
-      <p class="dz-hint">支持多文件 · 单文件最大 2GB · 超过 8MB 自动分片上传（断点续传）· 上传即同步到 GitHub 仓库</p>
+      <p>📁 拖拽文件或文件夹到此处上传</p>
+      <p class="dz-hint">支持多文件与文件夹 · 单文件最大 2GB · 超过 8MB 自动分片上传（断点续传）· 上传即同步到 GitHub 仓库</p>
     </div>
 
     <section class="panel" id="uploadPanel" hidden>
@@ -63,6 +65,14 @@
     </section>
 
     <section class="panel">
+      <nav class="crumbs" id="driveCrumbs" aria-label="云盘目录导航"></nav>
+      <div class="dir-grid" id="dirGrid" hidden></div>
+      <div class="batch-bar" id="batchBar" hidden>
+        <label class="batch-all"><input type="checkbox" id="chkAll"> 全选</label>
+        <span class="batch-count" id="batchCount">已选 0 项</span>
+        <button class="btn btn-primary btn-sm" id="btnBatchZip">📦 打包下载</button>
+        <button class="btn btn-sm" id="btnBatchClear">取消选择</button>
+      </div>
       <div class="panel-title">
         文件列表 <span class="muted" id="listHint"></span>
         <span class="list-tools">
@@ -91,7 +101,7 @@
       </div>
       <table class="file-table" id="fileTable" hidden>
         <thead>
-          <tr><th>文件名</th><th>大小</th><th>上传时间</th><th style="text-align:right">操作</th></tr>
+          <tr><th class="td-check"><input type="checkbox" id="chkAllHead" aria-label="全选文件"></th><th>文件名</th><th>大小</th><th>上传时间</th><th style="text-align:right">操作</th></tr>
         </thead>
         <tbody id="fileTbody"></tbody>
       </table>
@@ -135,6 +145,18 @@
     </div>
   </div>
 
+  <!-- 在线预览模态（v8.0：图片/代码/音视频） -->
+  <div class="modal-mask" id="previewModal">
+    <div class="modal modal-preview">
+      <h3 id="previewTitle">预览</h3>
+      <div class="preview-body" id="previewBody"></div>
+      <div class="modal-btns">
+        <button class="btn" id="btnPreviewClose">关闭</button>
+        <a class="btn btn-primary" id="btnPreviewDl" href="#" download>⬇️ 下载</a>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status"></div>
   <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 
@@ -152,7 +174,13 @@
         onChange: renderQueue,
         onAllDone: function () { loadList(); },
         findChunkedId: function (name) {
-          var x = lastFiles.find(function (f) { return f.name === name && f.storage === "chunked"; });
+          // v8.0：同名大文件按「所在目录」匹配 uploadId（manifest 路径反推目录），
+          // 避免根目录与子目录同名文件误复用断点
+          var x = lastFiles.find(function (f) {
+            if (f.name !== name || f.storage !== "chunked") return false;
+            var mdir = String(f.path || "").replace(/\/?\.m-[A-Za-z0-9_-]+\.json$/, "").replace(/^drive\/?/, "");
+            return mdir === curDir;
+          });
           return x && x.uploadId ? x.uploadId : "";
         },
         saveBlob: function (blob, name) {
@@ -237,10 +265,15 @@
 
       /* ---------- 文件列表 ---------- */
       var lastFiles = []; // 上次列表数据：队列渲染时复用，驱动删除锁的实时刷新
+      /* v8.0 当前目录（"drive/ 之下"的相对路径，"" = 根）：上传目标 + 面包屑 + 列表范围 */
+      var curDir = "";
       /* v7.3 排序 + 搜索状态：纯客户端运算，不重拉数据 */
       var sortState = { key: "time", dir: -1 }; // 默认上传时间倒序（最新在上）
       var searchQuery = "";
       var searchTimer = null;
+      /* v8.0 多选批量下载：path → 是否选中 */
+      var selected = {};
+      var selectedCount = 0;
       function visibleFiles() {
         var q = searchQuery.trim().toLowerCase();
         var arr = q
@@ -263,15 +296,75 @@
         $("emptyState").hidden = true;
         $("listError").hidden = true;
         $("fileTable").hidden = true;
-        return api("/api/drive/list").then(function (data) {
+        var qs = curDir ? "?path=" + encodeURIComponent("drive/" + curDir) : "";
+        return api("/api/drive/list" + qs).then(function (data) {
           $("loadingState").hidden = true;
           lastFiles = data.files || [];
+          renderCrumbs();
+          renderDirs(data.dirs || []);
           renderFiles(visibleFiles());
           renderStats(data);
         }).catch(function (e) {
           $("loadingState").hidden = true;
           $("listError").hidden = false;
           $("listErrorMsg").textContent = e.message || "加载失败";
+        });
+      }
+
+      /* ---------- v8.0 面包屑：drive / 子目录 / 子目录（段可点击回跳） ---------- */
+      function renderCrumbs() {
+        var nav = $("driveCrumbs");
+        nav.innerHTML = "";
+        var segs = curDir ? curDir.split("/") : [];
+        var root = document.createElement("button");
+        root.className = "crumb" + (segs.length ? "" : " current");
+        root.textContent = "🗄️ 云盘根目录";
+        root.onclick = function () { if (segs.length) { curDir = ""; loadList(); } };
+        nav.appendChild(root);
+        var acc = "";
+        segs.forEach(function (s, i) {
+          acc = acc ? acc + "/" + s : s;
+          var sep = document.createElement("span");
+          sep.className = "crumb-sep";
+          sep.textContent = "/";
+          nav.appendChild(sep);
+          var b = document.createElement("button");
+          var isLast = i === segs.length - 1;
+          b.className = "crumb" + (isLast ? " current" : "");
+          b.textContent = s;
+          (function (target) {
+            b.onclick = function () { if (!isLast) { curDir = target; loadList(); } };
+          })(acc);
+          nav.appendChild(b);
+        });
+      }
+
+      /* ---------- v8.0 子目录入口：chips 网格（目录条目不进 tbody，保表格=文件语义） ---------- */
+      function renderDirs(dirs) {
+        var grid = $("dirGrid");
+        grid.innerHTML = "";
+        if (!dirs.length) { grid.hidden = true; return; }
+        grid.hidden = false;
+        dirs.forEach(function (name) {
+          var chip = document.createElement("button");
+          chip.className = "dir-chip";
+          chip.type = "button";
+          chip.title = "进入「" + name + "」";
+          var ic = document.createElement("span");
+          ic.className = "dir-ic";
+          ic.textContent = "📁";
+          var tx = document.createElement("span");
+          tx.className = "dir-name";
+          tx.textContent = name;
+          chip.appendChild(ic);
+          chip.appendChild(tx);
+          chip.onclick = function () {
+            curDir = curDir ? curDir + "/" + name : name;
+            searchQuery = "";
+            $("fileSearch").value = "";
+            loadList();
+          };
+          grid.appendChild(chip);
         });
       }
 
@@ -303,6 +396,20 @@
         files.forEach(function (f) {
           var tr = document.createElement("tr");
           tr.setAttribute("data-path", f.path); // v7.3 乐观删除定位锚点
+
+          // v8.0 多选列：勾选驱动打包下载
+          var tdCheck = document.createElement("td");
+          tdCheck.className = "td-check";
+          var chk = document.createElement("input");
+          chk.type = "checkbox";
+          chk.className = "row-chk";
+          chk.setAttribute("aria-label", "选择 " + f.name);
+          chk.checked = !!selected[f.path];
+          chk.onchange = function () {
+            if (chk.checked) { selected[f.path] = true; } else { delete selected[f.path]; }
+            syncSelection();
+          };
+          tdCheck.appendChild(chk);
 
           var tdName = document.createElement("td");
           var nameBox = document.createElement("div");
@@ -374,7 +481,18 @@
             rn.onclick = function () { askRename(f); };
           }
           tdOps.appendChild(rn);
+          // v8.0 在线预览：类型可预览才给按钮（大文件无直链，走下载）
+          if (previewKindOf(f) && !UploadService.isUploading(f.name)) {
+            var pv = document.createElement("button");
+            pv.className = "pv";
+            pv.textContent = "👁️";
+            pv.title = "预览 " + f.name;
+            pv.onclick = function () { openPreview(f); };
+            tdOps.appendChild(pv);
+          }
 
+          tr.appendChild(tdCheck);
+          tr.appendChild(tdCheck);
           tr.appendChild(tdName);
           tr.appendChild(tdSize);
           tr.appendChild(tdTime);
@@ -382,7 +500,94 @@
           tbody.appendChild(tr);
         });
         $("fileTable").hidden = false;
+        syncSelection();
       }
+
+      /* ---------- v8.0 在线预览：类型判定 + 模态渲染 ---------- */
+      var PREVIEW_IMG = { png: 1, jpg: 1, jpeg: 1, gif: 1, webp: 1, svg: 1, bmp: 1, ico: 1, avif: 1 };
+      var PREVIEW_TEXT = { txt: 1, md: 1, markdown: 1, json: 1, js: 1, mjs: 1, css: 1, html: 1, htm: 1, xml: 1, csv: 1, tsv: 1, log: 1, yml: 1, yaml: 1, ini: 1, conf: 1, toml: 1, sh: 1, py: 1, java: 1, c: 1, h: 1, cpp: 1, go: 1, rs: 1, sql: 1, gitignore: 1, env: 1 };
+      var PREVIEW_AUDIO = { mp3: 1, flac: 1, wav: 1, ogg: 1, m4a: 1, aac: 1, opus: 1 };
+      var PREVIEW_VIDEO = { mp4: 1, webm: 1, mov: 1, mkv: 1 };
+      function extOf(name) { return (String(name || "").split(".").pop() || "").toLowerCase(); }
+      function previewKindOf(f) {
+        if (f.storage === "chunked") return ""; // 大文件无单文件直链，不预览
+        var ext = extOf(f.name);
+        if (PREVIEW_IMG[ext]) return "img";
+        if (PREVIEW_TEXT[ext]) return "text";
+        if (PREVIEW_AUDIO[ext]) return "audio";
+        if (PREVIEW_VIDEO[ext]) return "video";
+        return "";
+      }
+      function openPreview(f) {
+        var kind = previewKindOf(f);
+        if (!kind) { toast("该类型暂不支持预览，请下载后查看", "err"); return; }
+        var body = $("previewBody");
+        var title = $("previewTitle");
+        var dl = $("btnPreviewDl");
+        body.innerHTML = "";
+        title.textContent = "👁️ " + f.name;
+        dl.href = f.downloadUrl;
+        dl.setAttribute("download", f.name);
+        if (kind === "img") {
+          var img = document.createElement("img");
+          img.src = f.downloadUrl;
+          img.alt = f.name;
+          img.onerror = function () {
+            body.innerHTML = "";
+            var p = document.createElement("p");
+            p.className = "preview-tip";
+            p.textContent = "图片加载失败，请尝试直接下载";
+            body.appendChild(p);
+          };
+          body.appendChild(img);
+        } else if (kind === "text") {
+          var tip = document.createElement("p");
+          tip.className = "preview-tip";
+          tip.textContent = "加载中…";
+          body.appendChild(tip);
+          fetch(f.downloadUrl).then(function (r) {
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            return r.text();
+          }).then(function (txt) {
+            if (txt.length > 512 * 1024) throw new Error("文件过大（>512KB），请下载后查看");
+            body.innerHTML = "";
+            var pre = document.createElement("pre");
+            pre.className = "preview-code";
+            pre.textContent = txt; // textContent 赋值：XSS 安全
+            body.appendChild(pre);
+          }).catch(function (e) {
+            body.innerHTML = "";
+            var p2 = document.createElement("p");
+            p2.className = "preview-tip";
+            p2.textContent = "加载失败：" + (e.message || "未知错误");
+            body.appendChild(p2);
+          });
+        } else if (kind === "audio") {
+          var au = document.createElement("audio");
+          au.controls = true;
+          au.src = f.downloadUrl;
+          au.className = "preview-media";
+          body.appendChild(au);
+        } else if (kind === "video") {
+          var vi = document.createElement("video");
+          vi.controls = true;
+          vi.src = f.downloadUrl;
+          vi.className = "preview-media";
+          body.appendChild(vi);
+        }
+        $("previewModal").classList.add("show");
+      }
+      $("btnPreviewClose").onclick = function () {
+        $("previewModal").classList.remove("show");
+        // 停掉媒体播放，避免关闭后仍在出声
+        var body = $("previewBody");
+        var medias = body.querySelectorAll("audio, video");
+        for (var i = 0; i < medias.length; i++) { try { medias[i].pause(); } catch (e) {} }
+        setTimeout(function () { body.innerHTML = ""; }, 200);
+      };
+      $("previewModal").addEventListener("click", function (e) {
+        if (e.target === this) $("btnPreviewClose").click();
+      });
 
       /* ---------- 删除（二次确认 + v7.3 乐观 UI：即时淡出，失败回滚） ---------- */
       var pendingDelete = null;
@@ -554,8 +759,19 @@
           t.status === S.READING ? "读取中…" :
           t.status === S.CHECKING ? (t.hint || "检查断点…") :
           t.status === S.FINISHING ? (t.hint || "写入清单…") :
-          t.hint ? t.hint + " " + (t.progress || 0) + "%" :
-          t.progress > 0 ? t.progress + "%" : "等待中…";
+          (function () {
+            // v8.0 速度预估：分片任务按 bytesDone，小文件按 size×progress 估算
+            var sp = speedMap[t.file.name];
+            var pct = t.progress || 0;
+            var base = t.hint ? t.hint + " " + pct + "%" : (pct > 0 ? pct + "%" : "等待中…");
+            if (sp && sp.speed > 0) {
+              base += " · " + fmtSpeed(sp.speed);
+              var left = Math.max(0, (t.file.size || 0) - taskBytes(t));
+              var eta = fmtEta(left, sp.speed);
+              if (eta) base += " · 剩余" + eta;
+            }
+            return base;
+          })();
         status.textContent = statusText;
         row.appendChild(icon);
         row.appendChild(name);
@@ -672,6 +888,8 @@
             list.appendChild(buildTaskItem(t));
           });
         });
+        // v8.0：有活动任务时启动速度采样轮询（500ms），全部终态时自动停
+        ensureSpeedTimer();
       }
 
       /* ---------- 事件绑定 ---------- */
@@ -691,7 +909,10 @@
 
       $("btnUpload").onclick = function () { $("fileInput").click(); };
       $("fileInput").onchange = function () {
-        UploadService.addFiles(this.files);
+        // v8.0：上传目标 = 当前所在目录（根目录为空，旧行为不变）
+        addPairs(Array.prototype.slice.call(this.files || []).map(function (f) {
+          return { file: f, dir: curDir };
+        }));
         this.value = ""; // 允许重复选同一文件
       };
       $("btnRefresh").onclick = function () {
@@ -742,6 +963,281 @@
         }, 200); // 防抖 200ms：与 blog.html 搜索策略一致
       });
 
+      /* ---------- v8.0 多选 + 打包下载（JSZip 按需加载，CSP 禁 CDN → 本地 vendor） ---------- */
+      function syncSelection() {
+        var n = 0;
+        for (var k in selected) { if (selected.hasOwnProperty(k)) n++; }
+        selectedCount = n;
+        $("batchCount").textContent = "已选 " + n + " 项";
+        $("batchBar").hidden = n === 0;
+        var rows = document.querySelectorAll("#fileTbody .row-chk");
+        var allChecked = rows.length > 0;
+        for (var i = 0; i < rows.length; i++) { if (!rows[i].checked) { allChecked = false; break; } }
+        $("chkAll").checked = allChecked;
+        $("chkAllHead").checked = allChecked;
+      }
+      $("chkAll").onchange = function () { toggleSelectAll(this.checked); };
+      $("chkAllHead").onchange = function () { toggleSelectAll(this.checked); };
+      function toggleSelectAll(on) {
+        if (on) { visibleFiles().forEach(function (f) { selected[f.path] = true; }); }
+        else { selected = {}; }
+        renderFiles(visibleFiles());
+      }
+      $("btnBatchClear").onclick = function () {
+        selected = {};
+        renderFiles(visibleFiles());
+      };
+
+      /* JSZip 按需加载：95KB 不进首屏，首次点「打包下载」才拉（SW 已预缓存，离线可用） */
+      var jszipPromise = null;
+      function ensureJSZip() {
+        if (window.JSZip) return Promise.resolve(window.JSZip);
+        if (jszipPromise) return jszipPromise;
+        jszipPromise = new Promise(function (resolve, reject) {
+          var s = document.createElement("script");
+          s.src = "/vendor/jszip.min.js";
+          s.onload = function () { resolve(window.JSZip); };
+          s.onerror = function () { jszipPromise = null; reject(new Error("打包组件加载失败，请刷新重试")); };
+          document.body.appendChild(s);
+        });
+        return jszipPromise;
+      }
+
+      /** 抓取单个文件 Blob：小文件走 downloadUrl 直拉；大文件经引擎重组（临时劫持 saveBlob） */
+      function fetchFileBlob(f) {
+        if (f.storage !== "chunked") {
+          return fetch(f.downloadUrl).then(function (r) {
+            if (!r.ok) throw new Error(f.name + " 下载失败（HTTP " + r.status + "）");
+            return r.blob();
+          });
+        }
+        return new Promise(function (resolve, reject) {
+          var hooks = UploadService._hooks;
+          var origSave = hooks.saveBlob;
+          var origToast = hooks.toast;
+          var settled = false;
+          hooks.saveBlob = function (blob, name) {
+            hooks.saveBlob = origSave; // 即时还原，避免影响后续单文件下载
+            hooks.toast = origToast;
+            settled = true;
+            resolve({ blob: blob, name: name });
+          };
+          hooks.toast = function () { /* 打包场景静默：进度由调用方统一汇报 */ };
+          var fakeBtn = { disabled: false, textContent: "" };
+          UploadService.downloadChunked(f, fakeBtn).catch(function (e) {
+            hooks.saveBlob = origSave;
+            hooks.toast = origToast;
+            if (!settled) reject(new Error(f.name + " 重组失败（" + (e && e.message || "未知错误") + "）"));
+          });
+        });
+      }
+
+      /** zip 内路径：相对当前目录（保留子目录结构，strip drive/ 与当前目录前缀）。
+       *  大文件（chunked）条目的 path 是 manifest 清单路径（.m-*.json），
+       *  必须用显示名，否则 zip 里会出现 .m-xxx.json 而非真实文件名。 */
+      function zipPathOf(f) {
+        if (f.storage === "chunked") return f.name || "chunked-file";
+        var p = String(f.path || "").replace(/^drive\//, "");
+        if (curDir) {
+          var re = new RegExp("^" + curDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "/");
+          p = p.replace(re, "");
+        }
+        return p || f.name;
+      }
+
+      $("btnBatchZip").onclick = function () {
+        var paths = [];
+        for (var k in selected) { if (selected.hasOwnProperty(k)) paths.push(k); }
+        if (!paths.length) { toast("请先勾选文件", "err"); return; }
+        var files = paths.map(function (p) {
+          return lastFiles.filter(function (f) { return f.path === p; })[0];
+        }).filter(Boolean);
+        var btn = this;
+        window.UI.btnLoading(btn, true, "⏳ 准备中…");
+        ensureJSZip().then(function (JSZip) {
+          var zip = new JSZip();
+          var done = 0;
+          var chain = Promise.resolve();
+          files.forEach(function (f) {
+            chain = chain.then(function () {
+              return fetchFileBlob(f).then(function (r) {
+                zip.file(zipPathOf(f), r.blob, { binary: true });
+                done++;
+                btn.textContent = "⏳ 已打包 " + done + "/" + files.length;
+              });
+            });
+          });
+          return chain.then(function () {
+            btn.textContent = "⏳ 压缩中…";
+            return zip.generateAsync({ type: "blob", compression: "DEFLATE" }, function (meta) {
+              btn.textContent = "⏳ 压缩 " + Math.round(meta.percent) + "%";
+            });
+          }).then(function (blob) {
+            window.UI.btnLoading(btn, false);
+            var name = (curDir ? curDir.split("/").pop() : "云盘全部") + "-" + files.length + "个文件.zip";
+            var a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+            toast("已打包 " + files.length + " 个文件（" + fmtBytes(blob.size) + "）", "ok");
+          });
+        }).catch(function (e) {
+          window.UI.btnLoading(btn, false);
+          toast(e.message || "打包失败", "err");
+        });
+      };
+
+      /* ---------- v8.0 文件夹上传：input[webkitdirectory] + 拖拽目录递归 ---------- */
+      /** 给 File 打上「drive/ 之下的相对目录」标记（引擎 uploadOne/finish 读取，缺省 = 根目录） */
+      function markDir(file, dir) {
+        try { Object.defineProperty(file, "__driveDir", { value: dir, configurable: true }); } catch (e) { /* 极端环境放弃目录归属，退化为根目录 */ }
+        return file;
+      }
+      /** 把「相对拖入根」的目录拼到当前目录之前，得到最终上传目录 */
+      function resolveDir(relDir) {
+        var d = String(relDir || "").replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/+/g, "/");
+        if (!d || d === ".") return curDir;
+        return curDir ? curDir + "/" + d : d;
+      }
+      /** DataTransferItemList → 递归遍历目录（webkitGetAsEntry），产出 {file, dir} */
+      function collectFromDrop(items) {
+        var entries = [];
+        for (var i = 0; i < items.length; i++) {
+          var it = items[i];
+          if (it.kind !== "file") continue;
+          var entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null;
+          if (entry) entries.push(entry);
+          else {
+            var f0 = it.getAsFile();
+            if (f0) entries.push({ isFile: true, file: f0, __fake: true });
+          }
+        }
+        var out = [];
+        function walk(entry, prefix) {
+          return new Promise(function (resolve) {
+            if (!entry) return resolve();
+            // 假 entry（DataTransferItem 无 entry 支持时的降级包装）：file 即 File 对象
+            if (entry.__fake) {
+              out.push({ file: entry.file, dir: resolveDir(prefix) });
+              return resolve();
+            }
+            // 标准 FileSystemFileEntry：file 是方法 file(successCb, errorCb)，异步取 File
+            // （曾踩坑：直接把 entry.file 当 File 入队，真实拖拽文件夹会全挂）
+            if (entry.isFile) {
+              if (typeof entry.file === "function") {
+                entry.file(function (file) {
+                  if (file) out.push({ file: file, dir: resolveDir(prefix) });
+                  resolve();
+                }, function () { resolve(); });
+              } else if (entry.file) {
+                out.push({ file: entry.file, dir: resolveDir(prefix) });
+                resolve();
+              } else {
+                resolve();
+              }
+              return;
+            }
+            if (entry.isDirectory) {
+              var reader = entry.createReader();
+              var batch = [];
+              (function readBatch() {
+                reader.readEntries(function (list) {
+                  if (!list.length) {
+                    var chain = Promise.resolve();
+                    batch.forEach(function (e) {
+                      chain = chain.then(function () { return walk(e, prefix ? prefix + "/" + entry.name : entry.name); });
+                    });
+                    return chain.then(resolve);
+                  }
+                  batch = batch.concat([].slice.call(list));
+                  readBatch(); // readEntries 单次最多 100 条，须循环读完
+                }, function () { resolve(); });
+              })();
+              return;
+            }
+            resolve(); // 未知类型：跳过不中断
+          });
+        }
+        var chain = Promise.resolve();
+        entries.forEach(function (e) {
+          chain = chain.then(function () { return walk(e, ""); });
+        });
+        return chain.then(function () { return out; });
+      }
+      function addPairs(pairs) {
+        if (!pairs || !pairs.length) return;
+        pairs.forEach(function (p) { markDir(p.file, p.dir); });
+        UploadService.addFiles(pairs.map(function (p) { return p.file; }));
+      }
+      $("btnUploadFolder").onclick = function () { $("folderInput").click(); };
+      $("folderInput").onchange = function () {
+        var files = Array.prototype.slice.call(this.files || []);
+        addPairs(files.map(function (f) {
+          // webkitRelativePath = "文件夹/子目录/a.txt" → 取其目录部分
+          var rel = String(f.webkitRelativePath || f.name);
+          var dir = rel.indexOf("/") !== -1 ? rel.replace(/\/[^/]*$/, "") : "";
+          return { file: f, dir: resolveDir(dir) };
+        }));
+        this.value = "";
+      };
+
+      /* ---------- v8.0 速度预估：采样 bytesDone 差分 + EMA 平滑，500ms 轮询刷新 ---------- */
+      var speedMap = {}; // name → {bytes, ts, speed}
+      var speedTimer = null;
+      function fmtSpeed(bps) {
+        if (!bps || bps <= 0) return "";
+        if (bps >= 1048576) return (bps / 1048576).toFixed(1) + "MB/s";
+        return Math.round(bps / 1024) + "KB/s";
+      }
+      function fmtEta(bytesLeft, bps) {
+        if (!bps || bps <= 0 || bytesLeft <= 0) return "";
+        var s = Math.ceil(bytesLeft / bps);
+        if (s < 60) return "约 " + s + " 秒";
+        if (s < 3600) return "约 " + Math.ceil(s / 60) + " 分";
+        return "约 " + (s / 3600).toFixed(1) + " 小时";
+      }
+      function taskBytes(t) {
+        if (t.mode === "chunked") return t.bytesDone || 0;
+        return Math.round((t.file.size || 0) * ((t.progress || 0) / 100));
+      }
+      function speedTick() {
+        var tasks = UploadService.tasks();
+        var active = tasks.filter(function (t) {
+          var S = UploadService.STATE;
+          return t.status === S.UPLOADING || t.status === S.CHECKING || t.status === S.READING || t.status === S.FINISHING;
+        });
+        if (!active.length) {
+          speedMap = {};
+          if (speedTimer) { clearInterval(speedTimer); speedTimer = null; }
+          return;
+        }
+        var now = Date.now();
+        active.forEach(function (t) {
+          var bytes = taskBytes(t);
+          var prev = speedMap[t.file.name];
+          if (prev && bytes > prev.bytes && now > prev.ts) {
+            var inst = (bytes - prev.bytes) / ((now - prev.ts) / 1000);
+            var smoothed = prev.speed ? prev.speed * 0.7 + inst * 0.3 : inst;
+            speedMap[t.file.name] = { bytes: bytes, ts: now, speed: smoothed };
+          } else if (!prev) {
+            speedMap[t.file.name] = { bytes: bytes, ts: now, speed: 0 };
+          } else {
+            prev.bytes = bytes;
+            prev.ts = now;
+          }
+        });
+        // 已完成/消失的任务清掉速度记录
+        Object.keys(speedMap).forEach(function (name) {
+          if (!active.some(function (t) { return t.file.name === name; })) delete speedMap[name];
+        });
+        renderQueue();
+      }
+      function ensureSpeedTimer() {
+        if (!speedTimer) speedTimer = setInterval(speedTick, 500);
+      }
+
       var dz = $("dropzone");
       dz.onclick = function () { $("fileInput").click(); };
       ["dragenter", "dragover"].forEach(function (ev) {
@@ -751,7 +1247,16 @@
         dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove("dragover"); });
       });
       dz.addEventListener("drop", function (e) {
-        if (e.dataTransfer && e.dataTransfer.files) UploadService.addFiles(e.dataTransfer.files);
+        if (!e.dataTransfer) return;
+        // v8.0：先尝试目录递归遍历（含文件夹拖拽）；无 items 或遍历为空时回退 files
+        collectFromDrop(e.dataTransfer.items || []).then(function (pairs) {
+          if (pairs.length) { addPairs(pairs); return; }
+          if (e.dataTransfer.files && e.dataTransfer.files.length) {
+            addPairs(Array.prototype.slice.call(e.dataTransfer.files).map(function (f) {
+              return { file: f, dir: curDir };
+            }));
+          }
+        });
       });
       // 防止整页拖拽打开文件
       window.addEventListener("dragover", function (e) { e.preventDefault(); });
@@ -800,6 +1305,7 @@
       }
     })();
   </script>
-  <script src="/utils/common.js"></script>
+  <script src="/components/ui.js"></script>
+<script src="/utils/common.js"></script>
 </body>
 </html>

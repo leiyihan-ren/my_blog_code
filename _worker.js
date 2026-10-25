@@ -1563,14 +1563,15 @@ async function handleGithubProxy(request, env, ctx, url, store) {
 // 前端 drive.html 专用入口。所有操作经本代理转发 GitHub Contents API，
 // Token 只在 Worker 内注入，前端永不接触；写操作一律要求 x-drive-pin 口令。
 //
-//   GET    /api/drive/list?path=drive[/子目录]       目录列表（小文件 + 大文件清单）//   POST   /api/drive/upload  {path, content, message}  小文件新建/覆盖（≤8MB）
+//   GET    /api/drive/list?path=drive[/子目录]       目录列表（小文件 + 大文件清单 + 子目录名）
+//   POST   /api/drive/upload  {path, content, message}  小文件新建/覆盖（≤8MB，path 可含子目录）
 //   PUT    /api/drive/update  {path, content, message}  小文件更新（后端先 GET sha）
 //   DELETE /api/drive/delete  {path, message}           删除（manifest 走批量删 parts）
 //
 //   ---- v6.0 大文件分片协议（>8MB）----
 //   GET    /api/drive/upload/status?uploadId=xxx   断点查询：已落库分片序号
 //   POST   /api/drive/upload/part                  分片上传（后端直存 part 文件）
-//   POST   /api/drive/upload/finish                收尾：写 manifest 清单
+//   POST   /api/drive/upload/finish                收尾：写 manifest 清单（可选 dir：子目录归属）
 //
 // 下载不经过本代理：小文件走 /api/github/raw/<repo>/<branch>/<path>；
 // 大文件由前端读 manifest 后逐片拉 raw 并用 Blob 重组（GitHub 无多 blob
@@ -1727,8 +1728,20 @@ function drivePartPath(uploadId, index) {
 }
 
 /** manifest 路径：drive/.m-<uploadId>.json（顶层扁平文件，点前缀避开普通文件） */
-function driveManifestPath(uploadId) {
-  return `${CONFIG.drive.dir}/.m-${uploadId}.json`;
+function driveManifestPath(uploadId, dir) {
+  // v8.0：dir 为「drive/ 之下」的相对子目录（如 "photos/2024"），为空即根目录（旧行为）
+  const prefix = dir ? `${CONFIG.drive.dir}/${String(dir).replace(/^\/+/, "").replace(/\/+$/, "")}` : CONFIG.drive.dir;
+  return `${prefix}/.m-${uploadId}.json`;
+}
+
+/** 校验「drive/ 之下」的相对子目录：不含 . .. 空段、不以点开头（隐藏目录保护） */
+function sanitizeDriveSubdir(raw) {
+  const p = String(raw || "").trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!p) return "";
+  const segs = p.split("/");
+  if (segs.some((s) => s === "" || s === "." || s === ".." || s.startsWith("."))) return null;
+  if (p.length > 200) return null;
+  return p;
 }
 
 /** 分片上传的 body 读取：5MB Base64 → 6.7MB，上限 8.5MB（含 JSON 外壳） */
@@ -1794,7 +1807,7 @@ async function driveChunkSave(env, uploadId, index, content) {
  * 收尾：校验分片数量后写 manifest（drive/.manifests/<uploadId>.json）。
  * parts 此时已全部落库（逐片 commit），此处只落一份清单文件。
  */
-async function driveChunkFinish(env, uploadId, name, size, total) {
+async function driveChunkFinish(env, uploadId, name, size, total, dir) {
   const nTotal = Number(total);
   if (!Number.isInteger(nTotal) || nTotal < 1 || nTotal > 100000) {
     return driveErr("分片总数不合法（1-100000）", 400);
@@ -1817,7 +1830,7 @@ async function driveChunkFinish(env, uploadId, name, size, total) {
     createdAt: new Date().toISOString(),
   };
   const manifestContent = jsonToBase64(JSON.stringify(manifest));
-  return driveSaveFile(env, driveManifestPath(uploadId), manifestContent, `drive: manifest ${manifest.name}`, false);
+  return driveSaveFile(env, driveManifestPath(uploadId, dir || ""), manifestContent, `drive: manifest ${manifest.name}`, false);
 }
 
 /** UTF-8 字符串 → Base64（manifest 落库用；TextEncoder 处理多字节安全） */
@@ -1841,6 +1854,11 @@ async function handleDrive(request, env, ctx, url) {
   const repo = CONFIG.drive.repo;
   const branch = CONFIG.drive.branch;
 
+  // v8.0：任何写操作（upload/update/delete/finish）立即使目录列表的 isolate
+  // 缓存失效——否则上传完成后的 onAllDone 刷新会在 30s 窗口内拿到旧快照，
+  // 表现为「传成功了但列表里没有」。
+  if (request.method !== "GET") { driveListMemo.at = 0; }
+
   // ---- 目录列表 ----
   if (request.method === "GET" && sub === "list") {
     const dir = sanitizeDrivePath(url.searchParams.get("path") || CONFIG.drive.dir);
@@ -1860,13 +1878,24 @@ async function handleDrive(request, env, ctx, url) {
     if (!res.ok) return githubWriteError(res);
     const items = await res.json();
     const all = Array.isArray(items) ? items : [];
-    // 顶层普通文件：排除分片协议的内部目录（.manifests / .parts）
+    // 普通文件：排除分片协议内部条目——drive/ 之后任意一段以点开头（.m-*.json 清单、
+    // .parts/ 分片目录、隐藏文件）；v8.0 修正：旧实现只挡根目录 drive/.，子目录里的
+    // manifest 会同时命中普通文件与 manifest 两条路径，导致同一大文件出现两行。
     const topFiles = all.filter(
-      (it) => it && it.type === "file" && !String(it.path || "").startsWith(`${CONFIG.drive.dir}/.`)
+      (it) => it && it.type === "file" &&
+        !String(it.path || "").split("/").slice(1).some((seg) => seg.startsWith("."))
     );
-    // manifest 文件（drive/.m-<id>.json）→ 大文件条目（storage: "chunked"，前端重组下载）
+    // v8.0 子目录：type=dir 且非隐藏（点开头）→ 面包屑导航与「进入目录」的数据基础
+    const dirs = all
+      .filter((it) => it && it.type === "dir" && !String(it.name || "").startsWith("."))
+      .map((it) => String(it.name || ""))
+      .filter(Boolean)
+      .slice(0, 100)
+      .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+    // manifest 文件（drive/[子目录/].m-<id>.json）→ 大文件条目（storage: "chunked"，前端重组下载）
+    // v8.0：正则放开到任意深度子目录，与「上传到子目录」的 finish dir 能力对齐
     const manifestItems = all.filter(
-      (it) => it && it.type === "file" && /^drive\/\.m-[A-Za-z0-9_-]{1,64}\.json$/.test(String(it.path || ""))
+      (it) => it && it.type === "file" && new RegExp(`^${CONFIG.drive.dir}/(?:[^/]+/)*\\.m-[A-Za-z0-9_-]{1,64}\\.json$`).test(String(it.path || ""))
     );
     const files = topFiles.slice(0, 50).map((it) => ({
       name: it.name,
@@ -1936,7 +1965,7 @@ async function handleDrive(request, env, ctx, url) {
       });
     }
 
-    const payload = { ok: true, dir, files, empty: files.length === 0, latestAt };
+    const payload = { ok: true, dir, files, dirs, empty: files.length === 0 && dirs.length === 0, latestAt };
     driveListMemo.at = now;
     driveListMemo.key = dir;
     driveListMemo.data = payload;
@@ -1993,7 +2022,12 @@ async function handleDrive(request, env, ctx, url) {
     if (typeof body.name !== "string" || !body.name.trim()) {
       return driveErr("参数缺失：需要 name", 400);
     }
-    return driveChunkFinish(env, uploadId, body.name.trim(), Number(body.size) || 0, body.total);
+    // v8.0：可选 dir——大文件 manifest 写入指定子目录（与前端上传目标目录一致）
+    const dir = body.dir === undefined || body.dir === null || body.dir === ""
+      ? ""
+      : sanitizeDriveSubdir(body.dir);
+    if (dir === null) return driveErr("非法目录：不允许 . .. 与隐藏目录", 400);
+    return driveChunkFinish(env, uploadId, body.name.trim(), Number(body.size) || 0, body.total, dir);
   }
 
   // ---- 上传（新建 / 覆盖）----
