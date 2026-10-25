@@ -1302,7 +1302,15 @@
 
     async function loadPosts() {
       try {
-        const res = await fetch("/api/posts?withSource=1");
+        // P0 修复：管理面列表读必须带鉴权 + no-store。
+        // 根因：该请求过去是不带凭证的公开读，响应被 worker 打上
+        // public, max-age=120，浏览器 HTTP 缓存 120 秒内直接返回旧列表——
+        // 发布/删除成功后界面不刷新，表现为「文章发了不显示、删了还在」。
+        // 带 Authorization 后 worker 对该响应显式 no-store，双重保证实时性。
+        const res = await fetch("/api/posts?withSource=1", {
+          headers: { "Authorization": `Bearer ${token}` },
+          cache: "no-store",
+        });
         if (res.headers.get("content-type")?.includes("json")) {
           const data = await res.json();
           // withSource=1 时返回 { posts, ghIds }；异常情况下按纯数组兜底
@@ -1347,7 +1355,7 @@
       el.querySelectorAll(".btn-delete-post").forEach(btn => {
         btn.addEventListener("click", function() {
           const id = this.closest(".list-item").dataset.id;
-          deletePost(id);
+          deletePost(id, this);
         });
       });
     }
@@ -1387,6 +1395,9 @@
       } catch(e) { showAlert("admin-alert", "网络错误，文章加载失败", "error"); }
     }
 
+    // 发布锁：接口返回前禁止二次提交（P0 修复——连点曾导致重复发文）
+    let isPublishing = false;
+
     async function savePost() {
       const title = document.getElementById("post-title").value.trim();
       const content = document.getElementById("post-content").value.trim();
@@ -1397,7 +1408,12 @@
         showAlert("admin-alert", "标题和内容不能为空", "warning");
         return;
       }
+      // 发布中：直接忽略后续点击（按钮已置灰，双保险）
+      if (isPublishing) return;
 
+      const btn = document.querySelector("#post-modal .btn-row .btn-primary");
+      isPublishing = true;
+      setBtnLoading(btn, true, "正在发布…");
       try {
         const res = await fetch("/api/posts", {
           method: "POST",
@@ -1409,16 +1425,30 @@
           showAlert("admin-alert", "文章已保存", "success");
           closePostModal();
           loadPosts();
+        } else if (result.duplicate) {
+          // 后端防重拦截（409）：文章其实已发布成功，按成功收场并明确告知
+          showAlert("admin-alert", "文章已发布（重复提交已被自动拦截）", "success");
+          closePostModal();
+          loadPosts();
         } else {
           showAlert("admin-alert", result.error || "保存失败", "error");
         }
       } catch(e) {
         showAlert("admin-alert", "网络错误", "error");
+      } finally {
+        isPublishing = false;
+        setBtnLoading(btn, false);
       }
     }
 
-    async function deletePost(id) {
+    // 删除防连点：同一篇文章的删除请求在返回前不允许重复发起
+    const deletingPostIds = new Set();
+
+    async function deletePost(id, btn) {
+      if (deletingPostIds.has(id)) return; // 删除中：忽略重复点击
       if (!confirm("确定要删除这篇文章吗？")) return;
+      deletingPostIds.add(id);
+      setBtnLoading(btn, true, "删除中…");
       try {
         const res = await fetch(`/api/post/delete/${id}`, {
           method: "POST",
@@ -1426,13 +1456,17 @@
         });
         const result = await res.json();
         if (result.success) {
-          showAlert("admin-alert", "文章已删除", "success");
+          // 后端写后校验未通过时会带 warning：不静默，明确提示用户
+          showAlert("admin-alert", result.warning || "文章已删除", result.warning ? "warning" : "success");
           loadPosts();
         } else {
           showAlert("admin-alert", result.error || "删除失败", "error");
         }
       } catch(e) {
         showAlert("admin-alert", "网络错误，删除失败", "error");
+      } finally {
+        deletingPostIds.delete(id);
+        setBtnLoading(btn, false);
       }
     }
 

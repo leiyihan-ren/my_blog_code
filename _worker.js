@@ -88,6 +88,17 @@ const CONFIG = {
     likeIpTtlSeconds: 86400 * 30,
     viewIpTtlSeconds: 86400,
   },
+  // ===== P0 修复（2026-10）：文章发布/删除并发防护 =====
+  // 背景：连点「发布」曾导致重复发文；快速连删曾因读-改-写竞态「删不掉」。
+  // 前端发布锁（isPublishing）是第一道防线，以下为后端第二道防线。
+  posts: {
+    // 重复发布拦截窗口（秒）：同标题+同内容的「新建」请求在该窗口内直接 409 拦截，
+    // 绝不盲目创建第二篇。KV expirationTtl 下限 60s，故窗口最小 60s。
+    dedupeWindowSeconds: 60,
+    // 删除写后校验重试次数：删除写入 KV 后直读校验，未生效则拉取最新数据重试。
+    // KV 无 CAS，这是 GitHub Contents 409 自愈在 KV 层的对应实现。
+    deleteVerifyRetries: 2,
+  },
   limit: {
     id: 100,
     ip: 50,
@@ -622,6 +633,9 @@ const KEYS = {
   links: "links", // 友情链接：Link[]
   gameScores: "gameScores", // 游戏排行榜：{ [gameId]: Score[] }
   legacyLike: (id) => `like_${safeKvKey(id, CONFIG.limit.id)}`,
+  // P0 防重指纹：文章「新建」时按 标题+内容 哈希写入（TTL 窗口），
+  // 窗口期内同内容的重复发布直接被拦截（409），杜绝连点产生重复文章
+  postDedupe: (fp) => `post_dedupe_${fp}`,
   likeIp: (postId, ip) =>
     `likeip_${safeKvKey(postId, CONFIG.limit.id)}_${safeKvKey(ip, CONFIG.limit.ip)}`,
   likeRate: (ip) => `likerate_${safeKvKey(ip, CONFIG.limit.ip)}`,
@@ -669,6 +683,18 @@ class Store {
 
   async getRaw(key) {
     if (this.rawMemo.has(key)) return this.rawMemo.get(key);
+    const value = await this.kv.get(key);
+    this.rawMemo.set(key, value);
+    return value;
+  }
+
+  /**
+   * 直读 KV 最新值（绕过请求级 memo）。
+   * 用途：写后校验——kv.put 后 memo 里存的是「我方写入值」，
+   * 只有直读才能验证写入是否已被 KV 真正接受（最终一致性兜底）。
+   * 读到的值会回填 memo，保持「读己所写」语义不变。
+   */
+  async getFreshRaw(key) {
     const value = await this.kv.get(key);
     this.rawMemo.set(key, value);
     return value;
@@ -737,6 +763,34 @@ class Store {
     }
     return guarded;
   }
+}
+
+// ============================================================
+// 7.5 KV 写串行化锁（读-改-写竞态防护）
+// ------------------------------------------------------------
+// 背景：Cloudflare KV 没有 CAS/事务，且为最终一致性。对同一 key 并发执行
+// 「读取→修改→整体写回」（如文章的增/删）会互相覆盖：丢更新、或让
+// 已删除的条目因旧读回写而「复活」——线上表现为重复发文、删不干净。
+// 思路与网盘分片 409 自愈一致：先把同一 isolate 内的写操作串成一条链，
+// 彻底杜绝交错；跨 isolate 的残余窗口由调用方的「写后校验 + 有限重试」兜底。
+// 单 isolate 内 Worker 运行时单线程，await 交错是唯一竞态来源，故进程内
+// promise 链即可提供完整互斥，无需外部锁服务。
+// ============================================================
+const kvWriteChains = new Map();
+
+/**
+ * 把 fn 的串行执行链挂到 key 上：同一 key 的任务严格 FIFO，绝不交错。
+ * 前一个任务失败不阻塞后一个（rejection 被吞掉继续传）。
+ */
+function withWriteLock(key, fn) {
+  const prev = kvWriteChains.get(key) || Promise.resolve();
+  const run = prev.then(() => fn(), () => fn());
+  // 链上只保留「已settle」的占位，异常不外泄给下一个任务
+  kvWriteChains.set(key, run.then(
+    () => {},
+    () => {}
+  ));
+  return run;
 }
 
 // ============================================================
@@ -2182,6 +2236,18 @@ const Repo = {
     return Array.isArray(parsed) ? parsed : [];
   },
 
+  /**
+   * 直读 KV 最新文章列表（绕过请求级 memo）。
+   * 用于删除的「获取最新数据→删→写后校验」重试循环：memo 里存的是我方
+   * 刚写入的值，只有直读才能反映 KV 的真实最新状态。
+   */
+  async getLocalPostsFresh(store) {
+    const raw = await store.getFreshRaw(KEYS.posts);
+    if (raw == null) return [];
+    const parsed = safeJsonParse(raw, []);
+    return Array.isArray(parsed) ? parsed : [];
+  },
+
   async getLocalMusic(store) {
     const raw = await store.getRaw(KEYS.music);
     if (raw == null) return [];
@@ -2971,124 +3037,181 @@ const handlers = {
   },
 
   async savePost(ctx) {
-    const body = ctx.body;
-    // 后台写操作只针对本地文章；GitHub 文章被编辑时先落入本地（本地优先覆盖）
-    const posts = await Repo.getLocalPosts(ctx.store);
+    // 文章写操作串行化：同一 isolate 内多篇文章的增/改绝不交错
+    // （KV 无 CAS，「读-改-写」交错会丢更新——连点发布曾因此产生重复文章）
+    return withWriteLock(KEYS.posts, async () => {
+      const body = ctx.body;
+      // 后台写操作只针对本地文章；GitHub 文章被编辑时先落入本地（本地优先覆盖）
+      const posts = await Repo.getLocalPosts(ctx.store);
 
-    if (body.id) {
-      if (!validateId(body.id)) fail("无效的文章ID", 400);
-      let idx = posts.findIndex((p) => p.id === body.id);
-      if (idx === -1) {
-        // 本地没有：可能来自 GitHub 同步（含被墓碑隐藏的）。取仓库当前版本落入本地，
-        // 此后本地版本覆盖 GitHub 版本（合并规则：本地优先）。
-        const merged = await Repo.getPosts(ctx.store);
-        let remote = merged.find((p) => p.id === body.id);
-        if (!remote) {
-          const site = await Repo.getSite(ctx.store);
-          if (site.autoMode && site.githubRepo) {
-            try {
-              remote = (await loadPostsFromGithub(ctx.store, site)).find((p) => p.id === body.id);
-            } catch {
-              /* 仓库不可达时无法恢复，按不存在处理 */
+      if (body.id) {
+        if (!validateId(body.id)) fail("无效的文章ID", 400);
+        let idx = posts.findIndex((p) => p.id === body.id);
+        if (idx === -1) {
+          // 本地没有：可能来自 GitHub 同步（含被墓碑隐藏的）。取仓库当前版本落入本地，
+          // 此后本地版本覆盖 GitHub 版本（合并规则：本地优先）。
+          const merged = await Repo.getPosts(ctx.store);
+          let remote = merged.find((p) => p.id === body.id);
+          if (!remote) {
+            const site = await Repo.getSite(ctx.store);
+            if (site.autoMode && site.githubRepo) {
+              try {
+                remote = (await loadPostsFromGithub(ctx.store, site)).find((p) => p.id === body.id);
+              } catch {
+                /* 仓库不可达时无法恢复，按不存在处理 */
+              }
             }
           }
+          if (!remote) fail("文章不存在", 404);
+          posts.push({
+            id: remote.id,
+            title: remote.title,
+            content: remote.content,
+            date: remote.date,
+            desc: remote.desc || "",
+          });
+          idx = posts.length - 1;
+          // 若曾删除过同 id 的 GitHub 文章，重新编辑即恢复，清除墓碑
+          await Repo.removeDeletedId(ctx.store, "posts", body.id);
         }
-        if (!remote) fail("文章不存在", 404);
-        posts.push({
-          id: remote.id,
-          title: remote.title,
-          content: remote.content,
-          date: remote.date,
-          desc: remote.desc || "",
-        });
-        idx = posts.length - 1;
-        // 若曾删除过同 id 的 GitHub 文章，重新编辑即恢复，清除墓碑
-        await Repo.removeDeletedId(ctx.store, "posts", body.id);
-      }
 
-      // 先校验，再写入，避免校验失败时留下被污染的数据
-      const patch = {};
-      for (const k of ["title", "content", "date", "desc"]) {
-        if (body[k] !== undefined) patch[k] = body[k];
-      }
-      // 标题/内容不允许置空（与新建分支保持一致的空值拒绝语义）
-      if (patch.title !== undefined) {
-        const t = String(patch.title).trim();
-        if (!t) fail("标题不能为空");
-        if (t.length > CONFIG.limit.postTitle) fail("标题不能超过200字");
-      }
-      if (patch.content !== undefined) {
-        const c = String(patch.content).trim();
-        if (!c) fail("内容不能为空");
-        if (c.length > CONFIG.limit.postContent) fail("内容不能超过50000字");
-      }
-      if (patch.desc !== undefined && String(patch.desc).length > CONFIG.limit.postDesc) fail("摘要不能超过500字");
-      if (patch.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(patch.date)) fail("日期格式不正确");
-      if (patch.content !== undefined) {
-        const sanitized = sanitizeUserContent(patch.content);
+        // 先校验，再写入，避免校验失败时留下被污染的数据
+        const patch = {};
+        for (const k of ["title", "content", "date", "desc"]) {
+          if (body[k] !== undefined) patch[k] = body[k];
+        }
+        // 标题/内容不允许置空（与新建分支保持一致的空值拒绝语义）
+        if (patch.title !== undefined) {
+          const t = String(patch.title).trim();
+          if (!t) fail("标题不能为空");
+          if (t.length > CONFIG.limit.postTitle) fail("标题不能超过200字");
+        }
+        if (patch.content !== undefined) {
+          const c = String(patch.content).trim();
+          if (!c) fail("内容不能为空");
+          if (c.length > CONFIG.limit.postContent) fail("内容不能超过50000字");
+        }
+        if (patch.desc !== undefined && String(patch.desc).length > CONFIG.limit.postDesc) fail("摘要不能超过500字");
+        if (patch.date !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(patch.date)) fail("日期格式不正确");
+        if (patch.content !== undefined) {
+          const sanitized = sanitizeUserContent(patch.content);
+          if (sanitized === null) fail("文章内容包含不安全的 HTML 或脚本代码", 400);
+          patch.content = sanitized;
+        }
+        if (patch.desc !== undefined) patch.desc = truncate(patch.desc, CONFIG.limit.postDesc);
+
+        Object.assign(posts[idx], patch);
+      } else {
+        if (!body.title || !body.content) fail("标题和内容不能为空");
+        const title = String(body.title).trim();
+        const content = String(body.content).trim();
+        if (!title) fail("标题不能为空");
+        if (!content) fail("内容不能为空");
+        if (title.length > CONFIG.limit.postTitle) fail("标题不能超过200字");
+        if (content.length > CONFIG.limit.postContent) fail("内容不能超过50000字");
+        if (body.desc && body.desc.length > CONFIG.limit.postDesc) fail("摘要不能超过500字");
+        if (body.date && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) fail("日期格式不正确");
+
+        const sanitized = sanitizeUserContent(content);
         if (sanitized === null) fail("文章内容包含不安全的 HTML 或脚本代码", 400);
-        patch.content = sanitized;
+
+        // ---- P0 防重：同标题+同内容的「新建」在窗口期内直接 409 拦截 ----
+        // 前端发布锁（按钮置灰）是第一道防线；这里是后端兜底：哪怕锁被绕过
+        // （脚本连点/多标签/锁失效），也绝不允许同一篇文章被创建出第二篇。
+        const fp = simpleHash(title) + "_" + simpleHash(content);
+        const dedupeKey = KEYS.postDedupe(fp);
+        const recentRaw = await ctx.store.kv.get(dedupeKey);
+        if (recentRaw) {
+          const recent = safeJsonParse(recentRaw, null);
+          return new Response(
+            JSON.stringify({
+              success: false,
+              error: "重复提交已拦截：相同文章刚刚已发布（如需再次发布请稍后重试）",
+              duplicate: true,
+              id: recent && recent.id ? recent.id : undefined,
+            }),
+            { status: 409, headers: buildHeaders() }
+          );
+        }
+
+        const newId = genId("p");
+        posts.push({
+          id: newId,
+          title,
+          content: sanitized,
+          date: body.date || new Date().toISOString().split("T")[0],
+          desc: (body.desc || "").slice(0, CONFIG.limit.postDesc),
+        });
+
+        await Repo.savePosts(ctx.store, posts);
+        // 落防重指纹（KV TTL 窗口）：写入成功后才记录，失败不留痕
+        await ctx.store.kv.put(
+          dedupeKey,
+          JSON.stringify({ id: newId, at: Date.now() }),
+          { expirationTtl: CONFIG.posts.dedupeWindowSeconds }
+        );
+        return { success: true, id: newId };
       }
-      if (patch.desc !== undefined) patch.desc = truncate(patch.desc, CONFIG.limit.postDesc);
 
-      Object.assign(posts[idx], patch);
-    } else {
-      if (!body.title || !body.content) fail("标题和内容不能为空");
-      const title = String(body.title).trim();
-      const content = String(body.content).trim();
-      if (!title) fail("标题不能为空");
-      if (!content) fail("内容不能为空");
-      if (title.length > CONFIG.limit.postTitle) fail("标题不能超过200字");
-      if (content.length > CONFIG.limit.postContent) fail("内容不能超过50000字");
-      if (body.desc && body.desc.length > CONFIG.limit.postDesc) fail("摘要不能超过500字");
-      if (body.date && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) fail("日期格式不正确");
-
-      const sanitized = sanitizeUserContent(content);
-      if (sanitized === null) fail("文章内容包含不安全的 HTML 或脚本代码", 400);
-
-      posts.push({
-        id: genId("p"),
-        title,
-        content: sanitized,
-        date: body.date || new Date().toISOString().split("T")[0],
-        desc: (body.desc || "").slice(0, CONFIG.limit.postDesc),
-      });
-    }
-
-    await Repo.savePosts(ctx.store, posts);
-    return { success: true };
+      await Repo.savePosts(ctx.store, posts);
+      return { success: true };
+    });
   },
 
   async deletePost(ctx) {
     const id = pathId(ctx, "无效的文章ID");
-    const local = await Repo.getLocalPosts(ctx.store);
-    const site = await Repo.getSite(ctx.store);
-    const ghEnabled = !!(site.autoMode && site.githubRepo);
-    if (local.some((p) => p.id === id)) {
-      // 后台文章（含 GitHub 文章的本地覆盖版）：从本地删除
-      const filtered = local.filter((p) => p.id !== id);
-      await Repo.savePosts(ctx.store, filtered);
-    } else {
-      // 本地没有：确认它确实存在于合并视图（可能来自 GitHub），否则 404
-      const merged = await Repo.getPosts(ctx.store);
-      if (!merged.some((p) => p.id === id)) fail("文章不存在", 404);
-    }
-    // GitHub 同步开启时一律写入墓碑：该 id 若来自仓库，仅删本地会让仓库版本在合并视图重新出现。
-    // 同步关闭时合并视图不存在，无需墓碑；重新保存同 id 内容会清除墓碑。
-    if (ghEnabled) await Repo.addDeletedId(ctx.store, "posts", id);
-    // 同步清理该文章的点赞 / 阅读量
-    const [likesMap, viewsMap] = await Promise.all([
-      Repo.getLikesMap(ctx.store),
-      Repo.getViewsMap(ctx.store),
-    ]);
-    delete likesMap[id];
-    delete viewsMap[id];
-    await Promise.all([
-      Repo.saveLikesMap(ctx.store, likesMap),
-      Repo.saveViewsMap(ctx.store, viewsMap),
-      ctx.store.delete(KEYS.legacyLike(id)),
-    ]);
-    return { success: true };
+    // 与 savePost 共用同一把写锁：增/删操作全程串行，彻底杜绝
+    // 「读取→过滤→整体写回」交错导致的丢更新与已删条目复活
+    // （线上「连点删除后文章又出现/删不干净」的根因）。
+    return withWriteLock(KEYS.posts, async () => {
+      // 直读 KV 最新列表——等价于 GitHub Contents 409 自愈里的「重新获取最新 SHA」：
+      // 不用请求级 memo 里的旧值，始终以 KV 当前真实状态为基准。
+      let local = await Repo.getLocalPostsFresh(ctx.store);
+      const site = await Repo.getSite(ctx.store);
+      const ghEnabled = !!(site.autoMode && site.githubRepo);
+      const inLocal = local.some((p) => p.id === id);
+      if (!inLocal) {
+        // 本地没有：确认它确实存在于合并视图（可能来自 GitHub），否则 404
+        const merged = await Repo.getPosts(ctx.store);
+        if (!merged.some((p) => p.id === id)) fail("文章不存在", 404);
+      }
+
+      // 读-改-写 + 写后校验重试：KV 最终一致性下，删除写入后直读确认生效；
+      // 未生效（读到旧值/被并发旧数据覆盖）则基于最新数据重试，次数有界。
+      let unverified = false;
+      if (inLocal) {
+        for (let attempt = 1; attempt <= CONFIG.posts.deleteVerifyRetries; attempt++) {
+          await Repo.savePosts(ctx.store, local.filter((p) => p.id !== id));
+          local = await Repo.getLocalPostsFresh(ctx.store);
+          if (!local.some((p) => p.id === id)) {
+            unverified = false;
+            break;
+          }
+          unverified = true; // 仍未生效：下一轮用刚拉到的最新数据重试
+        }
+      }
+
+      // GitHub 同步开启时一律写入墓碑：该 id 若来自仓库，仅删本地会让仓库版本在合并视图重新出现。
+      // 同步关闭时合并视图不存在，无需墓碑；重新保存同 id 内容会清除墓碑。
+      if (ghEnabled) await Repo.addDeletedId(ctx.store, "posts", id);
+      // 同步清理该文章的点赞 / 阅读量
+      const [likesMap, viewsMap] = await Promise.all([
+        Repo.getLikesMap(ctx.store),
+        Repo.getViewsMap(ctx.store),
+      ]);
+      delete likesMap[id];
+      delete viewsMap[id];
+      await Promise.all([
+        Repo.saveLikesMap(ctx.store, likesMap),
+        Repo.saveViewsMap(ctx.store, viewsMap),
+        ctx.store.delete(KEYS.legacyLike(id)),
+      ]);
+      // 重试后仍未验证到删除生效：不静默，明确告知前端（写入已发出，
+      // 大概率只是 KV 同步延迟；前端据此提示用户稍后刷新确认）。
+      return unverified
+        ? { success: true, warning: "删除已提交，但数据同步略有延迟，请稍后刷新确认" }
+        : { success: true };
+    });
   },
 
   // ---------- 留言 ----------
@@ -3959,6 +4082,13 @@ export default {
             `public, max-age=${ttl}, stale-while-revalidate=${ttl * 4}`
           );
         }
+      } else if (request.method === "GET" && response.status === 200) {
+        // P0 修复：带鉴权的管理面 GET 显式禁止任何层级缓存。
+        // 根因：管理后台读取列表（如 /api/posts?withSource=1）曾按公开读处理，
+        // 响应带 public, max-age=120——浏览器 HTTP 缓存 120 秒内直接返回旧列表，
+        // 发布/删除成功后界面「不刷新」，用户看到「删了还在、发了没影」。
+        // 仅跳过缓存头不够（浏览器仍可能启发式缓存），这里显式 no-store 焊死。
+        headers.set("Cache-Control", "no-store");
       }
 
       const finalResponse = new Response(

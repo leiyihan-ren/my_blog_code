@@ -9,8 +9,15 @@
    │ 同源静态资源      │ stale-while-revalidate：先返回缓存    │
    │ (JS/CSS/图标)     │ 秒开，后台静默更新，下次即最新         │
    ├──────────────────┼──────────────────────────────────────┤
-   │ /api/* GET        │ stale-while-revalidate：同上          │
-   │ （POST 不拦截）   │                                      │
+   │ /api/github/*    │ stale-while-revalidate：图片代理走     │
+   │ （图片/不可变）   │ 缓存秒开（worker 侧已 1 天 TTL）       │
+   ├──────────────────┼──────────────────────────────────────┤
+   │ /api/* GET       │ network-first：在线保证最新，          │
+   │ （JSON 数据读）   │ 断网回退缓存（离线仍可看旧数据）       │
+   ├──────────────────┼──────────────────────────────────────┤
+   │ 带 Authorization  │ 不走缓存直传网络：管理面数据           │
+   │ 的 /api/* GET    │ （发布/删除后必须立即最新；同时避免    │
+   │                  │  带凭证响应进共享 Cache）              │
    ├──────────────────┼──────────────────────────────────────┤
    │ Range/206 音频    │ 缓存完整版后按 Range 切片返回 206，     │
    │                  │ 保证音频离线/拖动均可播                │
@@ -26,7 +33,9 @@
 "use strict";
 
 /* ⚠️ 每次发布新版本时必须 +1，否则用户可能停留在旧缓存 */
-const CACHE_VERSION = "v3.2.0";
+// v3.3.0：P0 修复——管理面 API 不再走 SWR 缓存（发布/删除后列表不刷新的根因），
+//         公共 JSON 读改 network-first + 离线回退；/api/github/* 图片保持 SWR。
+const CACHE_VERSION = "v3.3.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -201,6 +210,17 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // 1.6) P0 修复：带 Authorization 的管理面 API GET，不走任何缓存，直传网络。
+  // 根因：管理后台（发布/编辑/删除文章等）的列表请求曾落入 /api/* 的
+  // stale-while-revalidate 分支——写操作成功后 SW 先把旧缓存当新鲜数据返回，
+  // 用户看到「文章已删除但列表还在、已发布但列表不更新」，即「删不掉」假象。
+  // 同时避免把带凭证的响应写入共享 Cache（安全隐患）。
+  // 注：POST/PUT/DELETE 写方法已在前面被放行，不受影响。
+  if (url.pathname.startsWith("/api/") && req.method === "GET" && req.headers.get("authorization")) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
   // 1) HTML 导航：network-first，断网回退缓存（离线可打开站点）
   if (req.mode === "navigate") {
     event.respondWith(
@@ -232,7 +252,36 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 2) 同源静态资源与 /api/* GET：stale-while-revalidate
+  // 2) /api/* GET（公共 JSON 数据读）：network-first，断网回退缓存。
+  // P0 修复：与 1.6 配套——公开读（不带鉴权，如博客列表页拉文章列表）
+  // 在线时也必须拿最新数据（旧 SWR 会让所有人看到旧文章列表）；
+  // 断网时回退到运行时缓存里的旧数据，保证离线仍可浏览。
+  // /api/github/*（图片代理，不可变）除外，继续走 SWR 秒开。
+  if (url.pathname.startsWith("/api/") && req.method === "GET" && !url.pathname.startsWith("/api/github/")) {
+    event.respondWith(
+      (async () => {
+        try {
+          const fresh = await fetch(req);
+          if (isCacheableResponse(fresh)) {
+            const cache = await caches.open(RUNTIME_CACHE);
+            cache.put(req, fresh.clone());
+            trimCache(cache);
+          }
+          return fresh;
+        } catch (e) {
+          const hit = await caches.open(RUNTIME_CACHE).then((c) => c.match(req));
+          if (hit) return hit;
+          return new Response(JSON.stringify({ error: "离线且无缓存" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json; charset=utf-8" },
+          });
+        }
+      })()
+    );
+    return;
+  }
+
+  // 3) 同源静态资源：stale-while-revalidate（秒开，后台静默更新）
   event.respondWith(
     (async () => {
       const cache = await caches.open(RUNTIME_CACHE);
