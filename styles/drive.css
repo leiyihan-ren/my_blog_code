@@ -64,6 +64,15 @@
     /* 上传队列 */
     .up-item { padding: 12px 18px; border-bottom: 1px solid var(--border); }
     .up-item:last-child { border-bottom: none; }
+    /* v7.3 队列分组头（注意：禁用 up-item 类，守护 step12「100 个 .up-item」断言） */
+    .up-group-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 18px; font-size: 12px; font-weight: 600; color: var(--text-mute);
+      background: rgba(var(--primary-rgb), .04); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 1;
+    }
+    .up-group-count { font-weight: 400; opacity: .8; }
+    .up-group-act { margin-left: auto; }
     .up-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
     .up-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .up-status { font-size: 12px; color: var(--text-mute); white-space: nowrap; }
@@ -122,6 +131,30 @@
     .f-ops .dl:hover { background: rgba(var(--primary-rgb), .1); }
     .f-ops .del { color: var(--danger-solid); }
     .f-ops .del:hover { background: var(--danger-bg); }
+    .f-ops .rn { color: var(--text-mute); }
+    .f-ops .rn:hover { background: rgba(var(--primary-rgb), .1); color: var(--primary-text); }
+    .f-ops button:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* v7.3 文件列表工具条：搜索 + 排序（纯客户端，操作 lastFiles） */
+    .list-tools { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .file-search {
+      width: 150px; padding: 6px 12px; font-size: 12px; color: var(--text);
+      background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-pill);
+      outline: none; transition: border-color .15s var(--ease), width .2s var(--ease);
+    }
+    .file-search:focus { border-color: var(--primary); width: 190px; }
+    .sort-btns { display: inline-flex; align-items: center; gap: 2px; }
+    .sort-btn {
+      border: none; background: none; cursor: pointer; font-size: 12px; color: var(--text-mute);
+      padding: 4px 8px; border-radius: 8px; transition: all .15s var(--ease);
+    }
+    .sort-btn:hover { color: var(--primary-text); background: rgba(var(--primary-rgb), .08); }
+    .sort-btn.active { color: var(--primary-text); background: rgba(var(--primary-rgb), .12); font-weight: 600; }
+    .sort-dir {
+      border: none; background: none; cursor: pointer; font-size: 12px; color: var(--text-mute);
+      padding: 4px 6px; border-radius: 8px;
+    }
+    .sort-dir:hover { color: var(--primary-text); background: rgba(var(--primary-rgb), .08); }
 
     .state-box { padding: 46px 20px; text-align: center; color: var(--text-mute); }
     .state-box .emo { font-size: 40px; display: block; margin-bottom: 10px; }
@@ -160,4 +193,8 @@
       .f-time { display: none; }
       .f-name a { max-width: 180px; }
       .drive-head { align-items: flex-start; }
+      .list-tools { width: 100%; margin-top: 8px; }
+      .file-search { flex: 1; width: auto; }
+      .file-search:focus { width: auto; }
+      .up-group-head { padding: 9px 14px; }
     }

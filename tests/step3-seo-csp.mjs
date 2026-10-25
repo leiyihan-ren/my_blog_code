@@ -190,7 +190,16 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 900 
   const jsErrors = [];
   page.on("pageerror", (e) => jsErrors.push(String(e)));
   await page.goto("http://localhost:8899/post.html?id=seo-test", { waitUntil: "load" });
-  await sleep(2000);
+  // 动态 SEO 由文章数据加载后的异步回调填充：条件等待 og:url 就位，
+  // 替代固定 sleep(2000)——高负载机器上固定等待可能读到填充前的中间态（flaky）
+  await page.waitForFunction(
+    () => {
+      const el = document.head.querySelector('meta[property="og:url"]');
+      return !!el && /id=seo-test/.test(el.getAttribute("content") || "");
+    },
+    null,
+    { timeout: 10000 }
+  );
   const seo = await page.evaluate(() => {
     const get = (s) => document.head.querySelector(s)?.getAttribute("content") || "";
     const ld = document.getElementById("jsonld-blogposting");

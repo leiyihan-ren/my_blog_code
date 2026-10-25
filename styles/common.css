@@ -188,6 +188,37 @@ body.dark ::selection { background: rgba(var(--accent-rgb), 0.34); color: inheri
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* ---- v7.3 断网横幅（common.js initOfflineBanner 懒创建） ---- */
+.offline-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--danger-solid, #dc2626);
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s var(--ease), transform 0.3s var(--ease);
+  z-index: 1500;
+  max-width: 90vw;
+  text-align: center;
+}
+.offline-banner.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---- v7.3 进场淡入：页面加载时一次性微动效（JS 加 body.page-enter，动画结束移除） ---- */
+@keyframes page-enter-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+body.page-enter { animation: page-enter-in 0.28s var(--ease); }
+
+/* ---- v7.3 按钮按压反馈：统一 :active 微缩放（各页面 .btn 复用） ---- */
+.btn:active:not(:disabled), .f-ops button:active:not(:disabled) { transform: scale(0.96); }
+
 /* ---- 尊重系统减弱动效偏好：关闭装饰性动画与过渡 ---- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

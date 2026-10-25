@@ -1109,20 +1109,17 @@
       }
     }
 
-    function sharePost() {
+    async function sharePost() {
       const url = window.location.href;
       const title = document.querySelector(".article-title")?.textContent || "";
       if (navigator.share) {
         navigator.share({ title, url }).catch(() => {});
-      } else if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(() => {
-          showToast("链接已复制到剪贴板");
-        }).catch(() => {
-          prompt("复制链接：", url);
-        });
-      } else {
-        prompt("复制链接：", url);
+        return;
       }
+      // v7.3：统一走 BlogUtils.copyText（含 execCommand 降级），替代 prompt 暴露链接
+      const { copyText } = window.BlogUtils;
+      const ok = await copyText(url);
+      showToast(ok ? "链接已复制到剪贴板" : "复制失败，请手动复制地址栏链接");
     }
 
     function showToast(msg) {

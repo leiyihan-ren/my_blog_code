@@ -1446,7 +1446,7 @@
 
     async function deletePost(id, btn) {
       if (deletingPostIds.has(id)) return; // 删除中：忽略重复点击
-      if (!confirm("确定要删除这篇文章吗？")) return;
+      if (!(await confirmDialog({ title: "🗑️ 删除文章", message: "确定要删除这篇文章吗？", confirmText: "删除", danger: true }))) return;
       deletingPostIds.add(id);
       setBtnLoading(btn, true, "删除中…");
       try {
@@ -1579,7 +1579,7 @@
     }
 
     async function deleteTimeline(id) {
-      if (!confirm("确定要删除这条记录吗？")) return;
+      if (!(await confirmDialog({ title: "🗑️ 删除记录", message: "确定要删除这条记录吗？", confirmText: "删除", danger: true }))) return;
       try {
         const res = await fetch(`/api/timeline/delete/${id}`, {
           method: "POST",
@@ -1638,7 +1638,7 @@
     }
 
     async function deleteMsg(id) {
-      if (!confirm("确定要删除这条留言吗？")) return;
+      if (!(await confirmDialog({ title: "🗑️ 删除留言", message: "确定要删除这条留言吗？", confirmText: "删除", danger: true }))) return;
       try {
         const res = await fetch(`/api/message/delete/${id}`, {
           method: "POST",
@@ -1741,7 +1741,7 @@
     }
 
     async function deleteComment(postId, commentId) {
-      if (!confirm("确定要删除这条评论吗？")) return;
+      if (!(await confirmDialog({ title: "🗑️ 删除评论", message: "确定要删除这条评论吗？", confirmText: "删除", danger: true }))) return;
       try {
         const res = await fetch(`/api/comment/delete/${postId}/${commentId}`, {
           method: "POST",
@@ -1869,7 +1869,7 @@
     }
 
     async function deleteMusic(id) {
-      if (!confirm("确定要删除这首歌曲吗？")) return;
+      if (!(await confirmDialog({ title: "🗑️ 删除歌曲", message: "确定要删除这首歌曲吗？", confirmText: "删除", danger: true }))) return;
       try {
         const res = await fetch(`/api/music/delete/${id}`, {
           method: "POST",
@@ -1976,7 +1976,7 @@
     }
 
     async function deleteLink(id) {
-      if (!confirm("确定要删除这个友链吗？")) return;
+      if (!(await confirmDialog({ title: "🗑️ 删除友链", message: "确定要删除这个友链吗？", confirmText: "删除", danger: true }))) return;
       try {
         const res = await fetch(`/api/link/delete/${id}`, {
           method: "POST",
@@ -2036,7 +2036,11 @@
     async function clearGameScores(gameId) {
       const meta = GAME_META[gameId];
       if (!meta) return;
-      if (!confirm(`确定要清空「${meta.name}」的全部排行榜成绩吗？此操作不可恢复。`)) return;
+      if (!(await confirmDialog({
+        title: "🗑️ 清空排行榜",
+        message: `确定要清空「${meta.name}」的全部排行榜成绩吗？此操作不可恢复。`,
+        confirmText: "全部清空", danger: true,
+      }))) return;
       try {
         const res = await fetch(`/api/game/scores/${gameId}`, {
           method: "POST",
@@ -2096,7 +2100,11 @@
       const file = input.files && input.files[0];
       if (!file) return;
       const status = document.getElementById("backup-status");
-      if (!confirm(`确定要用「${file.name}」覆盖当前全部内容吗？\n\n此操作不可撤销，建议先导出一份当前备份。`)) {
+      if (!(await confirmDialog({
+        title: "⚠️ 覆盖导入",
+        message: `确定要用「${file.name}」覆盖当前全部内容吗？\n\n此操作不可撤销，建议先导出一份当前备份。`,
+        confirmText: "覆盖导入", danger: true,
+      }))) {
         input.value = "";
         return;
       }

@@ -482,7 +482,12 @@ window.GameCore = (function () {
     if (score <= 0) { toast("本次没有得分，无法提交"); return; }
     let nick = getNick();
     if (!nick) {
-      nick = (prompt("输入排行榜昵称（1-12 字）：", "") || "").trim();
+      nick = (await promptDialog({
+        title: "🏆 排行榜昵称",
+        message: "输入排行榜昵称（1-12 字）：",
+        placeholder: "昵称",
+        maxLength: 12,
+      }) || "").trim();
       if (!nick) { toast("已取消提交"); return; }
       if (nick.length > 12) { toast("昵称最长 12 字"); return; }
       safeLS.set(LS_NICK, nick);
@@ -520,8 +525,14 @@ window.GameCore = (function () {
     $("btn-submit").addEventListener("click", blur(() => {
       if (current) submitScore(currentMeta.id, current.lastScore || 0);
     }));
-    $("btn-nickname").addEventListener("click", () => {
-      const v = (prompt("修改排行榜昵称：", getNick()) || "").trim();
+    $("btn-nickname").addEventListener("click", async () => {
+      const v = (await promptDialog({
+        title: "✏️ 修改昵称",
+        message: "修改排行榜昵称（1-12 字）：",
+        defaultValue: getNick(),
+        placeholder: "昵称",
+        maxLength: 12,
+      }) || "").trim();
       if (!v) return;
       if (v.length > 12) { toast("昵称最长 12 字"); return; }
       safeLS.set(LS_NICK, v);

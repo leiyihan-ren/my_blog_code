@@ -63,7 +63,18 @@
     </section>
 
     <section class="panel">
-      <div class="panel-title">文件列表 <span class="muted" id="listHint"></span></div>
+      <div class="panel-title">
+        文件列表 <span class="muted" id="listHint"></span>
+        <span class="list-tools">
+          <input type="search" id="fileSearch" class="file-search" placeholder="🔍 搜索文件名…" aria-label="搜索云盘文件">
+          <span class="sort-btns" role="group" aria-label="排序方式">
+            <button type="button" class="sort-btn" data-sort="name">名称</button>
+            <button type="button" class="sort-btn" data-sort="size">大小</button>
+            <button type="button" class="sort-btn" data-sort="time">时间</button>
+            <button type="button" class="sort-dir" id="sortDirBtn" title="切换升序 / 降序（当前：降序）">↓</button>
+          </span>
+        </span>
+      </div>
       <div id="loadingState" class="state-box">
         <span class="emo">⏳</span>
         <p>正在加载云盘…</p>
@@ -107,6 +118,19 @@
       <div class="modal-btns">
         <button class="btn" id="btnCancelDel">取消</button>
         <button class="btn btn-danger" id="btnConfirmDel">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 重命名模态（v7.3：仅小文件；大文件 manifest 协议不支持改名） -->
+  <div class="modal-mask" id="renameModal">
+    <div class="modal">
+      <h3>✏️ 重命名文件</h3>
+      <p class="m-desc">当前名称：<span class="warn-file" id="renameOldName"></span><br>重命名会以新名称重新上传并删除旧文件，内容不变。</p>
+      <input type="text" id="renameInput" placeholder="输入新文件名" autocomplete="off" spellcheck="false">
+      <div class="modal-btns">
+        <button class="btn" id="btnRenameCancel">取消</button>
+        <button class="btn btn-primary" id="btnRenameOk">确认</button>
       </div>
     </div>
   </div>
@@ -213,6 +237,27 @@
 
       /* ---------- 文件列表 ---------- */
       var lastFiles = []; // 上次列表数据：队列渲染时复用，驱动删除锁的实时刷新
+      /* v7.3 排序 + 搜索状态：纯客户端运算，不重拉数据 */
+      var sortState = { key: "time", dir: -1 }; // 默认上传时间倒序（最新在上）
+      var searchQuery = "";
+      var searchTimer = null;
+      function visibleFiles() {
+        var q = searchQuery.trim().toLowerCase();
+        var arr = q
+          ? lastFiles.filter(function (f) { return String(f.name || "").toLowerCase().indexOf(q) !== -1; })
+          : lastFiles.slice();
+        var k = sortState.key, d = sortState.dir;
+        arr.sort(function (a, b) {
+          var r = 0;
+          if (k === "size") r = (a.size || 0) - (b.size || 0);
+          else if (k === "time") r = String(a.uploadedAt || "").localeCompare(String(b.uploadedAt || ""));
+          else r = String(a.name || "").localeCompare(String(b.name || ""), "zh-Hans-CN");
+          if (r !== 0) return r * d;
+          // 稳定 tie-break：固定按名称升序，不随主排序方向翻转（保证次序确定）
+          return String(a.name || "").localeCompare(String(b.name || ""), "zh-Hans-CN");
+        });
+        return arr;
+      }
       function loadList() {
         $("loadingState").hidden = false;
         $("emptyState").hidden = true;
@@ -221,7 +266,7 @@
         return api("/api/drive/list").then(function (data) {
           $("loadingState").hidden = true;
           lastFiles = data.files || [];
-          renderFiles(lastFiles);
+          renderFiles(visibleFiles());
           renderStats(data);
         }).catch(function (e) {
           $("loadingState").hidden = true;
@@ -245,11 +290,19 @@
         if (!files.length) {
           $("emptyState").hidden = false;
           $("fileTable").hidden = true;
+          // v7.3：搜索无结果时给出可操作的反馈（区别于「云盘是空的」）
+          var emptySub = $("emptyState").querySelector(".sub");
+          if (emptySub) {
+            emptySub.textContent = searchQuery.trim()
+              ? "没有匹配「" + searchQuery.trim() + "」的文件，试试其他关键词"
+              : "把文件拖到上方虚线区，或点「上传文件」开始";
+          }
           return;
         }
         $("emptyState").hidden = true;
         files.forEach(function (f) {
           var tr = document.createElement("tr");
+          tr.setAttribute("data-path", f.path); // v7.3 乐观删除定位锚点
 
           var tdName = document.createElement("td");
           var nameBox = document.createElement("div");
@@ -306,6 +359,21 @@
           }
           tdOps.appendChild(dl);
           tdOps.appendChild(del);
+          // v7.3 重命名：仅小文件（大文件为分片 manifest 协议，不支持改名）
+          var rn = document.createElement("button");
+          rn.className = "rn";
+          rn.textContent = "✏️";
+          rn.title = "重命名";
+          if (f.storage === "chunked") {
+            rn.disabled = true;
+            rn.title = "大文件暂不支持重命名（分片协议）";
+          } else if (UploadService.isUploading(f.name)) {
+            rn.disabled = true;
+            rn.title = "上传中，暂不可重命名";
+          } else {
+            rn.onclick = function () { askRename(f); };
+          }
+          tdOps.appendChild(rn);
 
           tr.appendChild(tdName);
           tr.appendChild(tdSize);
@@ -316,7 +384,7 @@
         $("fileTable").hidden = false;
       }
 
-      /* ---------- 删除（二次确认） ---------- */
+      /* ---------- 删除（二次确认 + v7.3 乐观 UI：即时淡出，失败回滚） ---------- */
       var pendingDelete = null;
       function askDelete(f) {
         if (UploadService.isUploading(f.name)) {
@@ -339,41 +407,225 @@
         var btn = this;
         btn.disabled = true;
         btn.textContent = "删除中…";
+        // 乐观 UI：先从表格淡出移除，失败再回滚（用户零等待感知）
+        var snapshot = lastFiles;
+        lastFiles = lastFiles.filter(function (x) { return x.path !== f.path; });
+        renderFiles(visibleFiles());
         api("/api/drive/delete", { method: "DELETE", body: { path: f.path } }).then(function () {
           btn.disabled = false;
           btn.textContent = "确认删除";
           toast("已删除 " + f.name, "ok");
+          loadList(); // 后台校准（同步 sha/统计）
+        }).catch(function (e) {
+          lastFiles = snapshot;
+          renderFiles(visibleFiles()); // 回滚：删除实际未生效
+          btn.disabled = false;
+          btn.textContent = "确认删除";
+          toast("删除失败（" + (e.message || "未知错误") + "），已恢复显示", "err");
+        });
+      };
+
+      /* ---------- 重命名（v7.3）：小文件读回→新路径上传→删旧路径；大文件不支持 ---------- */
+      var pendingRename = null;
+      function askRename(f) {
+        if (UploadService.isUploading(f.name)) {
+          toast("「" + f.name + "」正在上传，请等待完成后再重命名", "err");
+          return;
+        }
+        pendingRename = f;
+        $("renameOldName").textContent = f.name;
+        $("renameInput").value = f.name;
+        $("renameModal").classList.add("show");
+        setTimeout(function () { $("renameInput").focus(); $("renameInput").select(); }, 50);
+      }
+      $("btnRenameCancel").onclick = function () {
+        pendingRename = null;
+        $("renameModal").classList.remove("show");
+      };
+      function bufToBase64(buf) {
+        var bytes = new Uint8Array(buf);
+        var CHUNK = 0x8000, bin = "";
+        for (var i = 0; i < bytes.length; i += CHUNK) {
+          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+        }
+        return btoa(bin);
+      }
+      $("btnRenameOk").onclick = function () {
+        var f = pendingRename;
+        pendingRename = null;
+        $("renameModal").classList.remove("show");
+        if (!f) return;
+        var newName = String($("renameInput").value || "").trim();
+        if (!newName) { toast("文件名不能为空", "err"); return; }
+        if (/[\/\\]/.test(newName) || newName === "." || newName === "..") { toast("文件名不能包含路径符号", "err"); return; }
+        if (newName === f.name) { toast("新名称与当前相同", "err"); return; }
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = "处理中…";
+        var dir = f.path.replace(/[^/]*$/, ""); // 保留所在目录
+        var newPath = dir + newName;
+        // 1) 读回旧文件内容（raw 代理）
+        fetch(f.downloadUrl).then(function (res) {
+          if (!res.ok) throw new Error("读取原文件失败（HTTP " + res.status + "）");
+          return res.arrayBuffer();
+        }).then(function (buf) {
+          // 2) 以新路径上传（Base64）
+          return api("/api/drive/upload", {
+            method: "POST",
+            body: { path: newPath, content: bufToBase64(buf), message: "drive: rename " + f.name + " → " + newName }
+          });
+        }).then(function () {
+          // 3) 删除旧路径（失败不阻塞：提示用户手动删除，避免静默留残file）
+          return api("/api/drive/delete", {
+            method: "DELETE",
+            body: { path: f.path, message: "drive: rename-remove " + f.name }
+          }).catch(function (e) {
+            toast("新文件已上传，但旧文件删除失败（" + e.message + "），请手动删除", "err");
+          });
+        }).then(function () {
+          btn.disabled = false;
+          btn.textContent = "确认";
+          toast("已重命名为「" + newName + "」", "ok");
           loadList();
         }).catch(function (e) {
           btn.disabled = false;
-          btn.textContent = "确认删除";
-          toast(e.message || "删除失败", "err");
+          btn.textContent = "确认";
+          toast(e.message || "重命名失败", "err");
         });
       };
+      $("renameInput").addEventListener("keydown", function (e) {
+        if (e.key === "Enter") $("btnRenameOk").click();
+      });
+
+      /* v7.3 队列分组定义：顺序即展示顺序（需要用户关注的放前面） */
+      var QUEUE_GROUPS = [
+        { key: "failed", label: "失败", icon: "❌" },
+        { key: "active", label: "传输中", icon: "⬆️" },
+        { key: "pending", label: "等待中", icon: "⏳" },
+        { key: "paused", label: "已暂停", icon: "⏸️" },
+        { key: "done", label: "已完成", icon: "✅" },
+      ];
+      function queueGroupOf(t) {
+        var S = UploadService.STATE;
+        if (t.status === S.FAILED) return "failed";
+        if (t.status === S.PAUSED) return "paused";
+        if (t.status === S.DONE) return "done";
+        if (t.status === S.PENDING) return "pending";
+        return "active"; // reading / checking / uploading / finishing
+      }
+      function makeGroupHead(def, count, actionBtn) {
+        var head = document.createElement("div");
+        head.className = "up-group-head"; // 守护：分组头禁用 up-item 类（step12 断言 100 个 .up-item）
+        var title = document.createElement("span");
+        title.textContent = def.icon + " " + def.label;
+        var cnt = document.createElement("span");
+        cnt.className = "up-group-count";
+        cnt.textContent = count + " 个";
+        head.appendChild(title);
+        head.appendChild(cnt);
+        if (actionBtn) {
+          var act = document.createElement("span");
+          act.className = "up-group-act";
+          act.appendChild(actionBtn);
+          head.appendChild(act);
+        }
+        return head;
+      }
+      function buildTaskItem(t) {
+        var S = UploadService.STATE;
+        var item = document.createElement("div");
+        item.className = "up-item" + (t.status === S.DONE ? " done" : t.status === S.FAILED ? " failed" : t.status === S.PAUSED ? " paused" : "");
+        item.setAttribute("data-name", t.file.name); // 测试与调试可按文件名定位
+
+        var row = document.createElement("div");
+        row.className = "up-row";
+        var icon = document.createElement("span");
+        icon.textContent = fileIcon(t.file.name);
+        var name = document.createElement("span");
+        name.className = "up-name";
+        name.textContent = t.file.name + "（" + fmtBytes(t.file.size) + "）" +
+          (t.mode === "chunked" ? " · 分片 " + (t.total || 0) + " 片" : "");
+        var status = document.createElement("span");
+        status.className = "up-status" + (t.status === S.DONE ? " ok" : t.status === S.FAILED ? " err" : "");
+        var statusText =
+          t.status === S.DONE ? "✅ 完成" :
+          t.status === S.FAILED ? "❌ " + (t.error || "失败") + (t.hint ? "（" + t.hint + "）" : "") :
+          t.status === S.PAUSED ? "⏸️ " + (t.hint || "已暂停") :
+          t.status === S.READING ? "读取中…" :
+          t.status === S.CHECKING ? (t.hint || "检查断点…") :
+          t.status === S.FINISHING ? (t.hint || "写入清单…") :
+          t.hint ? t.hint + " " + (t.progress || 0) + "%" :
+          t.progress > 0 ? t.progress + "%" : "等待中…";
+        status.textContent = statusText;
+        row.appendChild(icon);
+        row.appendChild(name);
+        row.appendChild(status);
+
+        var bar = document.createElement("div");
+        bar.className = "up-bar";
+        var fill = document.createElement("i");
+        fill.style.width = (t.status === S.DONE ? 100 : t.progress || 0) + "%";
+        bar.appendChild(fill);
+
+        item.appendChild(row);
+        item.appendChild(bar);
+
+        // v7.1 状态机按钮：失败→继续上传（断点续传）；活动→暂停；暂停→恢复；均可取消
+        // v7.2 等待文件态（awaitingFile）：不给恢复按钮（无 File 句柄），仅提示重新选择 + 可取消
+        if (t.status === S.FAILED) {
+          var retry = document.createElement("button");
+          retry.className = "up-retry";
+          retry.textContent = t.mode === "chunked" ? "继续上传（断点续传）" : "重试";
+          retry.onclick = function () { UploadService.retry(t); };
+          row.appendChild(retry);
+        } else if (t.status === S.PAUSED && !t.awaitingFile) {
+          var resumeBtn = document.createElement("button");
+          resumeBtn.className = "up-retry";
+          resumeBtn.textContent = "▶️ 恢复";
+          resumeBtn.onclick = function () { UploadService.resume(t); };
+          row.appendChild(resumeBtn);
+        } else if (t.status !== S.DONE && t.status !== S.PAUSED) {
+          var pauseBtn = document.createElement("button");
+          pauseBtn.className = "up-pause";
+          pauseBtn.textContent = "⏸️ 暂停";
+          pauseBtn.onclick = function () { UploadService.pause(t); };
+          row.appendChild(pauseBtn);
+        }
+        if (t.status !== S.DONE) {
+          var cancelBtn = document.createElement("button");
+          cancelBtn.className = "up-cancel";
+          cancelBtn.textContent = "✖";
+          cancelBtn.title = "取消该任务（已传分片保留，可续传）";
+          cancelBtn.onclick = function () { UploadService.cancel(t); };
+          row.appendChild(cancelBtn);
+        }
+        return item;
+      }
 
       function renderQueue() {
         var panel = $("uploadPanel");
         var list = $("uploadList");
         var S = UploadService.STATE; // 状态枚举：渲染层只读，不造字符串
-        if (!UploadService.tasks().length) {
+        var tasks = UploadService.tasks();
+        if (!tasks.length) {
           panel.hidden = true;
           list.innerHTML = "";
           return;
         }
         // 队列状态变化时同步刷新列表行的删除锁（上传中禁用删除，无需重拉数据）
-        if (lastFiles.length && !$("fileTable").hidden) renderFiles(lastFiles);
+        if (lastFiles.length && !$("fileTable").hidden) renderFiles(visibleFiles());
         panel.hidden = false;
         list.innerHTML = "";
         var done = 0, failed = 0, paused = 0;
-        UploadService.tasks().forEach(function (t) {
+        tasks.forEach(function (t) {
           if (t.status === S.DONE) done++;
           if (t.status === S.FAILED) failed++;
           if (t.status === S.PAUSED) paused++;
         });
-        $("upSummary").textContent = "共 " + UploadService.tasks().length + " 个 · 完成 " + done +
+        $("upSummary").textContent = "共 " + tasks.length + " 个 · 完成 " + done +
           (failed ? " · 失败 " + failed : "") + (paused ? " · 暂停 " + paused : "");
 
-        // 队列级操作：有暂停→全部恢复；有活动→全部暂停（v7.1 状态机）
+        // 队列级操作：有暂停→全部恢复；有活动→全部暂停（v7.1 状态机）；有完成→清除已完成（v7.3）
         var gb = $("upGlobalBtns");
         gb.innerHTML = "";
         if (paused > 0) {
@@ -383,82 +635,42 @@
           btnResumeAll.onclick = function () { UploadService.resumeAll(); };
           gb.appendChild(btnResumeAll);
         }
-        if (UploadService.tasks().some(function (t) { return UploadService.isUploading(t.file.name); })) {
+        if (tasks.some(function (t) { return UploadService.isUploading(t.file.name); })) {
           var btnPauseAll = document.createElement("button");
           btnPauseAll.className = "up-pause";
           btnPauseAll.textContent = "⏸️ 全部暂停";
           btnPauseAll.onclick = function () { UploadService.pauseAll(); };
           gb.appendChild(btnPauseAll);
         }
+        if (done > 0) {
+          var btnClear = document.createElement("button");
+          btnClear.className = "up-cancel";
+          btnClear.textContent = "🧹 清除已完成";
+          btnClear.title = "从队列面板移除已完成任务（不影响云端文件）";
+          btnClear.onclick = function () {
+            var n = UploadService.clearFinished();
+            toast(n ? "已清除 " + n + " 个完成任务" : "没有已完成任务", "ok");
+          };
+          gb.appendChild(btnClear);
+        }
 
-        UploadService.tasks().forEach(function (t) {
-          var item = document.createElement("div");
-          item.className = "up-item" + (t.status === S.DONE ? " done" : t.status === S.FAILED ? " failed" : t.status === S.PAUSED ? " paused" : "");
-          item.setAttribute("data-name", t.file.name); // 测试与调试可按文件名定位
-
-          var row = document.createElement("div");
-          row.className = "up-row";
-          var icon = document.createElement("span");
-          icon.textContent = fileIcon(t.file.name);
-          var name = document.createElement("span");
-          name.className = "up-name";
-          name.textContent = t.file.name + "（" + fmtBytes(t.file.size) + "）" +
-            (t.mode === "chunked" ? " · 分片 " + (t.total || 0) + " 片" : "");
-          var status = document.createElement("span");
-          status.className = "up-status" + (t.status === S.DONE ? " ok" : t.status === S.FAILED ? " err" : "");
-          var statusText =
-            t.status === S.DONE ? "✅ 完成" :
-            t.status === S.FAILED ? "❌ " + (t.error || "失败") + (t.hint ? "（" + t.hint + "）" : "") :
-            t.status === S.PAUSED ? "⏸️ " + (t.hint || "已暂停") :
-            t.status === S.READING ? "读取中…" :
-            t.status === S.CHECKING ? (t.hint || "检查断点…") :
-            t.status === S.FINISHING ? (t.hint || "写入清单…") :
-            t.hint ? t.hint + " " + (t.progress || 0) + "%" :
-            t.progress > 0 ? t.progress + "%" : "等待中…";
-          status.textContent = statusText;
-          row.appendChild(icon);
-          row.appendChild(name);
-          row.appendChild(status);
-
-          var bar = document.createElement("div");
-          bar.className = "up-bar";
-          var fill = document.createElement("i");
-          fill.style.width = (t.status === S.DONE ? 100 : t.progress || 0) + "%";
-          bar.appendChild(fill);
-
-          item.appendChild(row);
-          item.appendChild(bar);
-
-          // v7.1 状态机按钮：失败→继续上传（断点续传）；活动→暂停；暂停→恢复；均可取消
-          // v7.2 等待文件态（awaitingFile）：不给恢复按钮（无 File 句柄），仅提示重新选择 + 可取消
-          if (t.status === S.FAILED) {
-            var retry = document.createElement("button");
-            retry.className = "up-retry";
-            retry.textContent = t.mode === "chunked" ? "继续上传（断点续传）" : "重试";
-            retry.onclick = function () { UploadService.retry(t); };
-            row.appendChild(retry);
-          } else if (t.status === S.PAUSED && !t.awaitingFile) {
-            var resumeBtn = document.createElement("button");
-            resumeBtn.className = "up-retry";
-            resumeBtn.textContent = "▶️ 恢复";
-            resumeBtn.onclick = function () { UploadService.resume(t); };
-            row.appendChild(resumeBtn);
-          } else if (t.status !== S.DONE && t.status !== S.PAUSED) {
-            var pauseBtn = document.createElement("button");
-            pauseBtn.className = "up-pause";
-            pauseBtn.textContent = "⏸️ 暂停";
-            pauseBtn.onclick = function () { UploadService.pause(t); };
-            row.appendChild(pauseBtn);
+        // v7.3 分组渲染：失败 → 传输中 → 等待中 → 已暂停 → 已完成
+        QUEUE_GROUPS.forEach(function (def) {
+          var groupTasks = tasks.filter(function (t) { return queueGroupOf(t) === def.key; });
+          if (!groupTasks.length) return;
+          var actionBtn = null;
+          if (def.key === "failed") {
+            actionBtn = document.createElement("button");
+            actionBtn.className = "up-retry";
+            actionBtn.textContent = "重试全部";
+            actionBtn.onclick = function () {
+              groupTasks.forEach(function (t) { UploadService.retry(t); });
+            };
           }
-          if (t.status !== S.DONE) {
-            var cancelBtn = document.createElement("button");
-            cancelBtn.className = "up-cancel";
-            cancelBtn.textContent = "✖";
-            cancelBtn.title = "取消该任务（已传分片保留，可续传）";
-            cancelBtn.onclick = function () { UploadService.cancel(t); };
-            row.appendChild(cancelBtn);
-          }
-          list.appendChild(item);
+          list.appendChild(makeGroupHead(def, groupTasks.length, actionBtn));
+          groupTasks.forEach(function (t) {
+            list.appendChild(buildTaskItem(t));
+          });
         });
       }
 
@@ -487,6 +699,48 @@
       };
       $("btnRetryList").onclick = function () { loadList(); };
       $("btnPin").onclick = function () { openPinModal(false); };
+
+      /* ---------- v7.3 排序 + 搜索（纯客户端操作 lastFiles，不重拉数据） ---------- */
+      function syncSortUI() {
+        var btns = document.querySelectorAll(".sort-btn");
+        for (var i = 0; i < btns.length; i++) {
+          var active = btns[i].getAttribute("data-sort") === sortState.key;
+          btns[i].classList.toggle("active", active);
+        }
+        var dirBtn = $("sortDirBtn");
+        dirBtn.textContent = sortState.dir === 1 ? "↑" : "↓";
+        dirBtn.title = "切换升序 / 降序（当前：" + (sortState.dir === 1 ? "升序" : "降序") + "）";
+      }
+      var sortBtns = document.querySelectorAll(".sort-btn");
+      for (var si = 0; si < sortBtns.length; si++) {
+        (function (btn) {
+          btn.onclick = function () {
+            var key = btn.getAttribute("data-sort");
+            if (sortState.key === key) {
+              sortState.dir = sortState.dir === 1 ? -1 : 1; // 同键再点：翻转方向
+            } else {
+              sortState.key = key;
+              sortState.dir = key === "name" ? 1 : -1; // 名称默认升序，大小/时间默认降序
+            }
+            syncSortUI();
+            renderFiles(visibleFiles());
+          };
+        })(sortBtns[si]);
+      }
+      $("sortDirBtn").onclick = function () {
+        sortState.dir = sortState.dir === 1 ? -1 : 1;
+        syncSortUI();
+        renderFiles(visibleFiles());
+      };
+      syncSortUI();
+      $("fileSearch").addEventListener("input", function () {
+        clearTimeout(searchTimer);
+        var v = this.value;
+        searchTimer = setTimeout(function () {
+          searchQuery = v;
+          renderFiles(visibleFiles());
+        }, 200); // 防抖 200ms：与 blog.html 搜索策略一致
+      });
 
       var dz = $("dropzone");
       dz.onclick = function () { $("fileInput").click(); };

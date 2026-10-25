@@ -121,7 +121,7 @@ my-blog/
 ├── scripts/              # 构建与路由工具（不部署）
 │   ├── build-pages.mjs   #   整站同步到 Pages 候选输出目录（dist/public/build）
 │   └── route-map.mjs     #   页面路由唯一事实来源（_worker.js 重写表与之同步，step10 守护）
-├── tests/                # 17 套件自动化测试（不部署）
+├── tests/                # 20 套件自动化测试（不部署）
 └── docs/                 # 技术文档
     ├── 核心组件依赖拓扑.md        # 页面/脚本/Worker/KV/外部依赖全景 + 关键不变量
     ├── 播放器与游戏接口文档.md    # 播放器状态机 + GameCore API + 子游戏注册契约
@@ -360,11 +360,11 @@ wrangler pages deploy .  # 部署当前目录
 
 项目不依赖任何构建步骤，直接用任意静态服务器 + Node 即可测试。
 
-### 测试体系（`tests/` 目录，17 套件）
+### 测试体系（`tests/` 目录，20 套件）
 
 ```bash
 npm install                       # 安装 playwright（devDependency）
-npm test                          # 全量回归：17 套件顺序执行，任一失败退出码非 0
+npm test                          # 全量回归：20 套件顺序执行，任一失败退出码非 0
 ```
 
 | 套件 | 断言 | 覆盖 |
@@ -385,6 +385,9 @@ npm test                          # 全量回归：17 套件顺序执行，任�
 | `step11-drive-state-machine.mjs` | 25 | v7.1 状态机：暂停/恢复/取消/断网退避/online 自动重连/beforeunload/并发 3 |
 | `step12-drive-stress.mjs` | 21 | v7.2 魔鬼压测：连点上传 100 次/50MB 十片/强关浏览器断点续传/6 文件并发限流 |
 | `step13-post-concurrency.mjs` | 26 | P0 文章并发防护：50 连发仅 1 篇/防重 409/编辑不误拦/并发连删无复活/浏览器 50 连点+删除端到端 |
+| `step14-drive-evolution.mjs` | 23 | v7.3 网盘高级进化：队列分组/清除已完成/重试全部/排序×搜索/小文件重命名全链路/大文件改名禁用/乐观删除回滚 |
+| `step15-dialogs.mjs` | 14 | v7.3 全局对话框：confirmDialog/promptDialog Promise API/Esc/单例；admin 删除走模态；静态扫描无原生 confirm/prompt |
+| `step16-resilience.mjs` | 15 | v7.3 弱网兜底：断网横幅显隐、全局错误边界（异常/拒绝不崩）、SW NetworkFirst 策略断言 |
 | `step10-routes-verify.mjs` | 23 | v7.0 守护：路由表同步/Worker 重写行为/243 处链接完整性/SW 注册路径/无相对引用 |
 
 测试零硬编码路径：`tests/_helpers.mjs` 从 `import.meta.url` 推导仓库根目录并动态导入

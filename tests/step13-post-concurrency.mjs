@@ -367,11 +367,15 @@ try {
     `total=${itemCount} titles=${titles.join(" | ")}`);
 
   // B3：UI 删除「浏览器连点测试」那篇 → 从列表消失（只剩函数级连调）
+  // v7.3：admin 删除确认已从原生 confirm 迁至全局 confirmDialog 模态，
+  // 删除流改为「点删除 → cx-dialog 出现 → 点确认按钮」（不再依赖 dialog 事件）
   await page.evaluate(() => {
     const items = [...document.querySelectorAll("#posts-list .list-item")];
     const target = items.find((el) => el.querySelector(".list-item-title").textContent.includes("浏览器连点测试"));
     target.querySelector(".btn-delete-post").click();
   });
+  await page.waitForSelector("#cx-dialog.show", { timeout: 5000 });
+  await page.click("#cx-dialog .cx-btn-primary");
   await page.waitForFunction(
     () => ![...document.querySelectorAll("#posts-list .list-item-title")].some((el) => el.textContent.includes("浏览器连点测试")),
     null,
@@ -380,7 +384,7 @@ try {
   const afterDelete = await page.evaluate(() =>
     [...document.querySelectorAll("#posts-list .list-item-title")].map((el) => el.textContent.trim())
   );
-  check("B3 UI 删除单篇成功（含 confirm 确认流）", !afterDelete.some((t) => t.includes("浏览器连点测试")), afterDelete.join(" | "));
+  check("B3 UI 删除单篇成功（confirmDialog 确认流）", !afterDelete.some((t) => t.includes("浏览器连点测试")), afterDelete.join(" | "));
 
   // B4：UI 删除交互完整体验——发布 1 篇 → 删除 → 列表回到 1 篇
   await page.click("button[onclick='openPostModal()']");
@@ -401,12 +405,14 @@ try {
   const beforeCount = await page.evaluate(() => document.querySelectorAll("#posts-list .list-item").length);
   check("B4a 发布 1 篇成功（UI，列表变 2 篇）", beforeCount === 2, `got ${beforeCount}`);
 
-  // 点击删除 → 确认框已由全局 dialog 处理器自动接受 → 等待列表回落
+  // 点击删除 → confirmDialog 模态出现 → 点确认 → 等待列表回落
   await page.evaluate(() => {
     const items = [...document.querySelectorAll("#posts-list .list-item")];
     const target = items.find((el) => el.querySelector(".list-item-title").textContent.includes("UI 删除交互验证"));
     target.querySelector(".btn-delete-post").click();
   });
+  await page.waitForSelector("#cx-dialog.show", { timeout: 5000 });
+  await page.click("#cx-dialog .cx-btn-primary");
   await page.waitForFunction(
     () => document.querySelectorAll("#posts-list .list-item").length === 1,
     null,
