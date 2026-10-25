@@ -456,7 +456,7 @@ var bootMusicPlayer = function() {
   let volumeBeforeMute = 0.7;   // 静音前音量，用于恢复
   let currentObjectUrl = null;  // 当前 Blob 对象 URL（切歌时 revoke 防泄漏）
 
-  const { escapeHtml, safeStorage, $, formatTime } = window.BlogUtils;
+  const { escapeHtml, safeStorage, $, formatTime, isHttpUrl } = window.BlogUtils;
 
   // 播放模式：sequence 顺序播放 / listLoop 列表循环 / singleLoop 单曲循环 / shuffle 随机
   const MODES = ["listLoop", "singleLoop", "shuffle", "sequence"];
@@ -604,7 +604,7 @@ var bootMusicPlayer = function() {
     $("mpArtist").textContent = song.artist || "未知歌手";
 
     const coverEl = $("mpCover");
-    if (song.cover && /^https?:\/\//i.test(song.cover)) {
+    if (song.cover && isHttpUrl(song.cover)) {
       const img = document.createElement("img");
       img.src = song.cover;
       img.alt = "";
@@ -725,7 +725,7 @@ var bootMusicPlayer = function() {
         title: song.title || "未知歌曲",
         artist: song.artist || "未知歌手",
         album: "我的博客",
-        artwork: song.cover && /^https?:\/\//i.test(song.cover)
+        artwork: song.cover && isHttpUrl(song.cover)
           ? [{ src: song.cover, sizes: "512x512", type: "image/jpeg" }]
           : [],
       });
@@ -995,9 +995,10 @@ var bootMusicPlayer = function() {
       if (!Array.isArray(data)) return;
       // 链接三重校验：http(s) 绝对外链、/ 开头同源相对路径（/api/github/raw/*
       // 代理资源，可经 SW 缓存离线播放）均接受；拒绝 data: 等伪协议
+      /* v7.3 Clean Code：URL 协议校验复用 BlogUtils.isHttpUrl（相对路径放行供站内音乐） */
       const okUrl = (u) => {
         const s = String(u || "").trim();
-        return /^https?:\/\//i.test(s) || s.startsWith("/");
+        return isHttpUrl(s) || s.startsWith("/");
       };
       playlist = data.filter(s => s && s.url && okUrl(s.url));
       if (playlist.length) {

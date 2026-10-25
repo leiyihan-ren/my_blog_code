@@ -298,7 +298,7 @@
   <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 
   <script>
-  const { escapeHtml } = window.BlogUtils;
+  const { escapeHtml, debounce } = window.BlogUtils;
 
 
 
@@ -347,18 +347,15 @@
       `}).join("");
     }
 
-    let searchTimer = null;
-    function doSearch() {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => {
-        const q = document.getElementById("search").value.trim();
-        if (!q) { renderPosts(allPosts, ""); return; }
-        const ql = q.toLowerCase();
-        renderPosts(allPosts.filter(p =>
-          (p.title || "").toLowerCase().includes(ql) || (p.content || "").toLowerCase().includes(ql)
-        ), q);
-      }, 200);
-    }
+    /* v7.3 Clean Code：搜索防抖收敛至 BlogUtils.debounce（消除页面内重复实现） */
+    const doSearch = debounce(() => {
+      const q = document.getElementById("search").value.trim();
+      if (!q) { renderPosts(allPosts, ""); return; }
+      const ql = q.toLowerCase();
+      renderPosts(allPosts.filter(p =>
+        (p.title || "").toLowerCase().includes(ql) || (p.content || "").toLowerCase().includes(ql)
+      ), q);
+    }, 200);
 
     // ========== 键盘快捷键 ==========
     document.addEventListener("keydown", function(e) {

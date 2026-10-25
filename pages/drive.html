@@ -114,6 +114,7 @@
   <div class="toast" id="toast" role="status"></div>
   <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 
+  <script src="/utils/blog-utils.js"></script>
   <script src="/services/uploadService.js"></script>
   <script>
     /* ============ 云盘前端逻辑（v7.0 渲染层：上传/下载引擎在 services/uploadService.js） ============ */
@@ -159,13 +160,8 @@
         toastTimer = setTimeout(function () { el.classList.remove("show"); }, 3200);
       }
 
-      function fmtBytes(n) {
-        if (!n && n !== 0) return "—";
-        if (n < 1024) return n + " B";
-        if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
-        if (n < 1073741824) return (n / 1048576).toFixed(2) + " MB";
-        return (n / 1073741824).toFixed(2) + " GB";
-      }
+      /* ---------- v7.3 Clean Code：fmtBytes 收敛至 BlogUtils（消除三处重复实现与字节魔法数字） ---------- */
+      var fmtBytes = window.BlogUtils.fmtBytes;
 
       function fmtTime(iso) {
         if (!iso) return "—";

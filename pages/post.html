@@ -742,6 +742,11 @@
   <script>
   const { escapeHtml, escapeAttr } = window.BlogUtils;
 
+  /* v7.3 Clean Code：业务常量命名化 */
+  const CHARS_PER_MINUTE = 300;   // 阅读时长估算：每分钟阅读字符数
+  const MOBILE_BREAKPOINT = 1024; // 移动端布局断点（与 CSS @media 对齐）
+  const MAX_COMMENT_LEN = 500;    // 评论字数上限（与 textarea maxlength 对齐）
+
     /**
      * 属性上下文转义。
      * escapeHtml 只转义 & < >，引号会原样保留——直接拼进 HTML 属性时，
@@ -970,7 +975,7 @@
       // 字数统计：中文按字符，英文按单词
       const content = post.content || "";
       const charCount = content.replace(/\s/g, "").length;
-      const readingTime = Math.max(1, Math.ceil(charCount / 300));
+      const readingTime = Math.max(1, Math.ceil(charCount / CHARS_PER_MINUTE));
       el.innerHTML = `
         <article class="article">
           <h1 class="article-title">${escapeHtml(post.title)}</h1>
@@ -1195,7 +1200,7 @@
         showCommentAlert("昵称需要包含文字或数字", "error"); return;
       }
       if (!content) { showCommentAlert("请输入评论内容", "error"); return; }
-      if (content.length > 500) { showCommentAlert("评论不能超过500字", "error"); return; }
+      if (content.length > MAX_COMMENT_LEN) { showCommentAlert("评论不能超过" + MAX_COMMENT_LEN + "字", "error"); return; }
       if (/\n{6,}/.test(content)) {
         showCommentAlert("连续换行太多了，请精简一下", "error"); return;
       }
@@ -1222,7 +1227,7 @@
         if (result.success) {
           showCommentAlert("评论成功！", "success");
           contentEl.value = "";
-          document.getElementById("comment-char-count").textContent = "0 / 500";
+          document.getElementById("comment-char-count").textContent = "0 / " + MAX_COMMENT_LEN;
           // 记住昵称
           try { localStorage.setItem("comment_name", name); } catch(e) {}
           // 刷新评论列表
@@ -1255,7 +1260,7 @@
       const charCountEl = document.getElementById("comment-char-count");
       if (contentEl && charCountEl) {
         contentEl.addEventListener("input", () => {
-          charCountEl.textContent = contentEl.value.length + " / 500";
+          charCountEl.textContent = contentEl.value.length + " / " + MAX_COMMENT_LEN;
         });
       }
 
@@ -1320,7 +1325,7 @@
       window.scrollTo({ top, behavior: "smooth" });
 
       // 移动端点击后关闭目录
-      if (window.innerWidth <= 1024) {
+      if (window.innerWidth <= MOBILE_BREAKPOINT) {
         document.getElementById("tocSidebar").classList.remove("mobile-open");
       }
     }
@@ -1383,7 +1388,7 @@
     document.addEventListener("click", function(e) {
       const sidebar = document.getElementById("tocSidebar");
       const toggle = document.getElementById("tocToggle");
-      if (sidebar && toggle && window.innerWidth <= 1024) {
+      if (sidebar && toggle && window.innerWidth <= MOBILE_BREAKPOINT) {
         if (!sidebar.contains(e.target) && !toggle.contains(e.target)) {
           sidebar.classList.remove("mobile-open");
         }
@@ -1423,7 +1428,7 @@
           break;
         case "Escape":
           // ESC - 关闭移动端目录
-          if (window.innerWidth <= 1024) {
+          if (window.innerWidth <= MOBILE_BREAKPOINT) {
             const sidebar = document.getElementById("tocSidebar");
             if (sidebar && sidebar.classList.contains("mobile-open")) {
               sidebar.classList.remove("mobile-open");

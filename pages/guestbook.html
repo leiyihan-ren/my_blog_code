@@ -309,14 +309,15 @@
   <script>
   const { escapeHtml } = window.BlogUtils;
 
-
+  /* v7.3 Clean Code：留言字数上限单一事实源（HTML maxlength 属性与之对齐） */
+  const MAX_MSG_LEN = 500;
 
     document.getElementById("msg-content").addEventListener("input", function() {
-      document.getElementById("char-count").textContent = this.value.length + " / 500";
+      document.getElementById("char-count").textContent = this.value.length + " / " + MAX_MSG_LEN;
     });
     // 初始化字符计数
     document.getElementById("char-count").textContent =
-      document.getElementById("msg-content").value.length + " / 500";
+      document.getElementById("msg-content").value.length + " / " + MAX_MSG_LEN;
 
     function showAlert(msg, type) {
       const el = document.getElementById("form-alert");
@@ -382,7 +383,7 @@
         showAlert("昵称需要包含文字或数字", "error"); return;
       }
       if (!content) { showAlert("请输入留言内容", "error"); return; }
-      if (content.length > 500) { showAlert("留言不能超过500字", "error"); return; }
+      if (content.length > MAX_MSG_LEN) { showAlert("留言不能超过" + MAX_MSG_LEN + "字", "error"); return; }
       // 限制连续换行
       if (/\n{6,}/.test(content)) {
         showAlert("连续换行太多了，请精简一下", "error"); return;
@@ -403,7 +404,7 @@
         if (result.success) {
           showAlert("留言成功！感谢你的留言 🎉", "success");
           document.getElementById("msg-content").value = "";
-          document.getElementById("char-count").textContent = "0 / 500";
+          document.getElementById("char-count").textContent = "0 / " + MAX_MSG_LEN;
           loadMessages();
         } else {
           showAlert(result.error || "发送失败", "error");
@@ -416,7 +417,7 @@
       btn.textContent = "发送留言";
     }
 
-    // 请求序号：防止 30 秒轮询的旧响应覆盖刚提交后的新列表
+    // 请求序号：防止轮询的旧响应覆盖刚提交后的新列表
     let msgReqSeq = 0;
     async function loadMessages() {
       const mySeq = ++msgReqSeq;
@@ -432,10 +433,30 @@
       renderMessages([]);
     }
 
+    /* v7.3 内存/性能：可见性感知轮询——标签页隐藏时停表（省电省流），
+     * 恢复可见立即刷新一次再重启轮询。interval 句柄登记，切走即清。 */
+    const POLL_INTERVAL_MS = 30000;
+    let pollTimer = null;
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(loadMessages, POLL_INTERVAL_MS);
+    }
+    function stopPolling() {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        loadMessages();  // 回来先拉一次最新，别让用户看旧数据
+        startPolling();
+      }
+    });
+
     async function init() {
       loadMessages();
-      // 每30秒自动刷新留言
-      setInterval(loadMessages, 30000);
+      // 每 30 秒自动刷新留言（隐藏时自动暂停，见上）
+      startPolling();
       try {
         const sRes = await fetch("/api/site");
         if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {

@@ -120,12 +120,17 @@ window.UploadService = (function () {
     return Math.min((index + 1) * CHUNK_SIZE, fileSize) - index * CHUNK_SIZE;
   }
 
+  /** 字节单位常量（与 BlogUtils.fmtBytes 同值；服务层不依赖页面全局，私有一份） */
+  var BYTES_PER_KB = 1024;
+  var BYTES_PER_MB = BYTES_PER_KB * 1024;
+  var BYTES_PER_GB = BYTES_PER_MB * 1024;
+
   /** 字节数人类可读（拦截提示用，与页面 fmtBytes 行为一致） */
   function fmtBytes(n) {
-    if (n < 1024) return n + " B";
-    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
-    if (n < 1073741824) return (n / 1048576).toFixed(2) + " MB";
-    return (n / 1073741824).toFixed(2) + " GB";
+    if (n < BYTES_PER_KB) return n + " B";
+    if (n < BYTES_PER_MB) return (n / BYTES_PER_KB).toFixed(1) + " KB";
+    if (n < BYTES_PER_GB) return (n / BYTES_PER_MB).toFixed(2) + " MB";
+    return (n / BYTES_PER_GB).toFixed(2) + " GB";
   }
 
   /* ---------- 读取：薄片进内存，绝不整读大文件 ---------- */
@@ -451,6 +456,20 @@ window.UploadService = (function () {
     return true;
   }
 
+  /**
+   * 清除已完成的任务（v7.3 传输面板「清除已完成」按钮）。
+   * 纯列表卫生：只移除 DONE 终态任务，不影响任何在途/暂停/失败任务，
+   * 更不触碰分片算法与状态机流转。返回移除个数。
+   */
+  function clearFinished() {
+    var removed = 0;
+    for (var i = uploadTasks.length - 1; i >= 0; i--) {
+      if (uploadTasks[i].status === STATE.DONE) { uploadTasks.splice(i, 1); removed += 1; }
+    }
+    if (removed) notify();
+    return removed;
+  }
+
   function pumpQueue() {
     while (activeCount < MAX_CONCURRENT) {
       var next = uploadTasks.find(function (t) { return t.status === STATE.PENDING; });
@@ -714,6 +733,7 @@ window.UploadService = (function () {
     pauseAll: pauseAll,
     resumeAll: resumeAll,
     cancel: cancelTask,
+    clearFinished: clearFinished,
     tasks: function () { return uploadTasks; },
     isUploading: isUploading,
     isBusy: isBusy,

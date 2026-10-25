@@ -278,7 +278,7 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
-  const { escapeHtml, escapeAttr, toast } = window.BlogUtils;
+  const { escapeHtml, escapeAttr, toast, copyText } = window.BlogUtils;
 "use strict";
 const $ = (id) => document.getElementById(id);
 
@@ -328,6 +328,7 @@ function renderSite(s) {
   $("ap-email").textContent = s.email || "未设置邮箱";
 }
 
+/* v7.3 Clean Code：剪贴板降级逻辑收敛至 BlogUtils.copyText（含 execCommand 兜底） */
 $("btn-copy").addEventListener("click", async () => {
   const s = siteInfo || {};
   const text =
@@ -335,20 +336,8 @@ $("btn-copy").addEventListener("click", async () => {
     `站点地址：${location.origin}/\n` +
     `站点描述：${s.bio || ""}\n` +
     `联系邮箱：${s.email || "未设置"}`;
-  try {
-    await navigator.clipboard.writeText(text);
-    toast("站点信息已复制到剪贴板 ✅");
-  } catch (e) {
-    // 剪贴板不可用时降级为弹窗选择
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand("copy"); toast("站点信息已复制 ✅"); }
-    catch (e2) { toast("复制失败，请手动记录"); }
-    document.body.removeChild(ta);
-  }
+  const ok = await copyText(text);
+  toast(ok ? "站点信息已复制到剪贴板 ✅" : "复制失败，请手动记录");
 });
 
 $("btn-mail").addEventListener("click", () => {

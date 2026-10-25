@@ -11,7 +11,8 @@
  *
  * 命名规范：驼峰命名法；函数按「语义」拆分而非强并——
  * formatDateTime（绝对时间）/ formatRelativeDate（相对时间）/
- * formatDateCN（日期+时分）是三种不同的产品展示行为，不可互相替代。
+ * fmtBytes（字节可读化）是三种不同的产品展示行为，不可互相替代。
+ * （v7.3：零引用的 formatDateCN 已按死代码清除。）
  *
  * 加载方式：<head> 中置于 common.js 之后同步引入，
  * 对页面内联脚本与 defer 脚本（music-player.js）均立即可用。
@@ -75,19 +76,30 @@ window.BlogUtils = (function () {
     return farFormat(d);
   }
 
-  /** 日期 + 时分：文章页场景 */
-  function formatDateCN(dateStr) {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "-";
-    return d.toLocaleDateString() + " " + d.toTimeString().slice(0, 5);
-  }
-
   /** 秒 → m:ss（播放器场景） */
   function formatTime(s) {
     if (!isFinite(s) || isNaN(s) || s < 0) return "0:00";
     const m = Math.floor(s / 60);
     const sec = Math.floor(s % 60).toString().padStart(2, "0");
     return m + ":" + sec;
+  }
+
+  /* ---- 字节单位常量（消除 1024/1048576/1073741824 魔法数字） ---- */
+  const BYTES_PER_KB = 1024;
+  const BYTES_PER_MB = BYTES_PER_KB * 1024;
+  const BYTES_PER_GB = BYTES_PER_MB * 1024;
+
+  /**
+   * 字节数人类可读（云盘/相册/后台通用，v7.3 收敛此前三处重复实现）
+   * 无效输入（null/undefined/NaN）返回 "—"，0 返回 "0 B"——
+   * 与 drive.html / uploadService.js 原实现行为逐字节一致，回归零破坏。
+   */
+  function fmtBytes(n) {
+    if (n == null || isNaN(n)) return "—";
+    if (n < BYTES_PER_KB) return n + " B";
+    if (n < BYTES_PER_MB) return (n / BYTES_PER_KB).toFixed(1) + " KB";
+    if (n < BYTES_PER_GB) return (n / BYTES_PER_MB).toFixed(2) + " MB";
+    return (n / BYTES_PER_GB).toFixed(2) + " GB";
   }
 
   /* ---- 轻提示：统一走页面 #toast 元素（无元素时静默降级） ---- */
@@ -153,7 +165,7 @@ window.BlogUtils = (function () {
     $, $$,
     escapeHtml, escapeAttr,
     safeStorage,
-    formatDateTime, formatRelativeDate, formatDateCN, formatTime,
+    formatDateTime, formatRelativeDate, formatTime, fmtBytes,
     toast, debounce, throttleRaf,
     copyText, isHttpUrl, sleep,
   };

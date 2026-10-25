@@ -911,6 +911,41 @@
     let editingPostId = null;
     let editingTimelineId = null;
 
+    // ========== v7.3 鉴权兜底：401/403 → 清除过期凭证并回登录页 ==========
+    // 场景：会话过期后继续操作，旧实现是每个接口各自弹错误，用户点了没反应，
+    // 甚至陷入「操作失败→再操作→再失败」的死循环。现在统一拦截：
+    // 受保护端点返回 401/403 即视为凭证失效——清 token、回登录页、提示重登。
+    // 排除清单：
+    //   /api/login          —— 鉴权调用本身，失败走登录页自己的错误提示
+    //   /api/github-status  —— 其 401 表示 GitHub Token 环境变量未配/失效，
+    //                           并非管理员口令过期，不可误跳登录页
+    //   /api/refresh-github —— 同上（GitHub 侧凭证）
+    const PROTECTED_API_PREFIXES = [
+      "/api/posts", "/api/post", "/api/timeline", "/api/site", "/api/music",
+      "/api/links", "/api/comments", "/api/comment", "/api/messages", "/api/message",
+      "/api/game", "/api/backup"
+    ];
+    let authRedirecting = false;
+    const rawFetch = window.fetch;
+    window.fetch = function (...args) {
+      return rawFetch.apply(this, args).then((res) => {
+        if ((res.status === 401 || res.status === 403) && token && !authRedirecting) {
+          const raw = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";
+          if (PROTECTED_API_PREFIXES.some((p) => raw.indexOf(p) === 0)) {
+            authRedirecting = true; // 防并发多请求连环跳
+            token = "";
+            tokenStorage.remove("admin_token");
+            document.getElementById("login-page").style.display = "block";
+            document.getElementById("admin-page").style.display = "none";
+            document.getElementById("password").value = "";
+            showAlert("login-alert", "登录已过期，请重新登录", "warning");
+            setTimeout(() => { authRedirecting = false; }, 1000);
+          }
+        }
+        return res;
+      });
+    };
+
     // ========== 登录 ==========
     async function login() {
       const pwd = document.getElementById("password").value;

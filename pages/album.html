@@ -895,6 +895,7 @@
       currentPhotoIdx = idx;
       const p = photos[idx];
       const img = document.getElementById("lightbox-img");
+      img.style.opacity = ""; // 复位关闭时清图的隐藏态（v7.3）
       img.dataset.mirrors = JSON.stringify(p.mirrors || []);
       img.dataset.idx = "0";
       img.classList.remove("loaded");
@@ -953,6 +954,10 @@
       document.getElementById("lightbox").classList.remove("active");
       document.body.style.overflow = "";
       lightboxLastFocus = null;
+      // v7.3 内存：清空已解码大图，让位图可被 GC（否则关闭灯箱后
+      // 整张原图仍滞留解码缓存，连续看多张大图会持续累积）
+      const lbImg = document.getElementById("lightbox-img");
+      if (lbImg) { lbImg.removeAttribute("src"); lbImg.style.opacity = "0"; }
     }
 
     function prevPhoto(e) {
