@@ -4121,6 +4121,16 @@ export default {
     const url = new URL(request.url);
     const startTime = Date.now();
 
+    // 临时诊断端点：只返回 env 的键名（不含任何值），用于确认 Pages 环境变量是否注入。
+    // TODO(diag): 排查结束后删除本段。
+    if (url.pathname === "/api/_envdiag") {
+      return ok({
+        keys: Object.keys(env || {}).sort(),
+        hasAssets: !!(env && env.ASSETS),
+        hasKV: !!(env && env.SITE_DATA),
+      });
+    }
+
     if (url.pathname.startsWith("/api/")) {
       let response;
       try {
