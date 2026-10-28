@@ -830,17 +830,27 @@
         }
       } catch(e) {}
 
-      // 并行加载，单个失败不影响其他
-      const results = await Promise.allSettled([
-        fetch("/api/site"),
-        fetch("/api/posts"),
-        fetch("/api/stats"),
-        fetch("/api/popular?limit=5")
+      /* 顶部离线提示条：任一接口降级到本地缓存时插入，只提示不阻断 */
+      const markOffline = () => {
+        if (document.getElementById("offlineHint")) return;
+        const bar = document.createElement("div");
+        bar.id = "offlineHint";
+        bar.setAttribute("role", "status");
+        bar.textContent = "网络不稳定，当前展示的是本地缓存数据";
+        bar.style.cssText =
+          "position:fixed;top:0;left:0;right:0;z-index:9999;padding:8px 14px;" +
+          "background:#f59e0b;color:#fff;font-size:14px;text-align:center";
+        document.body.prepend(bar);
+      };
+
+      // v8.1：统一走 BlogApi —— 3s 熔断 + 并发去重 + 本地缓存兜底。
+      // 任一接口失败只影响它自己那一块（其余照常渲染），绝不整页白屏。
+      const [s, posts, stats, popular] = await Promise.all([
+        BlogApi.get("/api/site", { cacheKey: "site", retry: 1, onFallback: markOffline }).catch(() => null),
+        BlogApi.get("/api/posts", { cacheKey: "posts", retry: 1, onFallback: markOffline }).catch(() => null),
+        BlogApi.get("/api/stats", { cacheKey: "stats", retry: 1 }).catch(() => null),
+        BlogApi.get("/api/popular?limit=5", { cacheKey: "popular", retry: 1 }).catch(() => null),
       ]);
-
-      const [sResult, pResult, statsResult, popularResult] = results;
-
-      const isJson = (r) => r.ok && (r.headers.get("content-type") || "").includes("json");
 
       /* 统计数字滚动动画：从 0 计数到目标值（rAF 驱动，约 900ms）
          尊重系统减弱动效偏好：直接落最终值；目标非整数时保持原样 */
@@ -866,46 +876,29 @@
         requestAnimationFrame(step);
       };
 
-      if (sResult.status === "fulfilled" && isJson(sResult.value)) {
-        try {
-          const s = await sResult.value.json();
-          if (s && typeof s.title === "string") {
-            renderSite(s);
-            // 缓存站点信息
-            try { localStorage.setItem("cached_site", JSON.stringify(s)); } catch(e) {}
-          }
-        } catch(e) {}
+      // 站点信息
+      if (s && typeof s.title === "string") {
+        renderSite(s);
+        try { localStorage.setItem("cached_site", JSON.stringify(s)); } catch (e) {}
       }
 
-      if (pResult.status === "fulfilled" && isJson(pResult.value)) {
-        try {
-          const posts = await pResult.value.json();
-          if (Array.isArray(posts)) {
-            renderPosts(posts);
-            countUpEl(document.getElementById("stat-posts"), posts.length);
-          }
-        } catch(e) {}
+      // 文章列表
+      if (Array.isArray(posts)) {
+        renderPosts(posts);
+        countUpEl(document.getElementById("stat-posts"), posts.length);
       }
 
-      if (statsResult.status === "fulfilled" && isJson(statsResult.value)) {
-        try {
-          const stats = await statsResult.value.json();
-          if (stats && typeof stats === "object") {
-            countUpEl(document.getElementById("stat-posts"), stats.posts);
-            countUpEl(document.getElementById("stat-messages"), stats.messages);
-            countUpEl(document.getElementById("stat-timeline"), stats.timeline);
-            countUpEl(document.getElementById("stat-likes"), stats.totalLikes);
-            countUpEl(document.getElementById("stat-views"), stats.totalViews || 0);
-          }
-        } catch(e) {}
+      // 统计数字（接口成功才覆盖，避免用 0 覆盖掉上面的真实值）
+      if (stats && typeof stats === "object") {
+        countUpEl(document.getElementById("stat-posts"), stats.posts);
+        countUpEl(document.getElementById("stat-messages"), stats.messages);
+        countUpEl(document.getElementById("stat-timeline"), stats.timeline);
+        countUpEl(document.getElementById("stat-likes"), stats.totalLikes);
+        countUpEl(document.getElementById("stat-views"), stats.totalViews || 0);
       }
 
-      if (popularResult.status === "fulfilled" && isJson(popularResult.value)) {
-        try {
-          const popular = await popularResult.value.json();
-          if (Array.isArray(popular)) renderPopular(popular);
-        } catch(e) {}
-      }
+      // 热门文章
+      if (Array.isArray(popular)) renderPopular(popular);
 
       // 启动滚动渐入
       setupReveal();
