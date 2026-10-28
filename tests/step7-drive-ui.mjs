@@ -10,7 +10,7 @@
 //   U6 下载链接指向 /api/github/raw/ 同源代理
 // 运行：node tests/step7-drive-ui.mjs
 // ============================================================
-import worker, { ROOT } from "./_helpers.mjs";
+import worker, { ROOT, CHROMIUM_LAUNCH_OPTIONS } from "./_helpers.mjs";
 import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
@@ -156,7 +156,7 @@ async function main() {
   });
   await new Promise((r) => staticServer.listen(WEB_PORT, "127.0.0.1", r));
 
-  const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const browser = await chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   const page = await browser.newPage();
   let passed = 0, failed = 0;
   const check = (name, cond, detail) => {

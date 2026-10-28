@@ -9,7 +9,7 @@
 //   P4 并发上限压测：6 个 11MB 同时入队 → 峰值并发 ≤3 → 全部完成
 // 运行：node tests/step12-drive-stress.mjs
 // ============================================================
-import worker, { ROOT } from "./_helpers.mjs";
+import worker, { ROOT, CHROMIUM_LAUNCH_OPTIONS } from "./_helpers.mjs";
 import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
@@ -215,7 +215,7 @@ async function main() {
   });
   await new Promise((r) => staticServer.listen(WEB_PORT, "127.0.0.1", r));
 
-  const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const browser = await chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   const context = await browser.newContext();
   let passed = 0, failed = 0;
   const check = (name, cond, detail) => {

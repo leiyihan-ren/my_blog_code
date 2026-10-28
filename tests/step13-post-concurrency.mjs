@@ -18,6 +18,8 @@ import { pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const worker = (await import(pathToFileURL(path.join(ROOT, "_worker.js")).href)).default;
+// 浏览器启动参数统一走 _helpers（优先使用 CHROMIUM_PATH 指定的可执行文件）
+const { CHROMIUM_LAUNCH_OPTIONS } = await import("./_helpers.mjs");
 
 /* ---------- mock KV（与既有套件一致；Map 直存，读己所写） ---------- */
 function makeKV(seed = {}) {
@@ -33,7 +35,9 @@ function makeKV(seed = {}) {
   };
 }
 
-const ADMIN_PWD = "Ly!2026@Secure#8848"; // 未设置 env.ADMIN_PASSWORD 时的兜底密码
+// 测试专用口令：v8.0 起 Worker 不再回退硬编码兜底密码，必须把同一口令注入
+// env.ADMIN_PASSWORD（见下方 callApi），否则鉴权接口直接 500。
+const ADMIN_PWD = "test-admin-pwd-v8";
 const AUTH = { Authorization: `Bearer ${ADMIN_PWD}` };
 const CTX = { waitUntil: () => {} };
 
@@ -42,7 +46,7 @@ async function callApi(method, urlPath, { body, auth = true, kv } = {}) {
   const headers = { "CF-Connecting-IP": "1.2.3.4" };
   if (auth) Object.assign(headers, AUTH);
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const env = { SITE_DATA: kv, GITHUB_TOKEN: "gh-test" };
+  const env = { SITE_DATA: kv, GITHUB_TOKEN: "gh-test", ADMIN_PASSWORD: ADMIN_PWD };
   const req = new Request(`https://blog.local${urlPath}`, {
     method,
     headers,
@@ -216,7 +220,7 @@ const apiServer = http.createServer(async (req, res) => {
     }
     const resp = await worker.fetch(
       new Request(`http://127.0.0.1:${API_PORT}${parsed.pathname}${parsed.search}`, init),
-      { SITE_DATA: sharedKV, GITHUB_TOKEN: "gh-test" },
+      { SITE_DATA: sharedKV, GITHUB_TOKEN: "gh-test", ADMIN_PASSWORD: ADMIN_PWD },
       CTX
     );
     const body = Buffer.from(await resp.arrayBuffer());
@@ -282,7 +286,7 @@ try {
   const { chromium } = await import(
     pathToFileURL(path.join(ROOT, "node_modules", "playwright", "index.mjs")).href
   );
-  browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  browser = await chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   const page = await browser.newPage();
   page.on("pageerror", (e) => console.log("  [pageerror]", e.message));
   // 删除操作的 confirm 确认框：统一自动接受（否则 Playwright 默认 dismiss，删除不执行）

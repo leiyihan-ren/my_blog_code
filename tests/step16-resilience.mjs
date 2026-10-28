@@ -11,6 +11,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
+// 浏览器启动参数统一走 _helpers（优先使用 CHROMIUM_PATH 指定的可执行文件）
+const { CHROMIUM_LAUNCH_OPTIONS } = await import("./_helpers.mjs");
 const STATIC_PORT = 8903;
 
 const staticServer = http.createServer(async (req, res) => {
@@ -45,7 +47,7 @@ try {
   const { chromium } = await import(
     pathToFileURL(path.join(ROOT, "node_modules", "playwright", "index.mjs")).href
   );
-  browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  browser = await chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   const context = await browser.newContext();
   const page = await context.newPage();
 
@@ -121,7 +123,14 @@ try {
   console.log("== I 组：SW 策略静态断言 ==");
   // ============================================================
   const sw = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
-  check("I1 SW 版本号已迭代（v3.3.0）", /const CACHE_VERSION = "v3\.3\.0"/.test(sw));
+  // I1 改为「格式合规 + 语义化下界」断言：此前硬编码 v3.3.0，每次发版推进版本号都会误报失败。
+  // 发布纪律本身（改动静态资源必须 +1）由人工/CI 检查单保证，这里只守住可机检的部分。
+  const cvMatch = sw.match(/const CACHE_VERSION = "v(\d+)\.(\d+)\.(\d+)"/);
+  const cvOk =
+    !!cvMatch &&
+    Number(cvMatch[1]) === 3 &&
+    (Number(cvMatch[2]) > 3 || (Number(cvMatch[2]) === 3 && Number(cvMatch[3]) >= 3));
+  check("I1 SW 版本号格式合规且不低于 v3.3.0", cvOk, cvMatch ? cvMatch[0] : "未找到 CACHE_VERSION");
   check("I2 HTML 导航 network-first", /req\.mode === "navigate"[\s\S]{0,400}?const fresh = await fetch\(req\)/.test(sw));
   check("I3 公共 JSON 读 network-first（断网回退缓存）", /url\.pathname\.startsWith\("\/api\/"\)[\s\S]{0,600}?const fresh = await fetch\(req\)/.test(sw));
   check("I4 带 Authorization 的 API GET 不走缓存", /req\.headers\.get\("authorization"\)/.test(sw));

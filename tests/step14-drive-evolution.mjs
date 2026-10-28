@@ -13,7 +13,7 @@
 //   E10 分组 DOM 契约：.up-item 数与任务数一致（分组头不混入 up-item）
 // 运行：node tests/step14-drive-evolution.mjs
 // ============================================================
-import worker, { ROOT } from "./_helpers.mjs";
+import worker, { ROOT, CHROMIUM_LAUNCH_OPTIONS } from "./_helpers.mjs";
 import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
@@ -183,7 +183,7 @@ async function main() {
   });
   await new Promise((r) => staticServer.listen(WEB_PORT, "127.0.0.1", r));
 
-  const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const browser = await chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   const page = await browser.newPage();
   let passed = 0, failed = 0;
   const check = (name, cond, detail) => {

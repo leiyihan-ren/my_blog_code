@@ -13,6 +13,8 @@ import { pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const worker = (await import(pathToFileURL(path.join(ROOT, "_worker.js")).href)).default;
+// 浏览器启动参数统一走 _helpers（优先使用 CHROMIUM_PATH 指定的可执行文件）
+const { CHROMIUM_LAUNCH_OPTIONS } = await import("./_helpers.mjs");
 
 function makeKV(seed = {}) {
   const m = new Map(Object.entries(seed));
@@ -27,7 +29,9 @@ function makeKV(seed = {}) {
   };
 }
 
-const ADMIN_PWD = "Ly!2026@Secure#8848";
+// 测试专用口令（v8.0 起 Worker 不再回退硬编码口令，必须同步注入 env.ADMIN_PASSWORD，
+// 否则登录接口直接 500）。此处刻意使用与任何环境都不同的测试值，避免误用真实凭据。
+const ADMIN_PWD = "test-admin-pwd-v8";
 const CTX = { waitUntil: () => {} };
 const sharedKV = makeKV();
 const STATIC_PORT = 8901;
@@ -47,7 +51,7 @@ const apiServer = http.createServer(async (req, res) => {
     }
     const resp = await worker.fetch(
       new Request(`http://127.0.0.1:${API_PORT}${parsed.pathname}${parsed.search}`, init),
-      { SITE_DATA: sharedKV, GITHUB_TOKEN: "gh-test" },
+      { SITE_DATA: sharedKV, GITHUB_TOKEN: "gh-test", ADMIN_PASSWORD: ADMIN_PWD },
       CTX
     );
     const body = Buffer.from(await resp.arrayBuffer());
@@ -118,7 +122,7 @@ try {
   const { chromium } = await import(
     pathToFileURL(path.join(ROOT, "node_modules", "playwright", "index.mjs")).href
   );
-  browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  browser = await chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   const page = await browser.newPage();
   const jsErrors = [];
   page.on("pageerror", (e) => jsErrors.push(e.message));

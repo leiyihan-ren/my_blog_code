@@ -256,16 +256,27 @@ console.log("== D 组：云盘 API 单元测试（Node 直测 worker） ==");
   check("D15c 透传目标为 api.github.com", !!put && put.url.includes("api.github.com/repos/leiyihan-ren/Blog/contents/"));
 }
 
-// D16 DRIVE_PIN 环境变量覆盖默认值
+// D16 DRIVE_PIN 环境变量：非配置值一律拒绝
 {
   const r = await drive("GET", "list", { pin: "1234", env: { GITHUB_TOKEN: "t", DRIVE_PIN: "8888" } });
-  check("D16 env.DRIVE_PIN 覆盖默认 → 旧 PIN 失效", r.status === 401, `got ${r.status}`);
+  check("D16 口令不等于 env.DRIVE_PIN → 401", r.status === 401, `got ${r.status}`);
 }
 
-// D17 默认 PIN 兜底（env 无 DRIVE_PIN）
+// D17 安全止血（v8.0）：未配 env.DRIVE_PIN 时必须 500，且任何口令都不得通过
+// 历史行为：旧版回退 CONFIG.drive.fallbackPin（硬编码在公开仓库里，等于口令公开）；
+// 现行为：缺失即拒绝服务，把风险前移到部署配置。
 {
-  const r = await drive("GET", "list", { pin: "8866", env: { GITHUB_TOKEN: "t" } });
-  check("D17 未配 env.DRIVE_PIN 时默认 PIN 生效", r.status === 200, `got ${r.status}`);
+  const r1 = await drive("GET", "list", { pin: "8866", env: { GITHUB_TOKEN: "t" } });
+  check("D17a 未配 env.DRIVE_PIN → 500 服务端未配置密钥", r1.status === 500, `got ${r1.status}`);
+  check(
+    "D17b 500 提示语指向 DRIVE_PIN 未配置",
+    !!r1.json && JSON.stringify(r1.json).includes("DRIVE_PIN"),
+    String(r1.text).slice(0, 80)
+  );
+  const r2 = await drive("GET", "list", { pin: "", env: { GITHUB_TOKEN: "t" } });
+  check("D17c 未配密钥时空口令同样 500（不泄漏校验结果）", r2.status === 500, `got ${r2.status}`);
+  const r3 = await drive("GET", "list", { pin: "8888", env: { GITHUB_TOKEN: "t", DRIVE_PIN: "8888" } });
+  check("D17d 配置密钥后正确口令 → 200（未配置分支不影响正常路径）", r3.status === 200, `got ${r3.status}`);
 }
 
 console.log(`\n结果：${passed} 通过 / ${failed} 失败`);

@@ -12,7 +12,7 @@
 //   S6 安全关闭：全部暂停后 isBusy=false，runBeforeUnload 关闭不卡死
 // 运行：node tests/step11-drive-state-machine.mjs
 // ============================================================
-import worker, { ROOT } from "./_helpers.mjs";
+import worker, { ROOT, CHROMIUM_LAUNCH_OPTIONS } from "./_helpers.mjs";
 import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
@@ -220,7 +220,7 @@ async function main() {
   });
   await new Promise((r) => staticServer.listen(WEB_PORT, "127.0.0.1", r));
 
-  const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const browser = await chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   const context = await browser.newContext();
   const page = await context.newPage();
   let passed = 0, failed = 0;

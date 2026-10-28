@@ -12,7 +12,7 @@
 // 运行：node tests/step9-drive-chunked-ui.mjs
 // 注意：所有上传项按 data-name 定位（队列并发下避免任务间串扰）。
 // ============================================================
-import worker, { ROOT } from "./_helpers.mjs";
+import worker, { ROOT, CHROMIUM_LAUNCH_OPTIONS } from "./_helpers.mjs";
 import { staticFilePath } from "../scripts/route-map.mjs";
 import http from "node:http";
 import fs from "node:fs";
@@ -248,7 +248,7 @@ async function main() {
   });
   await new Promise((r) => staticServer.listen(WEB_PORT, "127.0.0.1", r));
 
-  const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+  const browser = await chromium.launch(CHROMIUM_LAUNCH_OPTIONS);
   const page = await browser.newPage();
   await page.addInitScript(() => {
     window.__blobSizes = [];
