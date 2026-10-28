@@ -70,7 +70,10 @@ const CONFIG = {
     // 旧缓存兜底存活期：GitHub 长时间不可达时，凭过期缓存继续展示内容
     staleTtlSeconds: 7 * 86400,
     // 单个源请求超时（毫秒）
-    timeoutMs: 8000,
+    // v8.1 性能攻坚：线上实测 Worker→GitHub 单请求偶发 1.4~1.8s、最坏拖到 8s
+    // 才放弃，整页被一个上游拖死。锁死 3000ms + 重试 2 次 + 换源，最坏 9s 内
+    // 必降级到 CDN 源；正常路径则是「3000ms 内拿不到就换源」，用户感知可控。
+    timeoutMs: 3000,
     // 单个源内的重试次数（仅网络错误/超时/5xx 时重试）
     retriesPerSource: 2,
     userAgent: "blog-auto-mode",
@@ -557,19 +560,27 @@ function jsonEtagResponse(request, data) {
  * 否则手工上传新版本后浏览器会长期拿旧文件。
  */
 function staticCacheControl(pathname) {
-  if (
-    pathname === "/" ||
-    pathname.endsWith("/") ||
-    pathname.endsWith(".html") ||
-    // PWA 关键文件禁止长缓存：
-    // sw.js 被 HTTP 缓存旧版本 → 浏览器发现不了新 SW，用户永远看旧页面；
-    // manifest.json 影响安装元数据（名称/图标/主题色），也保持实时。
-    pathname === "/sw.js" ||
-    pathname === "/manifest.json"
-  ) {
+  const p = pathname || "/";
+  // PWA 关键文件禁止任何缓存：
+  // sw.js 被 HTTP 缓存旧版本 → 浏览器发现不了新 SW，用户永远看旧页面；
+  // manifest.json 影响安装元数据（名称/图标/主题色），也保持实时。
+  if (p === "/sw.js" || p === "/manifest.json") {
     return "public, max-age=0, must-revalidate";
   }
-  return "public, max-age=3600";
+  // HTML：浏览器每次校验（保证发版即时可见），但**边缘缓存 5 分钟 + SWR**。
+  // 实测线上 TTFB 500~800ms 全部耗在每次回源校验上，s-maxage 让边缘直接命中。
+  if (p === "/" || p.endsWith("/") || p.endsWith(".html")) {
+    return "public, max-age=0, s-maxage=300, stale-while-revalidate=86400";
+  }
+  // CSS/JS：内容随版本变化但一小时内稳定；边缘 1 天 + SWR 7 天
+  if (/\.(css|js|mjs)$/i.test(p)) {
+    return "public, max-age=600, s-maxage=86400, stale-while-revalidate=604800";
+  }
+  // 图片/字体/媒体：内容基本不可变，可长缓存
+  if (/\.(png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|mp3|mp4)$/i.test(p)) {
+    return "public, max-age=86400, s-maxage=604800, stale-while-revalidate=2592000";
+  }
+  return "public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400";
 }
 
 // ============================================================
@@ -607,8 +618,14 @@ function addStaticSecurityHeaders(response, pathname) {
   if ((headers.get("Content-Type") || "").includes("text/html")) {
     headers.set("Content-Security-Policy", CSP_POLICY);
   }
-  // 不覆盖上游已设置的缓存头（如 Cloudflare 对带指纹资源的处理）
-  if (!headers.has("Cache-Control") && response.status !== 304) {
+  // v8.1 性能攻坚（实测取证）：
+  // Pages 上游默认给静态资源 `no-store` / `max-age=0, must-revalidate`，
+  // 原逻辑「上游有缓存头就不覆盖」导致 11~12 个 CSS/JS/图片**每次全部回源**，
+  // 浏览器侧实测边缘缓存命中 0/12，TTFB 长期 500~800ms。
+  // 静态资源内容随版本变化、路径固定，一律强制覆盖为长缓存；发版即时性
+  // 由 HTML（s-maxage=300）与 SW 版本号共同保证，不依赖资源文件本身。
+  // 304 响应无 body 也无缓存语义，跳过。
+  if (response.status !== 304) {
     headers.set("Cache-Control", staticCacheControl(pathname || "/"));
   }
   // 304 响应无 body，需传 null
@@ -4116,15 +4133,134 @@ function purgeApiCache(request) {
   }
 }
 
+/* ------------------------------------------------------------
+ * v8.1 性能攻坚：GET 只读接口的「边缘缓存 + 单飞锁」
+ * ------------------------------------------------------------
+ * 实测取证：线上 /api/posts、/api/music、/api/site 等每次耗时 200~650ms，
+ * 响应虽带 `public, max-age=N`，但**从未命中边缘缓存**。根因是 Cloudflare
+ * 默认只按扩展名缓存静态内容，/api/* 这类无扩展名路径不在默认缓存列表内——
+ * 设 Cache-Control 头并不能让边缘缓存它，必须用 Cache API 显式写入。
+ * （旁证：同为 /api/ 下的 .jpg raw 代理带 cf-cache-status: HIT，即扩展名生效）
+ *
+ * 单飞锁：同一 isolate 内并发的相同 GET 只放行一个真实回源，其余复用结果，
+ * 避免「缓存刚过期 → N 个并发一起打 GitHub」的击穿。
+ * 跨 isolate 由 Cache API 兜底（命中即零回源、零 KV 读）。
+ * ------------------------------------------------------------ */
+const apiInflight = new Map(); // url -> Promise<{status, headers, body}>
+
+async function dispatchApiCached(request, env, ctx, url) {
+  const ttl = API_CACHE_TTL[url.pathname] || 0;
+  const canCache =
+    request.method === "GET" &&
+    ttl > 0 &&
+    !request.headers.get("Authorization") &&
+    typeof caches !== "undefined" &&
+    caches.default;
+  // 不可缓存（写操作 / 带鉴权 / 未登记 TTL）→ 原路径直连，零额外开销
+  if (!canCache) return dispatchApi(request, env, ctx, url);
+
+  const cache = caches.default;
+  const key = new Request(url.toString(), { method: "GET" });
+
+  // 1) 边缘缓存命中：直接返回，不进 KV、不碰 GitHub
+  try {
+    const hit = await cache.match(key);
+    if (hit) {
+      const h = new Headers(hit.headers);
+      h.set("X-Edge-Cache", "HIT");
+      return new Response(hit.body, { status: hit.status, headers: h });
+    }
+  } catch { /* 缓存不可用不影响可用性 */ }
+
+  // 2) 单飞锁：并发同 URL 只回源一次（body 以文本形式共享，避免 Response 只能消费一次）
+  const ck = url.toString();
+  let p = apiInflight.get(ck);
+  if (!p) {
+    p = (async () => {
+      const result = await dispatchApi(request, env, ctx, url);
+      const r = result instanceof Response ? result : ok(result);
+      return {
+        status: r.status,
+        headers: [...r.headers],
+        body: r.status === 304 ? null : await r.text(),
+      };
+    })();
+    apiInflight.set(ck, p);
+    // 无论成功失败都要释放锁，否则该 URL 会被永久占用
+    p.then(
+      () => apiInflight.delete(ck),
+      () => apiInflight.delete(ck)
+    );
+  }
+  const entry = await p;
+
+  // 3) 组装响应（每次新建，避免共享 Response 导致 body 已被消费）
+  const headers = new Headers(entry.headers);
+  headers.set("Cache-Control", `public, max-age=${ttl}, stale-while-revalidate=${ttl * 4}`);
+  headers.set("X-Edge-Cache", "MISS");
+  const res = new Response(entry.body, { status: entry.status, headers });
+
+  // 4) 回写边缘缓存（异步，不阻塞本次响应）
+  if (entry.status === 200 && entry.body !== null && ctx && typeof ctx.waitUntil === "function") {
+    try {
+      ctx.waitUntil(cache.put(key, res.clone()).catch(() => {}));
+    } catch { /* 写缓存失败不影响可用性 */ }
+  }
+  return res;
+}
+
+/* ------------------------------------------------------------
+ * v8.1：极简速率限制（防刷 + 防击穿）
+ * ------------------------------------------------------------
+ * 只在真实边缘来源生效：以 cf-connecting-ip 头存在与否判定。
+ * 本地/测试环境（无该头）一律放行，避免测试套件被自己的限流打红。
+ * 计数存放在 isolate 内存中（非 KV）：不产生任何存储读写成本，
+ * 代价是跨 isolate 不共享——但这是有意的，本项目防的是单用户狂刷
+ * 与脚本撞库，不是分布式 DDoS（后者由 Cloudflare 平台侧承担）。
+ * ------------------------------------------------------------ */
+const RATE_WINDOW = 60000;
+const RATE_MAX = 120; // 60 秒内 120 次 API 调用：正常浏览远达不到
+const rateBuckets = new Map();
+
+function rateLimited(request) {
+  try {
+    const ip = request.headers.get("cf-connecting-ip");
+    if (!ip) return false; // 非边缘来源（本地/测试）不限流
+    const now = Date.now();
+    const bucket = rateBuckets.get(ip);
+    if (!bucket || now - bucket.start > RATE_WINDOW) {
+      rateBuckets.set(ip, { start: now, count: 1 });
+      return false;
+    }
+    bucket.count += 1;
+    // 定期清理过期桶，避免 Map 无上限增长
+    if (rateBuckets.size > 2000) {
+      for (const [k, v] of rateBuckets) {
+        if (now - v.start > RATE_WINDOW) rateBuckets.delete(k);
+      }
+    }
+    return bucket.count > RATE_MAX;
+  } catch { return false; }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const startTime = Date.now();
 
+    // 速率限制：仅对 API 生效；静态资源本身由边缘缓存承载，无需限流
+    if (url.pathname.startsWith("/api/") && rateLimited(request)) {
+      return new Response(JSON.stringify({ error: "请求过于频繁，请稍后再试" }), {
+        status: 429,
+        headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+      });
+    }
+
     if (url.pathname.startsWith("/api/")) {
       let response;
       try {
-        const result = await dispatchApi(request, env, ctx, url);
+        // v8.1：只读 GET 走「边缘缓存 + 单飞」，其余（写/鉴权/未登记）走原路径
+        const result = await dispatchApiCached(request, env, ctx, url);
         response = result instanceof Response ? result : ok(result);
       } catch (e) {
         if (e instanceof HttpError) {
