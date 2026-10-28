@@ -35,7 +35,10 @@
 /* ⚠️ 每次发布新版本时必须 +1，否则用户可能停留在旧缓存 */
 // v3.4.0：v8.0 全生态重塑——新增全局 UI 组件库 components/ui.js（对话框/Toast 收拢），
 //         预缓存清单同步纳入；drive 页新增 vendor/jszip.min.js 本地化依赖（见下）。
-const CACHE_VERSION = "v3.4.0";
+// v3.5.0：P0 止血——drive.html 的 fmtBytes 兜底修复 + _worker.js 凭据硬编码清除。
+//         必须 +1 的原因是：老客户端的静态缓存里可能仍是旧版 /utils/blog-utils.js
+//         （无 fmtBytes）与旧 drive.html，不换缓存名它们不会被重新拉取。
+const CACHE_VERSION = "v3.5.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";

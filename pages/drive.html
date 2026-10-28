@@ -212,8 +212,24 @@
         toastTimer = setTimeout(function () { el.classList.remove("show"); }, 3200);
       }
 
-      /* ---------- v7.3 Clean Code：fmtBytes 收敛至 BlogUtils（消除三处重复实现与字节魔法数字） ---------- */
-      var fmtBytes = window.BlogUtils.fmtBytes;
+      /* ---------- v7.3 Clean Code：fmtBytes 收敛至 BlogUtils（消除三处重复实现与字节魔法数字） ----------
+         v8.0 止血：原先直接 `window.BlogUtils.fmtBytes` 取值，一旦 BlogUtils 未就绪
+         （脚本被 SW 旧缓存拦截 / 加载失败 / 加载顺序被打乱），fmtBytes 就是 undefined，
+         首次调用即抛「fmtBytes is not a function」并中断整个云盘渲染。
+         现改为「优先取公共实现，缺失则回退到本页等价实现」，保证渲染永不因工具函数缺失而崩。 */
+      var fmtBytes = (function () {
+        if (window.BlogUtils && typeof window.BlogUtils.fmtBytes === "function") {
+          return window.BlogUtils.fmtBytes;
+        }
+        // 兜底实现：与 utils/blog-utils.js 的 fmtBytes 行为逐字符一致
+        return function (n) {
+          if (n == null || isNaN(n)) return "—";
+          if (n < 1024) return n + " B";
+          if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+          if (n < 1073741824) return (n / 1048576).toFixed(2) + " MB";
+          return (n / 1073741824).toFixed(2) + " GB";
+        };
+      })();
 
       function fmtTime(iso) {
         if (!iso) return "—";

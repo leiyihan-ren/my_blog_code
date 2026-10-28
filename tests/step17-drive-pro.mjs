@@ -108,6 +108,20 @@ globalThis.fetch = async (input, init) => {
       buf.write("PART:" + part[1] + ":" + part[2], 0, "ascii");
       return new Response(buf, { status: 200, headers: { ...rl, "Content-Type": "application/octet-stream" } });
     }
+    // 图片类必须返回真实图片字节：否则 <img> onerror 会清空预览容器，
+    // 表现为「预览打不开」的假故障
+    if (/\.(png|jpe?g|gif|webp|bmp|ico|avif)$/i.test(p)) {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/wD/AAAAAElFTkSuQmCC",
+        "base64");
+      return new Response(png, { status: 200, headers: { ...rl, "Content-Type": "image/png" } });
+    }
+    if (/\.(mp3|wav|ogg|flac|m4a|aac|opus)$/i.test(p)) {
+      return new Response(Buffer.alloc(0), { status: 200, headers: { ...rl, "Content-Type": "audio/mpeg" } });
+    }
+    if (/\.(mp4|webm|mov|mkv)$/i.test(p)) {
+      return new Response(Buffer.alloc(0), { status: 200, headers: { ...rl, "Content-Type": "video/mp4" } });
+    }
     return new Response("file-content-of-" + path.basename(p), { status: 200, headers: rl });
   }
   /** 同步目录清单：新文件按父目录插入 DIR_LISTING（GitHub 真实语义——
@@ -445,7 +459,7 @@ async function main() {
     await page.click('#dirGrid .dir-chip:has-text("photos")');
     await page.waitForFunction(() => {
       const rows = [...document.querySelectorAll("#fileTbody tr")];
-      return rows.length === 3; // beach.jpg + .m-sub01(大文件) + in-photos.txt
+      return rows.length === 4; // beach.jpg + .m-sub01(大文件) + in-photos.txt(B组) + root.txt(D组)
     }, null, { timeout: 8000 });
     await page.evaluate(() => {
       const rows = [...document.querySelectorAll("#fileTbody tr")];
