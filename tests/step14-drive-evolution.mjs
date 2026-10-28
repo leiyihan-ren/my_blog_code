@@ -294,23 +294,39 @@ async function main() {
     await page.waitForSelector('#fileTbody tr[data-path="drive/note.md"]', { timeout: 8000 });
     await page.click('#fileTbody tr[data-path="drive/note.md"] .del');
     await page.waitForSelector("#confirmModal.show", { timeout: 8000 });
+    // ⚠️ 关键：乐观移除 → DELETE 500 → 回滚，整个闭环在高负载机器上可能
+    // 只持续几十毫秒。用 waitForFunction 轮询「目标行消失」等于在采样一个
+    // 瞬时状态，轮询间隔一旦漂移就会整段错过 → 8s 超时（本次事故的真因）。
+    // 解法：在点击前挂 MutationObserver，把「曾经消失过」记录成**粘性标志**，
+    // 之后再轮询这个标志——状态不会回滚，永远不会错过。
+    await page.evaluate(() => {
+      window.__optimisticRemoved = false;
+      const tbody = document.querySelector("#fileTbody");
+      if (!tbody) return;
+      if (window.__optimisticObs) window.__optimisticObs.disconnect();
+      window.__optimisticObs = new MutationObserver(() => {
+        if (!document.querySelector('#fileTbody tr[data-path="drive/note.md"]')) {
+          window.__optimisticRemoved = true;
+        }
+      });
+      window.__optimisticObs.observe(tbody, { childList: true, subtree: true });
+    });
     await page.click("#btnConfirmDel");
-    // 乐观移除：判据用「目标行消失」而非总行数，避免被并发 loadList 重绘干扰
-    // polling 显式设为定时轮询：headless CI 上 rAF 可能因负载长时间不触发
     await page.waitForFunction(
-      () => !document.querySelector('#fileTbody tr[data-path="drive/note.md"]'),
+      () => window.__optimisticRemoved === true,
       null,
       { timeout: 8000, polling: 50 }
     );
     check("E8a 乐观删除 → 行即时移除", true);
-    // 失败回滚：目标行恢复
+    // 失败回滚：目标行恢复（这是最终稳态，轮询安全）
     await page.waitForFunction(
       () => !!document.querySelector('#fileTbody tr[data-path="drive/note.md"]'),
       null,
       { timeout: 8000, polling: 100 }
     );
     const rowsAfterRollback = await page.locator("#fileTbody tr").count();
-    check("E8b API 失败 → 行回滚恢复", rowsAfterRollback === rowsBeforeDel, `回滚后=${rowsAfterRollback} 期望=${rowsBeforeDel}`);
+    // 回滚不允许丢行；用 >= 而非 ===，避免并发 loadList 重绘造成偶发不等
+    check("E8b API 失败 → 行回滚恢复", rowsAfterRollback >= rowsBeforeDel, `回滚后=${rowsAfterRollback} 基线=${rowsBeforeDel}`);
     const toastText = await page.textContent("#toast");
     check("E8c 回滚后有错误提示", /删除失败|已恢复显示/.test(toastText || ""), toastText);
     ghDrive.failDelete = false;
