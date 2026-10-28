@@ -84,3 +84,4 @@
 - 2026-10-28 试错记录（新增，第 1 次即命中解法）：Pages 环境变量经 API 写入后，**Git 触发的新部署仍读不到 env**（实测 env 仅有 ASSETS/CF_PAGES_*/SITE_DATA）。解法：变量以 `secret_text` 类型写入 + 对最新部署执行 **retry**（而非等下一次 Git 推送）→ env 立即包含三个密钥。排查手段是临时端点 `/api/_envdiag`（只返回 env 键名），确认后已移除
 - 2026-10-28 线上验证：云盘页零 JS 错误、列表 1 行、大小列渲染 `232.9 KB`（fmtBytes 生效）；文章 4 篇且不再含 README；音乐接口返回真实数据（稻香/周杰伦，来自修复后的 music.json）；时间线数据正常；登录 200 / 错误密码 401
 - 2026-10-28 全量回归：**21/21 套件通过**（含新纳入的 step17 27 项），本地耗时 288.7s
+- 2026-10-28 顺手修复：pages/drive.html 是全站 10 个页面中唯一漏了 `<link rel="icon">` 的，浏览器回退请求 `/favicon.ico` → 404 → 控制台报错。已补齐 favicon.svg + apple-touch-icon 声明；线上冒烟 `tests/_online-smoke.mjs` 最终 10/10 全绿
