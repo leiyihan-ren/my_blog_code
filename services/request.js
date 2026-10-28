@@ -22,9 +22,40 @@
 window.BlogApi = (function () {
   "use strict";
 
-  const { sleep } = window.BlogUtils;
+  const { sleep, safeStorage } = window.BlogUtils;
 
-  const DEFAULT_TIMEOUT = 12000;
+  /* v8.1 性能攻坚：超时分层。
+   * 线上实测：Worker→GitHub 正常 200~650ms，劣化时 1.4~1.8s，最坏拖到十几秒。
+   * 首屏数据接口沿用 12s 等于把一个慢上游的延迟直接转嫁给用户（白屏等待），
+   * 因此 **读接口默认 3s 熔断**（配合 Worker 侧 3s 熔断 + 换源，前端不必久等）；
+   * 写接口（发布文章/上传等）要真正落库，放宽到 12s，避免误中断写操作。 */
+  const DEFAULT_TIMEOUT_GET = 3000;
+  const DEFAULT_TIMEOUT_WRITE = 12000;
+  const CACHE_PREFIX = "blogApiCache:";
+
+  /* GET 并发去重：同一 URL 的并发读只发一次，其余复用同一个 Promise。
+   * 线上实测同一张 raw 图被请求 2 次、/api/drive/list 被请求 2 次，
+   * 双倍回源直接翻倍首屏时间——去重是零成本收益。 */
+  const inflight = new Map();
+
+  /** 写入本地兜底缓存（失败静默：隐私模式/配额满不应影响主流程） */
+  function writeLocalCache(key, data) {
+    try {
+      safeStorage.set(CACHE_PREFIX + key, JSON.stringify({ ts: Date.now(), data }));
+    } catch (e) { /* 忽略 */ }
+  }
+
+  /** 读取未过期的本地兜底缓存；过期或无记录返回 null */
+  function readLocalCache(key, ttl) {
+    try {
+      const raw = safeStorage.get(CACHE_PREFIX + key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.ts !== "number") return null;
+      if (Date.now() - parsed.ts > (ttl || 10 * 60 * 1000)) return null;
+      return parsed.data;
+    } catch (e) { return null; }
+  }
 
   /** 把任意错误归一为带友好 message 的 Error */
   function normalizeError(e, url) {
@@ -44,18 +75,40 @@ window.BlogApi = (function () {
    * @param {object} [opts]
    * @param {string} [opts.method="GET"]
    * @param {object} [opts.body] 自动 JSON 序列化并设 Content-Type
-   * @param {number} [opts.timeout=12000] 毫秒
+   * @param {number} [opts.timeout] 毫秒；默认读 3000 / 写 12000（v8.1 分层）
    * @param {number} [opts.retry=0] 额外重试次数（GET 才建议开启）
    * @param {function} [opts.onLoading] (boolean) => void
+   * @param {string} [opts.cacheKey] 传则启用本地兜底缓存（成功写入/失败读取）
+   * @param {number} [opts.cacheTtl=600000] 兜底缓存有效期（毫秒）
+   * @param {function} [opts.onFallback] (cachedData, err) => void 降级命中时回调
+   * @param {boolean} [opts.dedupe=true] 读请求并发去重（默认开启）
    * @returns {Promise<any>} 解析后的 JSON（或文本）
    */
   async function request(url, opts) {
     const options = opts || {};
     const method = options.method || "GET";
+    const isRead = method === "GET";
     const retry = Math.max(0, options.retry || 0);
     const retryDelay = options.retryDelay || 600;
     const onLoading = options.onLoading;
+    const timeout =
+      options.timeout || (isRead ? DEFAULT_TIMEOUT_GET : DEFAULT_TIMEOUT_WRITE);
 
+    /* ---- 读请求并发去重（写操作绝不去重，否则会吞掉真实提交） ---- */
+    if (isRead && options.dedupe !== false) {
+      const ck = url;
+      let p = inflight.get(ck);
+      if (!p) {
+        p = doRequest();
+        inflight.set(ck, p);
+        p.then(() => inflight.delete(ck), () => inflight.delete(ck));
+      }
+      return p;
+    }
+    return doRequest();
+
+    /** 真正的请求执行（含超时、重试、缓存兜底） */
+    async function doRequest() {
     const headers = Object.assign({}, options.headers);
     let body;
     if (options.body !== undefined && options.body !== null) {
@@ -64,7 +117,7 @@ window.BlogApi = (function () {
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.timeout || DEFAULT_TIMEOUT);
+    const timer = setTimeout(() => controller.abort(), timeout);
     if (onLoading) onLoading(true);
 
     try {
@@ -80,6 +133,8 @@ window.BlogApi = (function () {
             err.data = data;
             throw err;
           }
+          // 成功：写入本地兜底缓存（下次断网/上游故障时可用）
+          if (options.cacheKey) writeLocalCache(options.cacheKey, data);
           return data;
         } catch (e) {
           lastErr = normalizeError(e, url);
@@ -88,12 +143,21 @@ window.BlogApi = (function () {
           if (attempt < retry) await sleep(retryDelay * (attempt + 1));
         }
       }
+      // 全部尝试失败：有本地缓存就降级返回（页面据此提示「离线数据」，永不白屏）
+      if (options.cacheKey) {
+        const cached = readLocalCache(options.cacheKey, options.cacheTtl);
+        if (cached !== null && cached !== undefined) {
+          if (typeof options.onFallback === "function") options.onFallback(cached, lastErr);
+          return cached;
+        }
+      }
       throw lastErr;
     } finally {
       clearTimeout(timer);
       if (onLoading) onLoading(false);
     }
-  }
+    } /* doRequest 结束 */
+  } /* request 结束 */
 
   /* ---- 便捷方法 ---- */
   const api = {
