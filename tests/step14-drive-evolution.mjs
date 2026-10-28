@@ -191,6 +191,21 @@ async function main() {
     else { failed++; console.log(`  ❌ ${name}${detail ? " → " + detail : ""}`); }
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // 等列表稳定：加载态收起 + 行数连续 2 次采样一致（排除仍有 loadList 在飞行中）
+  const waitStableRows = async () => {
+    let prev = -1, same = 0;
+    for (let i = 0; i < 50; i++) {
+      const loading = await page.evaluate(() => {
+        const ls = document.querySelector("#loadingState");
+        return !!ls && ls.hidden === false;
+      });
+      const n = await page.locator("#fileTbody tr").count();
+      if (!loading && n === prev) { if (++same >= 2) return n; } else { same = 0; }
+      prev = n;
+      await sleep(120);
+    }
+    return prev;
+  };
   const firstRowName = () => page.evaluate(() => {
     const tr = document.querySelector("#fileTbody tr");
     return tr ? (tr.querySelector(".f-name a").textContent || "").replace(" 🧩", "") : null;
@@ -234,22 +249,22 @@ async function main() {
 
     // E5 搜索
     await page.fill("#fileSearch", "note");
-    await page.waitForFunction(() => document.querySelectorAll("#fileTbody tr").length === 1, null, { timeout: 3000 });
+    await page.waitForFunction(() => document.querySelectorAll("#fileTbody tr").length === 1, null, { timeout: 8000, polling: 100 });
     check("E5a 搜索 note → 仅 1 行", true);
     await page.fill("#fileSearch", "zzz-no-match");
-    await page.waitForFunction(() => !document.querySelector("#fileTable") || document.querySelector("#fileTable").hidden, null, { timeout: 3000 });
+    await page.waitForFunction(() => !document.querySelector("#fileTable") || document.querySelector("#fileTable").hidden, null, { timeout: 8000, polling: 100 });
     const emptyVisible = await page.isVisible("#emptyState");
     const emptyText = await page.textContent("#emptyState");
     check("E5b 搜索无结果 → 空态可见且文案可操作", emptyVisible && /没有匹配/.test(emptyText), emptyText);
     await page.fill("#fileSearch", "");
-    await page.waitForFunction(() => document.querySelectorAll("#fileTbody tr").length === 4, null, { timeout: 3000 });
+    await page.waitForFunction(() => document.querySelectorAll("#fileTbody tr").length === 4, null, { timeout: 8000, polling: 100 });
     check("E5c 清空搜索 → 恢复 4 行", true);
 
     // E6 重命名小文件（hello.txt → renamed.txt）
     const putBefore = ghDrive.putBodies.length;
     const delBefore = ghDrive.delBodies.length;
     await page.click('#fileTbody tr[data-path="drive/hello.txt"] .rn');
-    await page.waitForSelector("#renameModal.show", { timeout: 3000 });
+    await page.waitForSelector("#renameModal.show", { timeout: 8000 });
     check("E6a 重命名模态弹出", true);
     await page.fill("#renameInput", "renamed.txt");
     await page.click("#btnRenameOk");
@@ -257,7 +272,7 @@ async function main() {
     await page.waitForFunction(
       () => [...document.querySelectorAll("#fileTbody tr")].some((tr) => (tr.querySelector(".f-name a").textContent || "").includes("renamed.txt")),
       null,
-      { timeout: 10000 }
+      { timeout: 10000, polling: 100 }
     );
     check("E6b 重命名 → 新路径上传", ghDrive.putBodies.length > putBefore && ghDrive.putBodies[ghDrive.putBodies.length - 1].path === "drive/renamed.txt", JSON.stringify(ghDrive.putBodies[ghDrive.putBodies.length - 1] && ghDrive.putBodies[ghDrive.putBodies.length - 1].path));
     check("E6c 重命名 → 旧路径删除", ghDrive.delBodies.length > delBefore && ghDrive.delBodies[ghDrive.delBodies.length - 1].path === "drive/hello.txt", JSON.stringify(ghDrive.delBodies[ghDrive.delBodies.length - 1] && ghDrive.delBodies[ghDrive.delBodies.length - 1].path));
@@ -273,24 +288,29 @@ async function main() {
 
     // E8 乐观删除回滚：DELETE 500 → 行即时移除后恢复 + 错误提示
     ghDrive.failDelete = true;
-    const rowsBeforeDel = await page.locator("#fileTbody tr").count();
+    // 基线取样前先等列表稳定：E6 重命名末尾的 loadList() 是「异步整表重绘」，
+    // CI 慢机器上若在其落地前采样，总行数基线会失效 → 乐观删除后永远不等于 n-1（历史 flake 根因）
+    const rowsBeforeDel = await waitStableRows();
+    await page.waitForSelector('#fileTbody tr[data-path="drive/note.md"]', { timeout: 8000 });
     await page.click('#fileTbody tr[data-path="drive/note.md"] .del');
-    await page.waitForSelector("#confirmModal.show", { timeout: 3000 });
+    await page.waitForSelector("#confirmModal.show", { timeout: 8000 });
     await page.click("#btnConfirmDel");
-    // 乐观移除：行数立即减少
+    // 乐观移除：判据用「目标行消失」而非总行数，避免被并发 loadList 重绘干扰
+    // polling 显式设为定时轮询：headless CI 上 rAF 可能因负载长时间不触发
     await page.waitForFunction(
-      (n) => document.querySelectorAll("#fileTbody tr").length === n - 1,
-      rowsBeforeDel,
-      { timeout: 3000 }
+      () => !document.querySelector('#fileTbody tr[data-path="drive/note.md"]'),
+      null,
+      { timeout: 8000, polling: 50 }
     );
     check("E8a 乐观删除 → 行即时移除", true);
-    // 失败回滚：行数恢复
+    // 失败回滚：目标行恢复
     await page.waitForFunction(
-      (n) => document.querySelectorAll("#fileTbody tr").length === n,
-      rowsBeforeDel,
-      { timeout: 8000 }
+      () => !!document.querySelector('#fileTbody tr[data-path="drive/note.md"]'),
+      null,
+      { timeout: 8000, polling: 100 }
     );
-    check("E8b API 失败 → 行回滚恢复", true);
+    const rowsAfterRollback = await page.locator("#fileTbody tr").count();
+    check("E8b API 失败 → 行回滚恢复", rowsAfterRollback === rowsBeforeDel, `回滚后=${rowsAfterRollback} 期望=${rowsBeforeDel}`);
     const toastText = await page.textContent("#toast");
     check("E8c 回滚后有错误提示", /删除失败|已恢复显示/.test(toastText || ""), toastText);
     ghDrive.failDelete = false;
@@ -317,7 +337,7 @@ async function main() {
     check("E9c 全局按钮区有「清除已完成」", groupInfo.clearBtn);
     const rowsBeforeClear = await page.locator("#fileTbody tr").count();
     await page.click("#upGlobalBtns .up-cancel");
-    await page.waitForFunction(() => document.querySelector("#uploadPanel").hidden, null, { timeout: 3000 });
+    await page.waitForFunction(() => document.querySelector("#uploadPanel").hidden, null, { timeout: 8000, polling: 100 });
     check("E9d 清除已完成 → 队列面板收起", true);
     await sleep(300);
     const rowsAfterClear = await page.locator("#fileTbody tr").count();
