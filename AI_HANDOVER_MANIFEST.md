@@ -66,10 +66,18 @@
 | 8 | 拖拽文件夹上传全挂 | `FileSystemFileEntry.file` 是**方法** `file(cb, errCb)`，代码当 File 对象直接入队 | walk 区分：假 entry 用对象，真 FileEntry 调 `entry.file(cb, errCb)` 异步取 |
 | 9 | zip 打包出现 `.m-xxx.json` 条目 | chunked 条目的 `path` 是 manifest 路径而非显示名 | `zipPathOf` 对 `storage === "chunked"` 直接用 `f.name` |
 | 10 | 测试套件「假绿」 | `finally { process.exit(...) }` 吞掉 catch 的异常信息，失败用例以 exit 0 收场 | 异常计入 `failed` 再走 finally 清理，exit 放在 try/catch/finally 之后 |
+| 11 | 硬编码口令裸奔（v8.0 安全止血） | `_worker.js` 内 `fallbackPassword` / `fallbackPin` 明文兜底，而代码仓是**公开**仓库 → 任何人 clone 即可登录后台、写云盘 | 删除全部明文兜底：`getAdminPassword(env)` 只取环境变量，缺失即 500「服务端未配置密钥」；`drivePinOk` → `drivePinGuard`，DRIVE_PIN 缺失即 500。**绝不再引入任何默认值** |
+| 12 | Pages 环境变量写了却不生效 | 经 API 写入 `deployment_configs.*.env_vars` 后，Git 触发的新部署里 `env` 仍只有 `ASSETS / CF_PAGES_* / SITE_DATA` | ① 用 `type: "secret_text"` 写入；② 写入后对最新部署执行 **retry**（POST `/deployments/{id}/retry`）而非等下次 Git 推送。排查用临时端点返回 `Object.keys(env)`（只列键名、不列值），确认后立即删除 |
 
 ---
 
 ## 3. 开发避坑指南（含遗留问题）
+
+### 已解决（v8.0，勿回退）
+- ~~硬编码口令兜底~~：已清除，见排雷 #11。站点密钥清单（`ADMIN_PASSWORD` / `DRIVE_PIN` / `GITHUB_TOKEN`）必须全部配置在 CF Pages 环境变量；缺失的接口会主动 500 报错而不是静默放行
+- ~~`fmtBytes is not a function`~~：`pages/drive.html` 改为「公共实现优先 + 本页等价兜底」，并配合 SW `CACHE_VERSION` +1 清理旧 `blog-utils.js` 缓存
+- ~~内容仓文件名错误~~：`music.ison` / `timeline. json` 已通过 Git Data API 单次提交改为 `music.json` / `timeline.json`
+- ~~posts/README.md 被当文章~~：文章列表新增 `README/CHANGELOG/LICENSE` 等非文章文件过滤
 
 ### 遗留问题 1：大文件不支持重命名
 - 现状：`pages/drive.html` 中 `storage === "chunked"` 的行，重命名按钮 `disabled`（title 说明原因）
@@ -107,6 +115,7 @@ setup_env.bat    # Windows 双击
 
 # 第二步：拉齐依赖
 npm install      # 仅 playwright（测试用）；config 已设 playwright_skip_browser_download
+# 无预装浏览器时指定可执行文件：CHROMIUM_PATH=/usr/bin/chromium npm test
 
 # 第三步：构建产物目录加固（可选，CI 已内置）
 npm run build    # = node scripts/build-pages.mjs → 同步 dist/ public/ build/
@@ -114,6 +123,11 @@ npm run build    # = node scripts/build-pages.mjs → 同步 dist/ public/ build
 # 第四步：跑全量回归（21 个套件，500+ 断言）
 npm test         # = node tests/run-all.mjs
 # 单套件：npm run test:drive / test:chunked / test:seo / test:a11y ...
+
+# 第五步（部署前必做）：确认站点密钥已在 CF Pages 环境变量就位
+#   ADMIN_PASSWORD（后台登录）、DRIVE_PIN（云盘口令）、GITHUB_TOKEN（内容同步）
+#   三者任一缺失 → 对应接口返回 500「服务端未配置密钥」（设计如此，不是 Bug）
+#   线上自检：node tests/_online-smoke.mjs（需 DRIVE_PIN / ADMIN_PASSWORD 环境变量）
 
 # 第五步：看历史
 git log --oneline -20
