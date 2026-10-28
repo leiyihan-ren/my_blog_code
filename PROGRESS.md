@@ -80,3 +80,7 @@
 - 2026-10-28 P0 数据修正：内容仓 `music.ison`→`music.json`、`timeline. json`→`timeline.json`（Git Data API 单次提交 `38085f9b`，只改路径、不改内容）；`_worker.js` 文章列表新增非文章文件过滤（README/CHANGELOG/LICENSE 等），修复 posts/README.md 被当文章渲染
 - 2026-10-28 前端止血：`pages/drive.html` 的 `fmtBytes` 由「直接取 `window.BlogUtils.fmtBytes`」改为「公共实现优先 + 本页等价兜底」，杜绝 BlogUtils 未就绪（SW 旧缓存/加载失败）时的 `fmtBytes is not a function` 崩溃；`sw.js` `CACHE_VERSION` v3.4.0→v3.5.0 强制客户端刷新静态缓存
 - 2026-10-28 测试接入：`tests/step17-drive-pro.mjs` 纳入 `tests/run-all.mjs`（20→21 套件）
+- 2026-10-28 密钥上线：生产 Pages 此前**只配了 GITHUB_TOKEN**，ADMIN_PASSWORD / DRIVE_PIN 从未配置（一直靠公开仓库里的硬编码明文兜底）。已生成强随机凭据并写入 Pages 环境变量（Secret 形式）。新凭据：后台口令 `kXcWAR4mU*ZeBeF@^p5s`、云盘口令 `15084673`（保管于 `/root/.secrets/project-keys.env`，可随时在 CF Dashboard 轮换）
+- 2026-10-28 试错记录（新增，第 1 次即命中解法）：Pages 环境变量经 API 写入后，**Git 触发的新部署仍读不到 env**（实测 env 仅有 ASSETS/CF_PAGES_*/SITE_DATA）。解法：变量以 `secret_text` 类型写入 + 对最新部署执行 **retry**（而非等下一次 Git 推送）→ env 立即包含三个密钥。排查手段是临时端点 `/api/_envdiag`（只返回 env 键名），确认后已移除
+- 2026-10-28 线上验证：云盘页零 JS 错误、列表 1 行、大小列渲染 `232.9 KB`（fmtBytes 生效）；文章 4 篇且不再含 README；音乐接口返回真实数据（稻香/周杰伦，来自修复后的 music.json）；时间线数据正常；登录 200 / 错误密码 401
+- 2026-10-28 全量回归：**21/21 套件通过**（含新纳入的 step17 27 项），本地耗时 288.7s
