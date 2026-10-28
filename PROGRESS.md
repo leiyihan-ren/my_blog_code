@@ -64,8 +64,19 @@
 6. `_worker.js`：list 增 `dirs` 返回 + manifest 正则放开任意深度子目录；finish 接受可选 `dir`；新增 `sanitizeDriveSubdir`
 7. `pages/drive.html` `findChunkedId`：按 manifest 路径反推目录匹配 uploadId（页面侧，防跨目录误复用断点）
 
+## 本轮（v8.0 止血战役）红线边界判定
+
+- `_worker.js` 的 `drivePinOk` → `drivePinGuard`：属「安全策略修正」，未触碰云盘分片/重试/状态机内核（R2 保持）
+- `pages/drive.html` 的 `fmtBytes`：只加**兜底实现**（公共实现优先），不改任何上传/分片逻辑（R2 保持）
+- `sw.js` 仅 `CACHE_VERSION` +1（R4 发布纪律要求）
+- 内容仓库文件重命名走 Git Data API 单次提交，未改动任何文件内容（只改路径名）
+
 ## 变更日志
 - 2026-10-25 勘察完成，创建本档案；红线核验通过
 - 2026-10-25 战役2 首批：components/ui.js 创建（对话框 DOM 契约 `#cx-dialog`/`.cx-btn-primary` 保持不变）；common.js 对话框架改为桥接委托；10 页面接线；SW 升级 v3.4.0 预缓存 ui.js + vendor/jszip.min.js；step15 对话框套件 14/14 复跑通过
 - 2026-10-25 战役1 首批：common.css 新增玻璃态 token（--glass-bg/--glass-border/--glass-shadow/--sheen）、.glass 工具类、navbar 毛玻璃、卡片悬停浮起三段式过渡
 - 2026-10-25 战役3 主体：vendor/jszip.min.js 本地化（95.3KB，CSP 禁 CDN）；worker list dirs + 子目录 manifest + finish dir；uploadService 5 处路径归属改动（见上）；drive.html 新增面包屑/目录 chips/上传到子目录/文件夹上传（input webkitdirectory + drop 目录递归）/JSZip 按需加载打包下载（saveBlob 劫持法拿 Blob）/在线预览（图片/文本/音视频）/速度预估（bytesDone 差分 + EMA + 500ms 轮询）；drive.css 新组件样式。回归：step7 14/14、step8 36/36、step9 29/29、step11 25/25、step12 21/21、step14 23/23 全绿
+- 2026-10-28 P0 安全止血：`_worker.js` 删除 `fallbackPassword` / `fallbackPin` 明文（公开仓库等于口令裸奔），改为 `env.ADMIN_PASSWORD` / `env.DRIVE_PIN` 缺失即返回 500「服务端未配置密钥」，绝不回退硬编码；`requireAuth` 与 `login` 双入口统一判定；`docs/开发与避坑指南.md` 同步
+- 2026-10-28 P0 数据修正：内容仓 `music.ison`→`music.json`、`timeline. json`→`timeline.json`（Git Data API 单次提交 `38085f9b`，只改路径、不改内容）；`_worker.js` 文章列表新增非文章文件过滤（README/CHANGELOG/LICENSE 等），修复 posts/README.md 被当文章渲染
+- 2026-10-28 前端止血：`pages/drive.html` 的 `fmtBytes` 由「直接取 `window.BlogUtils.fmtBytes`」改为「公共实现优先 + 本页等价兜底」，杜绝 BlogUtils 未就绪（SW 旧缓存/加载失败）时的 `fmtBytes is not a function` 崩溃；`sw.js` `CACHE_VERSION` v3.4.0→v3.5.0 强制客户端刷新静态缓存
+- 2026-10-28 测试接入：`tests/step17-drive-pro.mjs` 纳入 `tests/run-all.mjs`（20→21 套件）

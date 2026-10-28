@@ -21,16 +21,17 @@
 // 1. CONFIG —— 全局配置常量
 // ============================================================
 const CONFIG = {
+  // 安全通则：本仓库是公开仓库，任何凭据一律不得硬编码于此。
+  // ADMIN_PASSWORD / DRIVE_PIN / GITHUB_TOKEN 必须经 Cloudflare Pages
+  // 环境变量（Secret）注入；缺失即拒绝服务（500），绝不回退到默认值。
   admin: {
-    fallbackPassword: "Ly!2026@Secure#8848",
     maxAttempts: 5,
     lockSeconds: 900,
     maxTokenLength: 200,
   },
   drive: {
     // 云盘（文件管理器）写操作口令：前端 prompt 输入后经 x-drive-pin 请求头携带。
-    // 生产环境请在 CF Pages 设置环境变量 DRIVE_PIN 覆盖此默认值（默认值仅兜底）。
-    fallbackPin: "8866",
+    // 生产环境必须在 CF Pages 配置 Secret DRIVE_PIN；未配置时云盘写操作一律 500。
     // 云盘文件存放的 GitHub 仓库与目录（与相册/文章同源的数据仓）
     repo: "leiyihan-ren/Blog",
     branch: "main",
@@ -1516,9 +1517,8 @@ async function handleGithubProxy(request, env, ctx, url, store) {
   // 写方法（POST/PUT/DELETE/PATCH）透传：PIN 保护 + Token 注入直连 api.github.com，不走缓存。
   // 语义：前端 → 本代理 → GitHub Contents API，Token 全程不出 Worker。
   if (request.method !== "GET") {
-    if (!drivePinOk(request, env)) {
-      return err("写操作需要有效的云盘口令（请求头 x-drive-pin）", 401);
-    }
+    const pinGuard = drivePinGuard(request, env, "写操作需要有效的云盘口令（请求头 x-drive-pin）");
+    if (pinGuard) return pinGuard;
     if (!rest.startsWith("api/")) {
       return err("写操作仅支持 api/ 子路径（raw/ 为只读镜像）", 400);
     }
@@ -1585,11 +1585,26 @@ async function handleGithubProxy(request, env, ctx, url, store) {
 /** isolate 内目录列表缓存（30s）：列表含 N+1 次 commits 查询，重复刷新直接复用 */
 const driveListMemo = { at: 0, key: "", data: null };
 
-/** 云盘口令校验：env.DRIVE_PIN 优先，未配置时用 CONFIG.drive.fallbackPin 兜底 */
-function drivePinOk(request, env) {
-  const expected = (env && env.DRIVE_PIN) || CONFIG.drive.fallbackPin;
+/**
+ * 云盘口令守卫（v8.0 安全止血）：
+ * 返回 null = 校验通过放行；否则返回应直接下发的错误响应。
+ *  1) env.DRIVE_PIN 未配置 → 500「服务端未配置密钥」，**绝不回退任何硬编码值**
+ *     （历史教训：旧版用 CONFIG.drive.fallbackPin 兜底，而本仓库是公开仓库，
+ *      口令等于公开；现改为缺失即拒绝服务，把风险前移到部署侧）
+ *  2) 未提供或不匹配 → 401
+ * @param {(msg:string,status:number,headers?:object)=>Response} errFn 错误响应构造器
+ */
+function drivePinGuard(request, env, message, errFn) {
+  const expected = env && env.DRIVE_PIN;
+  const fail = errFn || err;
+  if (!expected) {
+    return fail("服务端未配置密钥（DRIVE_PIN）：请在 Cloudflare Pages 环境变量中配置后重试", 500);
+  }
   const given = (request.headers.get("x-drive-pin") || "").trim();
-  return given.length > 0 && given === expected;
+  if (!given || given !== String(expected)) {
+    return fail(message || "云盘口令错误或未提供（请求头 x-drive-pin）", 401);
+  }
+  return null;
 }
 
 /**
@@ -1846,9 +1861,8 @@ function jsonToBase64(str) {
  * 口令校验 → 路径净化 → 大小兜底 → 转发 GitHub Contents API。
  */
 async function handleDrive(request, env, ctx, url) {
-  if (!drivePinOk(request, env)) {
-    return driveErr("云盘口令错误或未提供（请求头 x-drive-pin）", 401);
-  }
+  const pinGuard = drivePinGuard(request, env, "云盘口令错误或未提供（请求头 x-drive-pin）", driveErr);
+  if (pinGuard) return pinGuard;
 
   const sub = url.pathname.replace(/^\/api\/drive\/?/, "");
   const repo = CONFIG.drive.repo;
@@ -2514,8 +2528,15 @@ async function loadPostsFromGithub(store, site) {
   const postsPath = site.githubPostsPath || "posts";
   const files = await githubFetch(store, site.githubRepo, postsPath, branch, useCdn);
   const mdExts = [".md", ".markdown"];
+  // v8.0：排除仓库自带的说明性文件（README/CHANGELOG/LICENSE 等）——
+  // 这些是给仓库访客看的，不是文章；此前 posts/README.md 会被当成一篇名为
+  // 「README」的文章渲染到博客列表与首页。
+  const NON_POST_NAMES = /^(readme|changelog|license|contributing|authors)(\.[a-z]+)?$/i;
   const mdFiles = files.filter(
-    (f) => f.type === "file" && mdExts.some((ext) => f.name.toLowerCase().endsWith(ext))
+    (f) =>
+      f.type === "file" &&
+      mdExts.some((ext) => f.name.toLowerCase().endsWith(ext)) &&
+      !NON_POST_NAMES.test(f.name)
   );
   const parsed = await Promise.all(
     mdFiles.map(async (f) => {
@@ -2711,9 +2732,20 @@ async function loadTimelineFromGithub(store, site) {
 // ============================================================
 // 10. Services —— 登录、限流等公共业务
 // ============================================================
+/**
+ * 后台口令（v8.0 安全止血）：只取环境变量 ADMIN_PASSWORD，未配置返回 null。
+ * 调用方必须对 null 返回 500「服务端未配置密钥」——**绝不回退任何硬编码值**。
+ * 历史教训：旧版回退 CONFIG.admin.fallbackPassword，而本仓库是公开仓库，
+ * 等于把后台密码公开发布；现改为缺失即拒绝服务，风险前移到部署配置。
+ */
 function getAdminPassword(env) {
-  return env.ADMIN_PASSWORD || CONFIG.admin.fallbackPassword;
+  const pw = env && env.ADMIN_PASSWORD;
+  return pw ? String(pw) : null;
 }
+
+/** 后台口令缺失时的统一提示（requireAuth / login 两个入口共用，措辞一致） */
+const ADMIN_UNCONFIGURED_MSG =
+  "服务端未配置密钥（ADMIN_PASSWORD）：请在 Cloudflare Pages 环境变量中配置后重试";
 
 async function checkLock(store, ip) {
   const key = KEYS.lock(ip);
@@ -2808,7 +2840,11 @@ async function requireAuth(ctx) {
     );
   }
 
-  if (authHeader !== `Bearer ${getAdminPassword(env)}`) {
+  const adminPw = getAdminPassword(env);
+  // 服务端未配置 ADMIN_PASSWORD：直接 500，不做口令比对（也不能比对）
+  if (!adminPw) fail(ADMIN_UNCONFIGURED_MSG, 500);
+
+  if (authHeader !== `Bearer ${adminPw}`) {
     const result = await recordFail(store, ip);
     fail(
       result.locked
@@ -3650,7 +3686,11 @@ const handlers = {
     const lock = await checkLock(store, ip);
     if (lock.locked) fail("密码错误次数太多，15分钟后再试", 429);
 
-    if (body.password !== getAdminPassword(env)) {
+    const adminPw = getAdminPassword(env);
+    // 服务端未配置 ADMIN_PASSWORD：直接 500，绝不回退硬编码口令
+    if (!adminPw) fail(ADMIN_UNCONFIGURED_MSG, 500);
+
+    if (body.password !== adminPw) {
       const result = await recordFail(store, ip);
       if (result.locked) fail("密码错误次数太多，15分钟后再试", 429);
       fail(`密码错误，还剩 ${result.remaining} 次机会`, 401);
