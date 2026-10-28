@@ -161,6 +161,34 @@ window.BlogUtils = (function () {
   /** 延时（测试与重试退避场景） */
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+  /* --------------------------------------------------------------
+   * 说明：数据请求（超时熔断 / 并发去重 / 离线缓存降级）统一在
+   * services/request.js 的 BlogApi 层实现，本文件不重复造轮子——
+   * 两处并存必然出现「改了一处忘了另一处」的口径分歧。
+   * -------------------------------------------------------------- */
+
+  /**
+   * 局部失败占位块：某模块拉不到数据时只在这块区域显示「点击重试」，
+   * 绝不让整页卡死或白屏。
+   * @param {string} msg       提示文案
+   * @param {function} onRetry 点击重试回调
+   * @returns {HTMLElement}
+   */
+  function retryBlock(msg, onRetry) {
+    const box = document.createElement("div");
+    box.className = "retry-block";
+    box.setAttribute("role", "alert");
+    const text = document.createElement("span");
+    text.textContent = msg || "内容加载失败";
+    const btn = document.createElement("button");
+    btn.className = "btn btn-sm";
+    btn.textContent = "点击重试";
+    btn.onclick = () => { if (typeof onRetry === "function") onRetry(); };
+    box.appendChild(text);
+    box.appendChild(btn);
+    return box;
+  }
+
   return {
     $, $$,
     escapeHtml, escapeAttr,
@@ -168,5 +196,6 @@ window.BlogUtils = (function () {
     formatDateTime, formatRelativeDate, formatTime, fmtBytes,
     toast, debounce, throttleRaf,
     copyText, isHttpUrl, sleep,
+    retryBlock,
   };
 })();
