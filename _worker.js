@@ -4328,6 +4328,34 @@ export default {
           headers: request.headers,
         });
       }
+      /* v8.1：静态资源边缘缓存（Cache API 显式写入）
+       * 与 /api/* 同理——**Worker 返回的响应 Cloudflare 不会自动缓存**，
+       * 光设 Cache-Control 头没有用（实测：11~12 个 CSS/JS/图片每次全部回源，
+       * 边缘命中 0/12，TTFB 长期 500~800ms）。必须显式 put 才能真正命中。
+       * HTML 不入库：发版即时性优先（浏览器侧由 SW 兜底，边缘侧靠 s-maxage=300）。
+       */
+      const isCacheableStatic =
+        request.method === "GET" &&
+        !request.headers.get("Authorization") &&
+        !url.pathname.endsWith(".html") &&
+        url.pathname !== "/" &&
+        url.pathname !== "/sw.js" &&
+        url.pathname !== "/manifest.json";
+
+      if (isCacheableStatic && typeof caches !== "undefined" && caches.default) {
+        const cache = caches.default;
+        try {
+          const hit = await cache.match(request);
+          if (hit) return hit; // 零回源，直接命中
+        } catch { /* 缓存不可用则走回源 */ }
+        const upstream = await env.ASSETS.fetch(target);
+        const final = addStaticSecurityHeaders(upstream, url.pathname);
+        if (final.status === 200 && ctx && typeof ctx.waitUntil === "function") {
+          try { ctx.waitUntil(cache.put(request, final.clone()).catch(() => {})); } catch { /* 忽略 */ }
+        }
+        return final;
+      }
+
       return addStaticSecurityHeaders(await env.ASSETS.fetch(target), url.pathname);
     }
     return new Response("Not Found", { status: 404 });
