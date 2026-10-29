@@ -781,11 +781,19 @@
         item.setAttribute("tabindex", "0");
         item.setAttribute("aria-label", `查看照片 ${escapeAttr(p.name || "")}`);
         item.style.animation = `fadeUp 0.5s ease ${i * 0.03}s both`;
-        // 首屏前两张（移动端约一屏）提升优先级：不懒加载 + fetchpriority=high，加快 LCP
-        const isAboveFold = idx < 2;
+        /* v8.1 LCP 攻坚：首屏图片一律懒加载，不再给 fetchpriority=high。
+         * 实测取证：相册原图（手机截图）单张 1.2~1.8s 且即便 cache=HIT 也慢，
+         * 给它 high 优先级等于让几 MB 原图去和 CSS/字体抢首屏带宽，
+         * LCP 被这张图死死钉住（3.1~4.6s）。
+         * 改为：LCP 由标题/骨架屏承担（文本渲染约 1s），原图随后由
+         * observer 加载，用户看到的是「先出结构、再出图」，体感更快。
+         *
+         * v8.1 真正的解法：列表只加载 9KB 的缩略图（原图 549KB 的 1.7%），
+         * 镜像链 = thumbs ++ mirrors：缩略图全部失败时自动回退原图，
+         * 复用已有的多镜像切换逻辑，历史照片无缩略图也不影响功能。 */
         item.innerHTML = `
           <div class="photo-img-wrap loading">
-            <img data-mirrors="${escapeAttr(JSON.stringify(p.mirrors || []))}" alt="${escapeAttr(p.name || "")}" class="lazy-img"${isAboveFold ? ' fetchpriority="high"' : ' loading="lazy"'} decoding="async">
+            <img data-mirrors="${escapeAttr(JSON.stringify((p.thumbs || []).concat(p.mirrors || [])))}" alt="${escapeAttr(p.name || "")}" class="lazy-img" loading="lazy" decoding="async">
           </div>
           <div class="photo-info">
             <div class="photo-name">${escapeHtml((p.name || "").replace(/\.[^.]+$/, ""))}</div>
@@ -807,7 +815,8 @@
             wrap.classList.remove("failed");
             wrap.classList.add("loading");
             const img = item.querySelector(".lazy-img");
-            if (img) { img.dataset.idx = "0"; BlogApi.github.loadImage(img); }
+            // 主动重试：先解锁再从头加载（否则会被 loadImage 的防重锁拦下）
+            if (img) { img.dataset.idx = "0"; img.dataset.imgLoading = ""; BlogApi.github.loadImage(img); }
           }
           openLightbox(parseInt(item.dataset.idx, 10));
         };
@@ -851,8 +860,13 @@
         if (!conn || (!conn.saveData && !/(^|-)(slow-)?2g$/.test(conn.effectiveType || ""))) {
           const idle = window.requestIdleCallback || function (fn) { setTimeout(fn, 1200); };
           idle(() => {
-            photos.slice(0, 3).forEach((p) => {
-              const m = p.mirrors && p.mirrors[0];
+            /* v8.1：预取从**第 4 张起**（跳过首屏前 3 张）。
+             * 旧逻辑预取前 3 张，而这 3 张已被 observer 加载过——
+             * 于是同一张原图被请求两遍（实测两条 1.6s 的 raw 请求并行）。
+             * 预取只服务「用户即将滚动到的区域」，不该重复预热已加载的图片。 */
+            photos.slice(3, 9).forEach((p) => {
+              // v8.1：预取缩略图（9KB）而非原图（549KB），预热成本降两个数量级
+              const m = (p.thumbs && p.thumbs[0]) || (p.mirrors && p.mirrors[0]);
               if (!m) return;
               const l = document.createElement("link");
               l.rel = "prefetch";
@@ -886,23 +900,69 @@
     /** 网格内图片全部镜像失败时，占位格呈现失败态（点击可重试） */
     document.getElementById("album-content").addEventListener("imgallfailed", (e) => {
       const wrap = e.target.closest(".photo-img-wrap");
-      if (wrap) {
-        wrap.classList.remove("loading");
-        wrap.classList.add("failed");
-      }
+      if (!wrap) return;
+      wrap.classList.remove("loading");
+      wrap.classList.add("failed");
+      /* 镜像链走完仍失败：贴上本地占位图，避免出现破图图标或空白格。
+       * 注意 utils/common.js 的全局兜底会主动跳过带 data-mirrors 的图，
+       * 所以这一步只能由容器在 imgallfailed 时自己补。 */
+      e.target.dataset.imgFallback = "1";
+      e.target.src = "/icons/placeholder-cover.svg";
+      e.target.classList.add("img-placeholder");
     });
+
+    /**
+     * 缩略图先顶上之后，后台把原图拉下来替换（仍走多镜像兜底）。
+     * 原图已在缓存里则瞬间切换；全部失败就保持缩略图，不影响可看性。
+     * @param {HTMLImageElement} img
+     * @param {number} idx      打开时的序号，用于翻页后「别串台」
+     * @param {string[]} list   待尝试的原图镜像
+     */
+    function upgradeToFull(img, idx, list) {
+      if (!list || !list.length) return;
+      const url = list[0];
+      const pre = new Image();
+      pre.onload = () => {
+        if (currentPhotoIdx !== idx) return; // 用户已翻页，放弃这次升级
+        img.src = url;                        // 命中缓存，切换是瞬间的
+        img.classList.add("loaded");
+      };
+      pre.onerror = () => {
+        // 主镜像失败：依次试剩余镜像，全灭就保持缩略图（已经能看）
+        if (list.length > 1) upgradeToFull(img, idx, list.slice(1));
+      };
+      pre.src = url;
+    }
+
+    /**
+     * 灯箱渐进式加载：先缩略图秒开 → 原图后台升级。
+     * 旧逻辑直接从 549KB 原图开始，点开要干等 2.3s；现在缩略图来自
+     * 列表页已加载过的缓存，几乎零延迟。
+     */
+    function loadLightboxImage(img, idx) {
+      const p = photos[idx];
+      const thumbs = p.thumbs || [];
+      const full = p.mirrors || [];
+      /* 显式清锁：翻页可能发生在上一张还没加载完时，此时入口锁仍是 "1"，
+       * 不清的话这一次会被当成「重复调用」直接挡掉，灯箱卡在 loading。 */
+      img.dataset.imgLoading = "";
+      img.dataset.mirrors = JSON.stringify(thumbs.concat(full));
+      img.dataset.idx = "0";
+      img.classList.remove("loaded");
+      img.alt = p.name || "照片";
+      showLightboxLoading();
+      BlogApi.github.loadImage(img, () => {
+        hideLightboxLoading();
+        if (thumbs.length) upgradeToFull(img, idx, full);
+      });
+    }
 
     function openLightbox(idx) {
       currentPhotoIdx = idx;
       const p = photos[idx];
       const img = document.getElementById("lightbox-img");
       img.style.opacity = ""; // 复位关闭时清图的隐藏态（v7.3）
-      img.dataset.mirrors = JSON.stringify(p.mirrors || []);
-      img.dataset.idx = "0";
-      img.classList.remove("loaded");
-      img.alt = p.name || "照片";
-      showLightboxLoading();
-      BlogApi.github.loadImage(img, hideLightboxLoading);
+      loadLightboxImage(img, idx);
       document.getElementById("lightbox-caption").textContent = `${idx + 1} / ${photos.length} · ${p.name}`;
       const lb = document.getElementById("lightbox");
       const wasActive = lb.classList.contains("active");
@@ -918,20 +978,22 @@
       preloadNeighbors(idx);
     }
 
-    /** 预加载相邻照片的首镜像：左右切换时弱网下也能较快呈现 */
+    /** 预加载相邻照片：左右切换时弱网下也能较快呈现 */
     function preloadNeighbors(idx) {
-      if (!photos.length) return;
+      if (photos.length < 2) return; // 只有一张时「相邻」还是自己，无需预载
       for (const n of [(idx - 1 + photos.length) % photos.length, (idx + 1) % photos.length]) {
-        const m = photos[n] && photos[n].mirrors;
-        if (m && m[0]) { const pre = new Image(); pre.src = m[0]; }
+        /* v8.1：只预载 9KB 缩略图，不再为了「可能翻到」提前下载 549KB 原图。
+         * 原图由 upgradeToFull 在真正打开那一张时才拉，流量用在刀刃上。 */
+        const t = photos[n] && photos[n].thumbs && photos[n].thumbs[0];
+        if (t) { const pre = new Image(); pre.src = t; }
       }
     }
 
     function retryLightbox() {
+      // v8.1：统一走渐进式加载（清掉旧锁，允许重新走一轮镜像链）
       const img = document.getElementById("lightbox-img");
-      img.dataset.idx = "0";
-      showLightboxLoading();
-      BlogApi.github.loadImage(img, hideLightboxLoading);
+      img.dataset.imgLoading = "";
+      loadLightboxImage(img, currentPhotoIdx);
     }
 
     // 记录按下点：仅当按下与松开都落在背景/关闭按钮上才允许关闭，
@@ -1003,14 +1065,13 @@
       // 加载站点信息
       let siteReqFailed = false;
       let site = null;
+      /* v8.1：裸 fetch → BlogApi（3s 熔断 + 并发去重 + 本地缓存兜底） */
       try {
-        const sRes = await fetch("/api/site");
-        if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {
-          const s = await sRes.json();
-          if (s && typeof s.title === "string") site = s;
-        } else {
-          siteReqFailed = true;
-        }
+        const s = await BlogApi.get("/api/site", {
+          cacheKey: "site", retry: 1, onFallback: window.markOfflineBanner
+        });
+        if (s && typeof s.title === "string") site = s;
+        else siteReqFailed = true;
       } catch (e) {
         siteReqFailed = true;
       }
