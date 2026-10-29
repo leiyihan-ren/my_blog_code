@@ -58,7 +58,20 @@ for (const p of PAGES) {
     try {
       new PerformanceObserver((l) => {
         const es = l.getEntries();
-        window.__perf.lcp = Math.round(es[es.length - 1].startTime);
+        const last = es[es.length - 1];
+        window.__perf.lcp = Math.round(last.startTime);
+        /* 记录 LCP 元素本身：只知道「LCP 3.4s」没有行动价值，
+         * 必须知道「是谁钉住了首屏」——是某张图、某个标题，还是背景块。
+         * 优化只有打在真正的 LCP 元素上才会体现在数字上。 */
+        const el = last.element;
+        if (el) {
+          const cls = typeof el.className === "string" && el.className.trim()
+            ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".")
+            : "";
+          window.__perf.lcpEl = el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + cls;
+        } else if (last.url) {
+          window.__perf.lcpEl = "url:" + String(last.url).split("/").pop().slice(0, 60);
+        }
       }).observe({ type: "largest-contentful-paint", buffered: true });
     } catch { /* ignore */ }
   });
@@ -120,6 +133,7 @@ for (const p of PAGES) {
       load: R(n.loadEventEnd),
       fcp: window.__perf.paints["first-contentful-paint"] ?? null,
       lcp: window.__perf.lcp,
+      lcpEl: window.__perf.lcpEl || "",
       transfer: R(n.transferSize),
       resCount: res.length,
       resBytes: R(res.reduce((s, x) => s + (x.transferSize || 0), 0)),
@@ -165,6 +179,7 @@ for (const p of PAGES) {
 
   console.log(`\n== ${p.name} (${p.path}) ==`);
   console.log(`  TTFB=${nav.ttfb}ms FCP=${nav.fcp}ms LCP=${nav.lcp}ms DCL=${nav.dcl}ms LOAD=${nav.load}ms`);
+  if (nav.lcpEl) console.log(`  🎯 LCP 元素: ${nav.lcpEl}`);
   console.log(`  请求 ${list.length} 个｜pending ${pending.length}｜failed ${failed.length}｜API ${apiReqs.length}`);
   console.log(`  最慢: ${slowest.join(" ｜ ") || "无"}`);
   apiSlowest.forEach((a) => console.log(`  API ${a.dur}ms [${a.status}] ${a.url}${a.cache ? " cache=" + a.cache : ""}${a.age ? " age=" + a.age : ""}`));
