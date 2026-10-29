@@ -293,22 +293,21 @@
 
     async function init() {
       renderTimeline(DEFAULT_TIMELINE);
+      /* v8.1：裸 fetch → BlogApi（3s 熔断 + 并发去重 + 本地缓存兜底） */
       try {
-        const res = await fetch("/api/timeline");
-        if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
-          const items = await res.json();
-          if (Array.isArray(items)) renderTimeline(items);
-        }
+        const items = await BlogApi.get("/api/timeline", {
+          cacheKey: "timeline", retry: 1, onFallback: window.markOfflineBanner
+        });
+        if (Array.isArray(items)) renderTimeline(items);
       } catch(e) {}
       try {
-        const sRes = await fetch("/api/site");
-        if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {
-          const s = await sRes.json();
-          if (s && typeof s.title === "string") {
-            document.title = `时间线 - ${s.title}`;
-            document.getElementById("nav-logo").textContent = s.title;
-            document.getElementById("footer-text").textContent = s.footer;
-          }
+        const s = await BlogApi.get("/api/site", {
+          cacheKey: "site", retry: 1, onFallback: window.markOfflineBanner
+        });
+        if (s && typeof s.title === "string") {
+          document.title = `时间线 - ${s.title}`;
+          document.getElementById("nav-logo").textContent = s.title;
+          document.getElementById("footer-text").textContent = s.footer;
         }
       } catch(e) {}
     }
