@@ -354,26 +354,23 @@ $("btn-mail").addEventListener("click", () => {
 
 /* ---------- 启动 ---------- */
 (async function init() {
+  /* v8.1：裸 fetch → BlogApi（3s 熔断 + 并发去重 + 本地缓存兜底） */
   try {
-    const res = await fetch("/api/links");
-    if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
-      const list = await res.json();
-      renderLinks(Array.isArray(list) ? list : []);
-    } else {
-      renderLinks([]);
-    }
+    const list = await BlogApi.get("/api/links", {
+      cacheKey: "links", retry: 1, onFallback: window.markOfflineBanner
+    });
+    renderLinks(Array.isArray(list) ? list : []);
   } catch (e) { renderLinks([]); }
 
   try {
-    const res = await fetch("/api/site");
-    if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
-      const s = await res.json();
-      if (s && typeof s.title === "string") {
-        document.title = `友情链接 - ${s.title}`;
-        $("nav-logo").textContent = s.title;
-        $("footer-text").textContent = s.footer;
-        renderSite(s);
-      }
+    const s = await BlogApi.get("/api/site", {
+      cacheKey: "site", retry: 1, onFallback: window.markOfflineBanner
+    });
+    if (s && typeof s.title === "string") {
+      document.title = `友情链接 - ${s.title}`;
+      $("nav-logo").textContent = s.title;
+      $("footer-text").textContent = s.footer;
+      renderSite(s);
     }
   } catch (e) {}
 })();
