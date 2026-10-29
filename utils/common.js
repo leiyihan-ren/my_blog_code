@@ -46,6 +46,8 @@
          * 这类图交给 loadImage 走完镜像链，全灭后由容器监听 imgallfailed
          * 决定呈现，本页面兜底不插手。 */
         if (el.dataset.mirrors) return;
+        // 调用方自带更合适的降级（如音乐封面回退 🎵 图标）时不要插手
+        if (el.dataset.noFallback) return;
         el.dataset.imgFallback = "1";
         el.src = PLACEHOLDER;
         el.classList.add("img-placeholder");
