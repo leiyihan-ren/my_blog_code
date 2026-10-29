@@ -158,6 +158,24 @@ window.BlogUtils = (function () {
     return /^https?:\/\//i.test(String(s || ""));
   }
 
+  /* IANA 保留的示例域名（RFC 2606 / RFC 6761）：专供文档与占位使用，
+   * 永远不会承载真实内容。后台示例数据里常带 example.com 的封面/链接，
+   * 浏览器去请求必然失败——实测每页白扔一个 600~1900ms 的 FAILED 请求，
+   * 既拖慢首屏又在控制台刷红。图片兜底只能让「失败后好看点」，
+   * 请求本身照发；真正的消灭方式是**渲染前就别请求**。
+   * 因此提供这个判定：消费点在渲染前调用，直接走本地降级分支。 */
+  const DEAD_SAMPLE_HOSTS = ["example.com", "example.org", "example.net", "example.edu"];
+  function isDeadSampleUrl(s) {
+    const v = String(s || "").trim();
+    if (!/^https?:\/\//i.test(v)) return false;
+    try {
+      const host = new URL(v).hostname.toLowerCase();
+      return DEAD_SAMPLE_HOSTS.some((h) => host === h || host.endsWith("." + h));
+    } catch (e) {
+      return false;
+    }
+  }
+
   /** 延时（测试与重试退避场景） */
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -195,7 +213,7 @@ window.BlogUtils = (function () {
     safeStorage,
     formatDateTime, formatRelativeDate, formatTime, fmtBytes,
     toast, debounce, throttleRaf,
-    copyText, isHttpUrl, sleep,
+    copyText, isHttpUrl, isDeadSampleUrl, sleep,
     retryBlock,
   };
 })();
