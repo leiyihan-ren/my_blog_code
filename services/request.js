@@ -192,22 +192,49 @@ window.BlogApi = (function () {
      * @param {function} [onSuccess] 加载成功回调（调用方管理自身 Loading 态）
      */
     loadImage(img, onSuccess) {
-      let mirrors = [];
-      try { mirrors = JSON.parse(img.dataset.mirrors || "[]"); } catch (e) { mirrors = []; }
-      let idx = parseInt(img.dataset.idx || "0", 10);
-      if (idx >= mirrors.length) {
-        img.dispatchEvent(new CustomEvent("imgallfailed", { bubbles: true }));
-        return;
+      /* v8.1：加载状态锁。
+       * 实测相册同一张 raw 图被请求 2 次——懒加载 observer 与空闲预取
+       * 各触发一次，首屏带宽被同一张原图吃掉两遍。加锁后同一 <img>
+       * 只进入一次加载流程；主动重试（重试按钮 / 灯箱重开）由调用方
+       * 先清掉 imgLoading 标记再调用，不受影响。
+       *
+       * 注意锁只加在「外部入口」上，镜像降级走内部 tryNext() 递归。
+       * 早期版本把锁加在了递归路径上，结果第一个镜像失败后 onerror
+       * 调回 loadImage 被锁直接 return —— 多镜像降级被整条废掉
+       * （step2 B6 三组场景全挂），这是必须区分「入口防重」和
+       * 「链路降级」两种不同语义的原因。 */
+      if (img.dataset.imgLoading === "1") return;
+      img.dataset.imgLoading = "1";
+      tryNext();
+
+      /** 逐个尝试镜像；失败则递归下一个，全部用尽才宣告失败 */
+      function tryNext() {
+        let mirrors = [];
+        try { mirrors = JSON.parse(img.dataset.mirrors || "[]"); } catch (e) { mirrors = []; }
+        const idx = parseInt(img.dataset.idx || "0", 10);
+        if (idx >= mirrors.length) {
+          // 全部镜像用尽：解锁，允许后续重试（重试按钮）重新走一轮
+          img.dataset.imgLoading = "";
+          img.dispatchEvent(new CustomEvent("imgallfailed", { bubbles: true }));
+          return;
+        }
+        img.dataset.idx = String(idx + 1);
+        img.onload = () => {
+          /* 加载结束 → 释放入口锁。
+           * 锁只覆盖「正在加载中」这一段时间：它要挡的是 observer 与预取
+           * 并发触发同一张图，而 observer 命中后本就会 unobserve，
+           * 所以加载完成后必须释放 —— 否则同一张图第二次加载（灯箱翻页、
+           * 重试按钮）会被永久挡住，onSuccess 不再执行，UI 停在 loading 态
+           * （step3 UI 压测实测：loading 遮罩卡死并挡住翻页按钮）。 */
+          img.dataset.imgLoading = "";
+          img.classList.add("loaded");
+          const wrap = img.closest(".photo-img-wrap");
+          if (wrap) wrap.classList.remove("loading");
+          if (onSuccess) onSuccess();
+        };
+        img.onerror = () => tryNext();
+        img.src = mirrors[idx];
       }
-      img.dataset.idx = String(idx + 1);
-      img.onload = () => {
-        img.classList.add("loaded");
-        const wrap = img.closest(".photo-img-wrap");
-        if (wrap) wrap.classList.remove("loading");
-        if (onSuccess) onSuccess();
-      };
-      img.onerror = () => github.loadImage(img, onSuccess);
-      img.src = mirrors[idx];
     },
   };
   api.github = github;
