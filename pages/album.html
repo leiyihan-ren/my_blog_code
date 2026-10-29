@@ -790,10 +790,18 @@
          *
          * v8.1 真正的解法：列表只加载 9KB 的缩略图（原图 549KB 的 1.7%），
          * 镜像链 = thumbs ++ mirrors：缩略图全部失败时自动回退原图，
-         * 复用已有的多镜像切换逻辑，历史照片无缩略图也不影响功能。 */
+         * 复用已有的多镜像切换逻辑，历史照片无缩略图也不影响功能。
+         *
+         * 有了缩略图之后，「一律懒加载」这条老规矩要跟着改：9KB 的图
+         * 直接加载几乎零成本，而等 observer 触发再加载会白白多等一个
+         * 「布局完成 → 交叉检测 → 发起请求」的来回（实测相册 LCP 4.4s，
+         * 而缩略图请求本身只要 339ms，差额全耗在这段空等上）。
+         * 因此：有缩略图的前 3 张（首屏可见区）立即加载，其余仍走懒加载；
+         * 没有缩略图的老照片一律懒加载，避免大原图抢首屏带宽。 */
+        const eager = i < 3 && (p.thumbs || []).length > 0;
         item.innerHTML = `
           <div class="photo-img-wrap loading">
-            <img data-mirrors="${escapeAttr(JSON.stringify((p.thumbs || []).concat(p.mirrors || [])))}" alt="${escapeAttr(p.name || "")}" class="lazy-img" loading="lazy" decoding="async">
+            <img data-mirrors="${escapeAttr(JSON.stringify((p.thumbs || []).concat(p.mirrors || [])))}" alt="${escapeAttr(p.name || "")}" class="lazy-img" ${eager ? 'data-eager="1" loading="eager"' : 'loading="lazy"'} decoding="async">
           </div>
           <div class="photo-info">
             <div class="photo-name">${escapeHtml((p.name || "").replace(/\.[^.]+$/, ""))}</div>
@@ -842,7 +850,13 @@
 
         nodes.forEach((item) => {
           const img = item.querySelector(".lazy-img");
-          if (img) imgObserver.observe(img);
+          if (!img) return;
+          /* v8.1：带 data-eager 的首屏缩略图立即加载，不等 observer。
+           * 注意 <img> 没有 src 属性，HTML 的 loading="eager" 对它不生效，
+           * 真正的加载时机完全由这里决定 —— 所以必须在 JS 侧显式触发，
+           * 光改 HTML 属性是无效的。 */
+          if (img.dataset.eager === "1") { BlogApi.github.loadImage(img); return; }
+          imgObserver.observe(img);
         });
       } else {
         // 降级方案：直接加载
