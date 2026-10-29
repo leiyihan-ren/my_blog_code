@@ -1083,9 +1083,9 @@
         return;
       }
       try {
-        const res = await fetch(`/api/like/${encodeURIComponent(id)}`, { method: "POST" });
-        if (!res.ok) { showToast("点赞失败，请稍后重试"); return; }
-        const result = await res.json();
+        /* v8.1：裸 fetch → BlogApi.post（统一错误对象 + 写操作 12s 超时，
+         * 不复用读请求的 3s 熔断，避免误中断真实写入） */
+        const result = await BlogApi.post(`/api/like/${encodeURIComponent(id)}`);
         if (result && result.success && result.liked) {
           btn.classList.add("liked");
           // 如果后端返回了 likes 就用后端的，否则保持原来的数字不变
@@ -1106,7 +1106,8 @@
           showToast(result.message || "点赞失败");
         }
       } catch(e) {
-        showToast("网络错误");
+        // 网络层失败（超时/断网）沿用原文案；业务失败优先展示后端返回的原因
+        showToast(e && e.status === 0 ? "网络错误" : ((e && e.message) || "点赞失败，请稍后重试"));
       }
     }
 
@@ -1172,13 +1173,10 @@
     }
 
     async function loadComments(postId) {
+      /* v8.1：裸 fetch → BlogApi（3s 熔断 + 并发去重） */
       try {
-        const res = await fetch(`/api/comments/${postId}`);
-        if (res.ok && res.headers.get("content-type")?.includes("json")) {
-          const comments = await res.json();
-          renderComments(comments);
-          return;
-        }
+        const comments = await BlogApi.get(`/api/comments/${postId}`, { retry: 1 });
+        if (Array.isArray(comments)) { renderComments(comments); return; }
       } catch(e) {}
       renderComments([]);
     }
@@ -1207,22 +1205,14 @@
       btn.disabled = true;
       btn.textContent = "发送中...";
 
+      /* v8.1：裸 fetch → BlogApi.post。原来手写「先判 status 再判 content-type」
+       * 是因为 500/502 可能返回非 JSON 把真实原因吞掉；BlogApi 内部已按
+       * content-type 分流解析（非 JSON 转文本），并优先取后端 error 字段，
+       * 这些分支统一收敛到网络层，页面只管业务结果。 */
       try {
-        const res = await fetch(`/api/comments/${currentPostId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, content })
-        });
-        // 先判状态码与内容类型：后端 500/502 可能返回非 JSON，
-        // 直接 res.json() 会抛错走 catch，把真实原因吞成"网络错误"
-        let result = null;
-        if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
-          result = await res.json();
-        } else {
-          result = { error: res.status >= 500 ? "服务器开小差了，请稍后再试" : "发送失败，请稍后再试" };
-        }
-
-        if (result.success) {
+        const result = await BlogApi.post(`/api/comments/${currentPostId}`, { name, content });
+        const ok = result && typeof result === "object" && result.success;
+        if (ok) {
           showCommentAlert("评论成功！", "success");
           contentEl.value = "";
           document.getElementById("comment-char-count").textContent = "0 / " + MAX_COMMENT_LEN;
@@ -1231,10 +1221,13 @@
           // 刷新评论列表
           loadComments(currentPostId);
         } else {
-          showCommentAlert(result.error || "发送失败", "error");
+          showCommentAlert((result && result.error) || "发送失败", "error");
         }
       } catch(e) {
-        showCommentAlert("网络错误，请稍后重试", "error");
+        // 5xx 属服务端故障，给更明确的文案；其余（含网络层）走统一的错误提示
+        const msg = e && e.status >= 500 ? "服务器开小差了，请稍后再试"
+          : ((e && e.message) || "网络错误，请稍后重试");
+        showCommentAlert(msg, "error");
       }
 
       btn.disabled = false;
@@ -1472,14 +1465,14 @@
     async function init() {
       const id = getPostId();
 
-      // 加载站点信息（后台加载，不阻塞）
-      fetch("/api/site").then(async sRes => {
-        if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {
-          const s = await sRes.json();
-          if (s && typeof s.title === "string") {
-            document.getElementById("nav-logo").textContent = s.title;
-            document.getElementById("footer-text").textContent = s.footer;
-          }
+      /* 加载站点信息（后台加载，不阻塞）
+       * v8.1：裸 fetch → BlogApi（3s 熔断 + 并发去重 + 本地缓存兜底） */
+      BlogApi.get("/api/site", {
+        cacheKey: "site", retry: 1, onFallback: window.markOfflineBanner
+      }).then(s => {
+        if (s && typeof s.title === "string") {
+          document.getElementById("nav-logo").textContent = s.title;
+          document.getElementById("footer-text").textContent = s.footer;
         }
       }).catch(() => {});
 
@@ -1497,32 +1490,32 @@
       let postsData = null;
       let rendered = false;
 
-      const postPromise = fetch(`/api/post/${id}`).then(async res => {
-        if (res.ok && res.headers.get("content-type")?.includes("json")) {
-          const post = await res.json();
-          if (post && post.id) {
-            postData = post;
-            // 若列表已先到并渲染过，则不重渲染（列表项已含 content，避免副作用重复 + 导航被冲掉）
-            if (!rendered) {
-              let prev = null, next = null;
-              if (postsData) {
-                const idx = postsData.findIndex(p => p.id === id);
-                if (idx >= 0) { prev = postsData[idx + 1] || null; next = postsData[idx - 1] || null; }
-              }
-              renderPost(post, prev, next);
-              rendered = true;
+      /* v8.1：裸 fetch → BlogApi.get。
+       * 单篇详情不做 cacheKey（每篇文章一个 key 会让 LocalStorage 无界膨胀），
+       * 但仍享受 3s 熔断 + 并发去重；断网兜底由 Worker 侧 SWR 缓存与
+       * 下面的列表兜底链路共同保证。 */
+      const postPromise = BlogApi.get(`/api/post/${id}`, { retry: 1 }).then(post => {
+        if (post && typeof post === "object" && post.id) {
+          postData = post;
+          // 若列表已先到并渲染过，则不重渲染（列表项已含 content，避免副作用重复 + 导航被冲掉）
+          if (!rendered) {
+            let prev = null, next = null;
+            if (postsData) {
+              const idx = postsData.findIndex(p => p.id === id);
+              if (idx >= 0) { prev = postsData[idx + 1] || null; next = postsData[idx - 1] || null; }
             }
-            return true;
+            renderPost(post, prev, next);
+            rendered = true;
           }
+          return true;
         }
         return false;
       }).catch(() => false);
 
-      const listPromise = fetch("/api/posts").then(async res => {
-        if (res.ok && res.headers.get("content-type")?.includes("json")) {
-          postsData = await res.json();
-          return true;
-        }
+      const listPromise = BlogApi.get("/api/posts", {
+        cacheKey: "posts", retry: 1, onFallback: window.markOfflineBanner
+      }).then(posts => {
+        if (Array.isArray(posts)) { postsData = posts; return true; }
         return false;
       }).catch(() => false);
 
@@ -1578,10 +1571,8 @@
     /** 上报一次阅读，成功后把最新阅读量同步到页面上 */
     async function reportView(id) {
       try {
-        const res = await fetch(`/api/view/${id}`, { method: "POST" });
-        if (!res.ok || !res.headers.get("content-type")?.includes("json")) return;
-        const data = await res.json();
-        if (data && typeof data.views === "number") {
+        const data = await BlogApi.post(`/api/view/${id}`);
+        if (data && typeof data === "object" && typeof data.views === "number") {
           const el = document.querySelector(".article-meta span:nth-child(4)");
           if (el) el.textContent = `👁️ ${data.views.toLocaleString()} 阅读`;
         }
