@@ -831,17 +831,8 @@
       } catch(e) {}
 
       /* 顶部离线提示条：任一接口降级到本地缓存时插入，只提示不阻断 */
-      const markOffline = () => {
-        if (document.getElementById("offlineHint")) return;
-        const bar = document.createElement("div");
-        bar.id = "offlineHint";
-        bar.setAttribute("role", "status");
-        bar.textContent = "网络不稳定，当前展示的是本地缓存数据";
-        bar.style.cssText =
-          "position:fixed;top:0;left:0;right:0;z-index:9999;padding:8px 14px;" +
-          "background:#f59e0b;color:#fff;font-size:14px;text-align:center";
-        document.body.prepend(bar);
-      };
+      // v8.1：离线降级横幅复用 utils/common.js 里的全站实现（幂等）
+      const markOffline = window.markOfflineBanner;
 
       // v8.1：统一走 BlogApi —— 3s 熔断 + 并发去重 + 本地缓存兜底。
       // 任一接口失败只影响它自己那一块（其余照常渲染），绝不整页白屏。
