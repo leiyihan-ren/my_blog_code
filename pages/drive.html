@@ -310,6 +310,18 @@
         });
         return arr;
       }
+      /* v8.1：把「拿到数据后的渲染」抽出来复用。
+       * 口令验证接口与列表接口是同一个（/api/drive/list），
+       * 旧逻辑验证成功后又立刻 loadList() → 同一份数据被请求两遍
+       * （实测 673ms + 154ms 两条请求）。现在验证成功直接复用响应渲染。 */
+      function renderListData(data) {
+        $("loadingState").hidden = true;
+        lastFiles = data.files || [];
+        renderCrumbs();
+        renderDirs(data.dirs || []);
+        renderFiles(visibleFiles());
+        renderStats(data);
+      }
       function loadList() {
         $("loadingState").hidden = false;
         $("emptyState").hidden = true;
@@ -317,12 +329,7 @@
         $("fileTable").hidden = true;
         var qs = curDir ? "?path=" + encodeURIComponent("drive/" + curDir) : "";
         return api("/api/drive/list" + qs).then(function (data) {
-          $("loadingState").hidden = true;
-          lastFiles = data.files || [];
-          renderCrumbs();
-          renderDirs(data.dirs || []);
-          renderFiles(visibleFiles());
-          renderStats(data);
+          renderListData(data);
         }).catch(function (e) {
           $("loadingState").hidden = true;
           $("listError").hidden = false;
@@ -1295,13 +1302,21 @@
         btn.disabled = true;
         btn.textContent = "验证中…";
         pin = v;
-        api("/api/drive/list").then(function () {
+        /* v8.1：验证请求本身就返回了完整列表数据，
+         * 直接复用渲染，不再 loadList() 二次请求（实测 673ms + 154ms → 一次）。
+         * 带上与 loadList 相同的 path 参数，保证返回的就是当前目录的数据。 */
+        var qs = curDir ? "?path=" + encodeURIComponent("drive/" + curDir) : "";
+        api("/api/drive/list" + qs).then(function (data) {
           try { sessionStorage.setItem(PIN_KEY, v); } catch (e) {}
           $("pinModal").classList.remove("show");
           btn.disabled = false;
           btn.textContent = "验证并进入";
           toast("口令验证通过", "ok");
-          loadList();
+          $("loadingState").hidden = false;
+          $("emptyState").hidden = true;
+          $("listError").hidden = true;
+          $("fileTable").hidden = true;
+          renderListData(data || {});
         }).catch(function (e) {
           pin = "";
           btn.disabled = false;
