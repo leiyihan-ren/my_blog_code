@@ -618,10 +618,10 @@ Core.loadRanks();
 Core.bindStageButtons();
 
 /* ---------- 站点信息（标题 / 页脚） ---------- */
-fetch("/api/site")
-  .then(r => (r.ok && (r.headers.get("content-type") || "").includes("json")) ? r.json() : null)
+/* v8.1：裸 fetch → BlogApi（3s 熔断 + 并发去重 + 本地缓存兜底） */
+BlogApi.get("/api/site", { cacheKey: "site", retry: 1, onFallback: window.markOfflineBanner })
   .then(s => {
-    if (!s) return;
+    if (!s || typeof s.title !== "string") return;
     document.title = `游戏大厅 - ${s.title}`;
     $("nav-logo").textContent = s.title;
     $("footer-text").textContent = s.footer;
