@@ -4185,13 +4185,24 @@ async function dispatchApiCached(request, env, ctx, url) {
   const cache = caches.default;
   const key = new Request(url.toString(), { method: "GET" });
 
-  // 1) 边缘缓存命中：直接返回，不进 KV、不碰 GitHub
+  /* 1) 边缘缓存命中：直接返回，不进 KV、不碰 GitHub。
+   * ⚠️ 必须自己校验新鲜度：Workers 的 Cache API 忽略 Cache-Control，
+   * 条目不会按 TTL 自动过期，只能等 LRU 淘汰。若不做校验，文章/歌单/相册
+   * 一旦进缓存就成了「化石」——后台改了内容，线上永远不刷新。
+   * 因此写入时埋一个 X-Cached-At 时间戳，读取时按 ttl 判定新鲜与否；
+   * 过期则视为未命中走回源，稍后由新响应覆盖。 */
   try {
     const hit = await cache.match(key);
     if (hit) {
-      const h = new Headers(hit.headers);
-      h.set("X-Edge-Cache", "HIT");
-      return new Response(hit.body, { status: hit.status, headers: h });
+      const cachedAt = Number(hit.headers.get("X-Cached-At") || 0);
+      const ageSec = cachedAt ? (Date.now() - cachedAt) / 1000 : Infinity;
+      if (ageSec < ttl) {
+        const h = new Headers(hit.headers);
+        h.set("X-Edge-Cache", "HIT");
+        h.set("Age", String(Math.max(0, Math.round(ageSec))));
+        return new Response(hit.body, { status: hit.status, headers: h });
+      }
+      // 已过期：落到下面走回源，新响应会覆盖这条缓存
     }
   } catch { /* 缓存不可用不影响可用性 */ }
 
@@ -4221,6 +4232,8 @@ async function dispatchApiCached(request, env, ctx, url) {
   const headers = new Headers(entry.headers);
   headers.set("Cache-Control", `public, max-age=${ttl}, stale-while-revalidate=${ttl * 4}`);
   headers.set("X-Edge-Cache", "MISS");
+  // 新鲜度烙印：Cache API 不认 Cache-Control，过期判定只能靠这个时间戳
+  headers.set("X-Cached-At", String(Date.now()));
   const res = new Response(entry.body, { status: entry.status, headers });
 
   // 4) 回写边缘缓存（异步，不阻塞本次响应）
@@ -4367,14 +4380,31 @@ export default {
 
       if (isCacheableStatic && typeof caches !== "undefined" && caches.default) {
         const cache = caches.default;
+        /* ⚠️ 缓存 key 必须带部署版本号。
+         * Workers 的 Cache API **会忽略 Cache-Control**，条目不设 TTL 就
+         * 不会自动过期，只能等 LRU 淘汰。若直接用 request 作 key，某次发版
+         * 写入后，之后无论部署多少次，边缘都会一直吐这一份旧文件——
+         * 用户永远拿不到新代码（v8.1 实测：CI 部署成功但线上 JS 仍是旧版，
+         * 排查良久才发现是这个原因）。
+         * 因此把 Pages 注入的 CF_PAGES_COMMIT_SHA 拼进 key：发版后 sha 变化，
+         * 旧 key 自然落冷，新版本立刻生效。 */
+        const ver = (env && (env.CF_PAGES_COMMIT_SHA || env.CF_PAGES_COMMIT_SHA_SHORT)) || "";
+        if (!ver) {
+          /* 拿不到部署版本号（本地 wrangler 等）：无法安全区分版本，
+           * 此时宁可不进缓存，也不要冒着吐旧代码的风险。 */
+          return addStaticSecurityHeaders(await env.ASSETS.fetch(target), url.pathname);
+        }
+        const vUrl = new URL(request.url);
+        vUrl.searchParams.set("__cv", ver);
+        const cacheReq = new Request(vUrl.toString(), request);
         try {
-          const hit = await cache.match(request);
+          const hit = await cache.match(cacheReq);
           if (hit) return hit; // 零回源，直接命中
         } catch { /* 缓存不可用则走回源 */ }
         const upstream = await env.ASSETS.fetch(target);
         const final = addStaticSecurityHeaders(upstream, url.pathname);
         if (final.status === 200 && ctx && typeof ctx.waitUntil === "function") {
-          try { ctx.waitUntil(cache.put(request, final.clone()).catch(() => {})); } catch { /* 忽略 */ }
+          try { ctx.waitUntil(cache.put(cacheReq, final.clone()).catch(() => {})); } catch { /* 忽略 */ }
         }
         return final;
       }
