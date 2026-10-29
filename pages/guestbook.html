@@ -396,22 +396,18 @@
       btn.textContent = "发送中...";
 
       try {
-        const res = await fetch("/api/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, content })
-        });
-        const result = await res.json();
-        if (result.success) {
+        /* v8.1：裸 fetch → BlogApi.post（统一错误对象 + 写操作 12s 超时） */
+        const result = await BlogApi.post("/api/messages", { name, content });
+        if (result && typeof result === "object" && result.success) {
           showAlert("留言成功！感谢你的留言 🎉", "success");
           document.getElementById("msg-content").value = "";
           document.getElementById("char-count").textContent = "0 / " + MAX_MSG_LEN;
           loadMessages();
         } else {
-          showAlert(result.error || "发送失败", "error");
+          showAlert((result && result.error) || "发送失败", "error");
         }
       } catch(e) {
-        showAlert("网络错误，请稍后重试", "error");
+        showAlert((e && e.message) || "网络错误，请稍后重试", "error");
       }
 
       btn.disabled = false;
@@ -422,13 +418,12 @@
     let msgReqSeq = 0;
     async function loadMessages() {
       const mySeq = ++msgReqSeq;
+      /* v8.1：裸 fetch → BlogApi（3s 熔断 + 并发去重）。
+       * 不加 cacheKey：留言板强调即时性，宁可空列表也不给用户看过期留言。 */
       try {
-        const res = await fetch("/api/messages");
-        if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
-          const list = await res.json();
-          if (mySeq !== msgReqSeq) return; // 已有更新的请求
-          if (Array.isArray(list)) { renderMessages(list); return; }
-        }
+        const list = await BlogApi.get("/api/messages", { retry: 1 });
+        if (mySeq !== msgReqSeq) return; // 已有更新的请求
+        if (Array.isArray(list)) { renderMessages(list); return; }
       } catch(e) {}
       if (mySeq !== msgReqSeq) return;
       renderMessages([]);
@@ -459,14 +454,13 @@
       // 每 30 秒自动刷新留言（隐藏时自动暂停，见上）
       startPolling();
       try {
-        const sRes = await fetch("/api/site");
-        if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {
-          const s = await sRes.json();
-          if (s && typeof s.title === "string") {
-            document.title = `留言板 - ${s.title}`;
-            document.getElementById("nav-logo").textContent = s.title;
-            document.getElementById("footer-text").textContent = s.footer;
-          }
+        const s = await BlogApi.get("/api/site", {
+          cacheKey: "site", retry: 1, onFallback: window.markOfflineBanner
+        });
+        if (s && typeof s.title === "string") {
+          document.title = `留言板 - ${s.title}`;
+          document.getElementById("nav-logo").textContent = s.title;
+          document.getElementById("footer-text").textContent = s.footer;
         }
       } catch(e) {}
     }
