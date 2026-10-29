@@ -456,7 +456,7 @@ var bootMusicPlayer = function() {
   let volumeBeforeMute = 0.7;   // 静音前音量，用于恢复
   let currentObjectUrl = null;  // 当前 Blob 对象 URL（切歌时 revoke 防泄漏）
 
-  const { escapeHtml, safeStorage, $, formatTime, isHttpUrl } = window.BlogUtils;
+  const { escapeHtml, safeStorage, $, formatTime, isHttpUrl, isDeadSampleUrl } = window.BlogUtils;
 
   // 播放模式：sequence 顺序播放 / listLoop 列表循环 / singleLoop 单曲循环 / shuffle 随机
   const MODES = ["listLoop", "singleLoop", "shuffle", "sequence"];
@@ -604,10 +604,17 @@ var bootMusicPlayer = function() {
     $("mpArtist").textContent = song.artist || "未知歌手";
 
     const coverEl = $("mpCover");
-    if (song.cover && isHttpUrl(song.cover)) {
+    /* v8.1：跳过 IANA 保留示例域名（example.com 等）。
+     * 后台示例数据的封面常是 https://example.com/cover.jpg，请求必失败，
+     * 实测每页白扔 600~1900ms。这类 URL 不必发请求，直接用音符图标降级。
+     * 真实图片仍走 onerror → 🎵 的原有兜底，行为不变。 */
+    if (song.cover && isHttpUrl(song.cover) && !isDeadSampleUrl(song.cover)) {
       const img = document.createElement("img");
       img.src = song.cover;
       img.alt = "";
+      /* 封面有自己的降级（回退 🎵 图标），且占位图对封面无意义，
+       * 因此标记让 utils/common.js 的全局兜底不要插手。 */
+      img.dataset.noFallback = "1";
       img.onerror = function () {
         if (myToken !== loadToken) return;
         coverEl.innerHTML = "";
@@ -725,7 +732,8 @@ var bootMusicPlayer = function() {
         title: song.title || "未知歌曲",
         artist: song.artist || "未知歌手",
         album: "我的博客",
-        artwork: song.cover && isHttpUrl(song.cover)
+        // v8.1：artwork 同样会触发一次网络请求，示例域名一并跳过
+        artwork: song.cover && isHttpUrl(song.cover) && !isDeadSampleUrl(song.cover)
           ? [{ src: song.cover, sizes: "512x512", type: "image/jpeg" }]
           : [],
       });
