@@ -23,6 +23,53 @@
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  /* ---- v8.1：失效图片兜底为本地占位图 ----
+     实测取证：内容仓库（music.json / 文章 front-matter）里残留了
+     `https://example.com/cover.jpg` 之类的示例封面，该域名不可达，
+     导致**每个页面都白扔一个 700~1900ms 的 FAILED 请求**，既拖慢
+     首屏又在控制台刷红。内容数据由用户在后台维护，代码侧无法穷举，
+     因此在最外层做一次兜底：任何 <img> 加载失败且未处理过的，
+     一律换成本地 SVG 占位图，并打标记避免死循环。
+     用捕获阶段监听：error 事件不冒泡，只能靠捕获拿得到。 */
+  (function initImgFallback() {
+    const PLACEHOLDER = "/icons/placeholder-cover.svg";
+    document.addEventListener(
+      "error",
+      function (e) {
+        const el = e.target;
+        if (!el || el.tagName !== "IMG") return;
+        if (el.dataset.imgFallback) return; // 已兜底过，防止占位图也失败时循环
+        /* 关键：带 data-mirrors 的图由 BlogApi.github.loadImage 接管，
+         * 它的 onerror 是「切下一个镜像」的降级链路。若这里抢先把 src 换成
+         * 占位图，图片会立刻加载成功、onerror 不再触发 —— 多镜像降级被
+         * 整个短路掉（step2 B6 实测：raw/jsDelivr/statically 三级降级全废）。
+         * 这类图交给 loadImage 走完镜像链，全灭后由容器监听 imgallfailed
+         * 决定呈现，本页面兜底不插手。 */
+        if (el.dataset.mirrors) return;
+        el.dataset.imgFallback = "1";
+        el.src = PLACEHOLDER;
+        el.classList.add("img-placeholder");
+      },
+      true
+    );
+  })();
+
+  /* v8.1：离线降级横幅（全站共用，幂等）。
+   * 任一读接口在「3s 熔断 + 重试」后仍失败、但本地兜底缓存命中时，
+   * BlogApi 会回调 onFallback，这里在页面顶部挂一条提示条，
+   * 让用户知道看到的是缓存数据，而不是假装一切正常。 */
+  window.markOfflineBanner = function markOfflineBanner() {
+    if (document.getElementById("offlineHint")) return;
+    const bar = document.createElement("div");
+    bar.id = "offlineHint";
+    bar.setAttribute("role", "status");
+    bar.textContent = "网络不稳定，当前展示的是本地缓存数据";
+    bar.style.cssText =
+      "position:fixed;top:0;left:0;right:0;z-index:9999;padding:8px 14px;" +
+      "background:#f59e0b;color:#fff;font-size:14px;text-align:center";
+    document.body.prepend(bar);
+  };
+
   /* ---- 主题切换：点击 .theme-btn 切换 body.dark 并持久化 ---- */
   function initTheme() {
     /* 主题色同步：移动端地址栏/状态栏颜色跟随手动主题
