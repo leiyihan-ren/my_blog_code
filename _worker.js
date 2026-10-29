@@ -2200,6 +2200,23 @@ function buildImageMirrors(repo, branch, path, name) {
   return [proxy, cdn, raw, statically];
 }
 
+/* v8.1 性能攻坚：相册缩略图（保留目录名）。
+ * 实测：单张原图 549KB / 2456×1600，经 Worker 代理拉取要 2.3s，
+ * 列表页首屏直接被这张图钉死，LCP 长期 3~4s。
+ * 免费计划没有 Cloudflare Image Resizing（/cdn-cgi/image/... 实测 404），
+ * 且它对需要鉴权的 Worker 代理路径也拿不到源（401）；Worker 里更没有图像库，
+ * 无法在边缘实时压缩。因此改为「仓库预生成缩略图」：480px 宽 JPEG ≈ 9KB，
+ * 只有原图的 1.7%。列表页只加载缩略图，点开灯箱才拉原图。
+ * 缩略图缺失（历史照片未生成）时前端自动回退原图，功能零破坏。 */
+const THUMB_DIR = "thumbs";
+function buildThumbMirrors(repo, branch, path, name) {
+  const encoded = `${encodePathSegments(path)}/${encodePathSegments(THUMB_DIR)}/${encodePathSegments(name)}`;
+  return [
+    `/api/github/raw/${repo}/${branch}/${encoded}`,
+    `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${encoded}`,
+  ];
+}
+
 function parseFrontMatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
   if (!match) return { data: {}, content };
@@ -2626,7 +2643,11 @@ async function loadAlbumFromGithub(store, site) {
   const imgExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"];
 
   const files = await listRepoFilesRecursive(store, site.githubRepo, albumPath, branch, useCdn);
-  const images = files.filter((f) => imgExts.some((ext) => f.path.toLowerCase().endsWith(ext)));
+  const images = files
+    .filter((f) => imgExts.some((ext) => f.path.toLowerCase().endsWith(ext)))
+    // v8.1：thumbs/ 是缩略图产物目录，不是照片本身。不排除的话每张照片会带一张
+    // 缩略图重复出现在列表里，相册张数直接翻倍。
+    .filter((f) => !f.path.split("/").includes(THUMB_DIR));
   const byPath = new Map(images.map((f) => [f.path, f]));
 
   // 仅在目录中确实存在配置文件时才拉取内容（无配置时零额外请求）
@@ -2664,6 +2685,7 @@ async function loadAlbumFromGithub(store, site) {
         category: cat,
         date: String((p && p.date) || "").slice(0, 20),
         mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, rel),
+        thumbs: buildThumbMirrors(site.githubRepo, branch, albumPath, rel),
       });
       byPath.delete(rel);
       bump(cat);
@@ -2680,6 +2702,7 @@ async function loadAlbumFromGithub(store, site) {
       category: cat,
       date: "",
       mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.path),
+      thumbs: buildThumbMirrors(site.githubRepo, branch, albumPath, f.path),
     });
     bump(cat);
   }
