@@ -434,25 +434,23 @@
 
     async function init() {
       renderPosts(DEFAULT_POSTS, "");
+      /* v8.1：裸 fetch → BlogApi。收益：3s 熔断（不再把慢上游的等待转嫁给用户）、
+       * 并发去重、失败自动回退 LocalStorage 兜底缓存（永不空白页）。 */
       try {
-        const res = await fetch("/api/posts");
-        if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
-          const posts = await res.json();
-          if (Array.isArray(posts)) {
-            allPosts = posts;
-            renderPosts(allPosts, currentQuery);
-          }
+        const posts = await BlogApi.get("/api/posts", {
+          cacheKey: "posts", retry: 1, onFallback: window.markOfflineBanner
+        });
+        if (Array.isArray(posts)) {
+          allPosts = posts;
+          renderPosts(allPosts, currentQuery);
         }
       } catch(e) {}
       try {
-        const sRes = await fetch("/api/site");
-        if (sRes.ok && (sRes.headers.get("content-type") || "").includes("json")) {
-          const s = await sRes.json();
-          if (s && typeof s.title === "string") {
-            document.title = `博客 - ${s.title}`;
-            document.getElementById("nav-logo").textContent = s.title;
-            document.getElementById("footer-text").textContent = s.footer;
-          }
+        const s = await BlogApi.get("/api/site", { cacheKey: "site", retry: 1 });
+        if (s && typeof s.title === "string") {
+          document.title = `博客 - ${s.title}`;
+          document.getElementById("nav-logo").textContent = s.title;
+          document.getElementById("footer-text").textContent = s.footer;
         }
       } catch(e) {}
       setupReveal();
