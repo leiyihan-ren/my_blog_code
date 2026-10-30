@@ -603,6 +603,7 @@ const PAGE_REWRITES = {
   "/games.html": "/pages/games.html",
   "/guestbook.html": "/pages/guestbook.html",
   "/links.html": "/pages/links.html",
+  "/mc.html": "/pages/mc.html",
   "/post.html": "/pages/post.html",
   "/timeline.html": "/pages/timeline.html",
 };

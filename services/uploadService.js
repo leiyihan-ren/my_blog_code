@@ -356,6 +356,11 @@ window.UploadService = (function () {
       })
       .then(function () {
         // 3) 收尾：写 manifest
+        // 🚨 竞态闸门（v8.1）：最后一片返回的瞬间用户点了取消/暂停时，在途 XHR
+        //    已完成、abort 打不到它，若不拦就仍会把 manifest 写上去——被取消的
+        //    文件会静默混入云盘列表（S5d 守卫点）。抛哨兵后由下方 catch 按
+        //    task.status 静默收场，绝不误报 failed；断点仍在，可续传。
+        throwIfPaused(task);
         task.status = STATE.FINISHING;
         task.hint = "写入清单…";
         notify();

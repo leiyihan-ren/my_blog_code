@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1b1b1f">
+<meta name="description" content="Minecraft 服务器指挥中心：实例状态、网络地址、在线玩家、性能与磁盘监控，以及启停快捷操作。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="我的博客">
+<meta property="og:title" content="MC 指挥中心 - 我的博客">
+<meta property="og:description" content="Minecraft 服务器指挥中心：实时监控与运维操作面板。">
+<meta property="og:url" content="https://leiyihan.dpdns.org/mc.html">
+<meta property="og:image" content="https://leiyihan.dpdns.org/og-image.png">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="https://leiyihan.dpdns.org/mc.html">
+<title>MC 指挥中心 - 我的博客</title>
+<link rel="stylesheet" href="/styles/common.css">
+<style>
+/* ==========================================================================
+   MC 指挥中心 —— 独立视觉作用域
+   设计取向：对标 MCSManager 的专业运维面板
+     - 深灰底 + 亮色文字，无衬线字体，信息密度优先
+     - 零花哨动画：只有 hover/active 的即时反馈，无过渡特效、无模拟终端
+     - 所有类名 mc- 前缀，与全站 common.css 令牌隔离，互不污染
+   ========================================================================== */
+.mc-app {
+  --mc-bg: #1b1b1f;
+  --mc-sidebar: #141417;
+  --mc-panel: #232327;
+  --mc-panel-2: #2a2a2f;
+  --mc-line: #34343a;
+  --mc-text: #dcdcdc;
+  --mc-text-dim: #8b8b93;
+  --mc-text-strong: #ffffff;
+  --mc-accent: #4fc3f7;
+  --mc-ok: #4caf50;
+  --mc-warn: #ffb74d;
+  --mc-danger: #ef5350;
+  --mc-font: "Segoe UI", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+
+  min-height: 100vh;
+  background: var(--mc-bg);
+  color: var(--mc-text);
+  font-family: var(--mc-font);
+  font-size: 14px;
+  line-height: 1.5;
+  /* 覆盖 common.css 给 body 设的浅色背景 */
+  -webkit-font-smoothing: antialiased;
+}
+body { background: var(--mc-bg, #1b1b1f); margin: 0; }
+
+.mc-app *,
+.mc-app *::before,
+.mc-app *::after { box-sizing: border-box; }
+
+/* ---------- 布局：桌面左栏 + 右主区 ---------- */
+.mc-app { display: flex; }
+
+.mc-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 220px;
+  background: var(--mc-sidebar);
+  border-right: 1px solid var(--mc-line);
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+}
+.mc-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 18px 16px;
+  border-bottom: 1px solid var(--mc-line);
+}
+.mc-brand-mark {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 4px;
+  background: var(--mc-accent);
+  color: #10222b;
+  font-weight: 700;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mc-brand-title { font-size: 15px; font-weight: 600; color: var(--mc-text-strong); }
+.mc-brand-sub { font-size: 11px; color: var(--mc-text-dim); letter-spacing: .04em; }
+
+.mc-nav { padding: 12px 0; flex: 1; overflow-y: auto; }
+.mc-nav-label {
+  padding: 10px 18px 6px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  color: var(--mc-text-dim);
+  text-transform: uppercase;
+}
+.mc-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
+  color: var(--mc-text);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  white-space: nowrap;
+}
+.mc-nav a:hover { background: var(--mc-panel-2); color: var(--mc-text-strong); }
+.mc-nav a.active {
+  background: rgba(79, 195, 247, .1);
+  color: var(--mc-accent);
+  border-left-color: var(--mc-accent);
+  font-weight: 600;
+}
+.mc-nav .ico { width: 16px; text-align: center; opacity: .9; flex: none; }
+
+.mc-main { flex: 1; margin-left: 220px; min-width: 0; }
+
+/* ---------- 顶部状态栏 ---------- */
+.mc-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 24px;
+  background: var(--mc-panel);
+  border-bottom: 1px solid var(--mc-line);
+}
+.mc-burger {
+  display: none;
+  width: 34px;
+  height: 30px;
+  background: var(--mc-panel-2);
+  border: 1px solid var(--mc-line);
+  border-radius: 4px;
+  color: var(--mc-text);
+  font-size: 15px;
+  cursor: pointer;
+}
+.mc-instance { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.mc-instance-name { font-size: 16px; font-weight: 600; color: var(--mc-text-strong); }
+.mc-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mc-ok); white-space: nowrap; }
+.mc-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--mc-ok); flex: none;
+}
+.mc-topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.mc-btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  background: var(--mc-accent);
+  color: #10222b;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.mc-btn-download:hover { filter: brightness(1.08); }
+
+/* ---------- 内容区 ---------- */
+.mc-content { padding: 20px 24px 48px; }
+.mc-section-title {
+  font-size: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--mc-text-dim);
+  margin: 0 0 12px;
+}
+
+/* 监控卡片网格：桌面 4 列 → 平板 2 列 → 手机 1 列 */
+.mc-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 1180px) { .mc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px)  { .mc-grid { grid-template-columns: 1fr; } }
+
+.mc-card {
+  background: var(--mc-panel);
+  border: 1px solid var(--mc-line);
+  border-radius: 6px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.mc-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.mc-card-head h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--mc-text-strong); }
+.mc-card-head .ico { color: var(--mc-text-dim); font-size: 13px; }
+
+.mc-kv { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.mc-kv-main { font-size: 22px; font-weight: 600; color: var(--mc-text-strong); line-height: 1.2; }
+.mc-kv-sub { font-size: 12px; color: var(--mc-text-dim); }
+.mc-mono {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 13px;
+}
+
+.mc-copy {
+  margin-left: auto;
+  padding: 3px 9px;
+  background: var(--mc-panel-2);
+  border: 1px solid var(--mc-line);
+  border-radius: 4px;
+  color: var(--mc-text);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.mc-copy:hover { border-color: var(--mc-accent); color: var(--mc-accent); }
+
+/* 进度条：静态宽度，不用动画增长（运维面板追求确定性读数） */
+.mc-bar-row { margin-bottom: 12px; }
+.mc-bar-row:last-child { margin-bottom: 0; }
+.mc-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--mc-text-dim);
+  margin-bottom: 5px;
+}
+.mc-bar-label b { color: var(--mc-text-strong); font-weight: 600; }
+.mc-bar {
+  height: 6px;
+  background: var(--mc-panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.mc-bar > i { display: block; height: 100%; background: var(--mc-accent); border-radius: 3px; }
+.mc-bar.is-warn > i { background: var(--mc-warn); }
+
+/* 在线玩家：一排方块头像 */
+.mc-players { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.mc-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px 3px 3px;
+  background: var(--mc-panel-2);
+  border: 1px solid var(--mc-line);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--mc-text);
+}
+.mc-player i {
+  width: 16px; height: 16px; border-radius: 2px; flex: none;
+  background: #37474f;
+}
+.mc-players-empty { font-size: 12px; color: var(--mc-text-dim); margin-top: 12px; }
+
+/* ---------- 快捷操作 ---------- */
+.mc-actions {
+  margin-top: 22px;
+  background: var(--mc-panel);
+  border: 1px solid var(--mc-line);
+  border-radius: 6px;
+  padding: 16px;
+}
+.mc-action-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.mc-act {
+  padding: 8px 18px;
+  background: var(--mc-panel-2);
+  border: 1px solid var(--mc-line);
+  border-radius: 4px;
+  color: var(--mc-text);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.mc-act:hover { color: var(--mc-text-strong); border-color: #4a4a52; }
+.mc-act.primary { background: var(--mc-ok); border-color: var(--mc-ok); color: #0d2410; font-weight: 600; }
+.mc-act.danger { background: var(--mc-danger); border-color: var(--mc-danger); color: #2b0d0d; font-weight: 600; }
+.mc-act.primary:hover,
+.mc-act.danger:hover { filter: brightness(1.08); color: inherit; }
+.mc-note { margin: 12px 0 0; font-size: 12px; color: var(--mc-text-dim); }
+
+/* ---------- 手机端：侧栏折叠为抽屉 + 顶部汉堡 ---------- */
+@media (max-width: 900px) {
+  .mc-sidebar {
+    left: 0;
+    width: 240px;
+    transform: translateX(-100%);
+    transition: none; /* 硬核取向：抽屉不做滑动动画 */
+  }
+  .mc-sidebar.open { transform: translateX(0); }
+  .mc-sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .5);
+    z-index: 45;
+  }
+  .mc-main { margin-left: 0; }
+  .mc-burger { display: block; }
+  .mc-topbar { padding: 12px 16px; }
+  .mc-content { padding: 16px 16px 40px; }
+  .mc-instance-name { font-size: 15px; }
+}
+</style>
+</head>
+<body>
+<!-- 运维面板恒为深色：直接置 .dark 让 common.css 的暗色令牌生效，避免浅色底闪一下 -->
+<script>
+  /* 只在本页注入 dark 类，**不**写 localStorage —— 运维面板恒暗色，
+     但不能把用户的全局主题偏好改掉（回到主站仍是原来那个主题）。 */
+  try { document.body.classList.add("dark"); } catch (e) {}
+</script>
+
+<div class="mc-app">
+  <!-- ============ 左侧窄导航栏 ============ -->
+  <aside class="mc-sidebar" id="mcSidebar" aria-label="MC 控制台导航">
+    <div class="mc-brand">
+      <div class="mc-brand-mark" aria-hidden="true">M</div>
+      <div>
+        <div class="mc-brand-title">MC 控制台</div>
+        <div class="mc-brand-sub">CONTROL PANEL</div>
+      </div>
+    </div>
+    <nav class="mc-nav">
+      <div class="mc-nav-label">实例</div>
+      <a href="/mc.html" class="active"><span class="ico" aria-hidden="true">▤</span>仪表盘</a>
+      <a href="/drive.html"><span class="ico" aria-hidden="true">▦</span>文件管理</a>
+      <div class="mc-nav-label">站点</div>
+      <a href="/index.html"><span class="ico" aria-hidden="true">⌂</span>返回主站</a>
+    </nav>
+  </aside>
+
+  <div class="mc-main">
+    <!-- ============ 顶部状态栏 ============ -->
+    <header class="mc-topbar">
+      <button class="mc-burger" id="mcBurger" aria-label="打开导航菜单" aria-expanded="false">☰</button>
+      <div class="mc-instance">
+        <span class="mc-instance-name">Minecraft Server</span>
+        <span class="mc-status"><i class="mc-dot" aria-hidden="true"></i>运行中</span>
+      </div>
+      <div class="mc-topbar-right">
+        <a class="mc-btn-download" href="/drive.html" aria-label="下载 MC 启动器">⬇ 启动器下载</a>
+      </div>
+    </header>
+
+    <!-- ============ 核心监控卡片区 ============ -->
+    <main class="mc-content">
+      <h2 class="mc-section-title">实例概览</h2>
+      <div class="mc-grid">
+        <!-- 网络状态 -->
+        <section class="mc-card">
+          <div class="mc-card-head">
+            <span class="ico" aria-hidden="true">🌐</span>
+            <h3>网络状态</h3>
+            <button class="mc-copy" id="btnCopyAddr" type="button">复制</button>
+          </div>
+          <div class="mc-kv">
+            <span class="mc-kv-main mc-mono" id="mcAddr">mc.yourdomain.com</span>
+            <span class="mc-kv-sub mc-mono" id="mcPort">:25565</span>
+          </div>
+          <div class="mc-bar-label" style="margin-top:12px"><span>在线延迟</span><b id="mcPing">28 ms</b></div>
+        </section>
+
+        <!-- 玩家状态 -->
+        <section class="mc-card">
+          <div class="mc-card-head">
+            <span class="ico" aria-hidden="true">👥</span>
+            <h3>玩家状态</h3>
+          </div>
+          <div class="mc-kv">
+            <span class="mc-kv-main" id="mcPlayers">3</span>
+            <span class="mc-kv-sub">/ 20 在线</span>
+          </div>
+          <div class="mc-players" id="mcPlayerList"></div>
+        </section>
+
+        <!-- 性能监控 -->
+        <section class="mc-card">
+          <div class="mc-card-head">
+            <span class="ico" aria-hidden="true">⚙</span>
+            <h3>性能监控</h3>
+          </div>
+          <div class="mc-bar-row">
+            <div class="mc-bar-label"><span>CPU 占用</span><b id="mcCpuText">34%</b></div>
+            <div class="mc-bar"><i id="mcCpuBar" style="width:34%"></i></div>
+          </div>
+          <div class="mc-bar-row">
+            <div class="mc-bar-label"><span>内存占用</span><b id="mcMemText">2.4 GB / 4 GB</b></div>
+            <div class="mc-bar is-warn"><i id="mcMemBar" style="width:60%"></i></div>
+          </div>
+        </section>
+
+        <!-- 磁盘空间 -->
+        <section class="mc-card">
+          <div class="mc-card-head">
+            <span class="ico" aria-hidden="true">💾</span>
+            <h3>磁盘空间</h3>
+          </div>
+          <div class="mc-kv">
+            <span class="mc-kv-main" id="mcDiskUsed">18.6 GB</span>
+            <span class="mc-kv-sub">/ 40 GB 已用</span>
+          </div>
+          <div class="mc-bar-row" style="margin-top:12px">
+            <div class="mc-bar"><i id="mcDiskBar" style="width:47%"></i></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ============ 快捷操作 ============ -->
+      <section class="mc-actions">
+        <h2 class="mc-section-title">快捷操作</h2>
+        <div class="mc-action-row">
+          <button class="mc-act primary" type="button" data-act="start">启动</button>
+          <button class="mc-act" type="button" data-act="restart">重启</button>
+          <button class="mc-act danger" type="button" data-act="stop">停止服务器</button>
+        </div>
+        <p class="mc-note">前端演示面板：操作仅发送模拟指令提示，不会真实影响服务器。</p>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- BlogUtils.toast() 需要一个 #toast 容器，缺失时 toast 会静默失效 -->
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="/utils/blog-utils.js" defer></script>
+<script src="/utils/common.js" defer></script>
+<script defer>
+/* ==========================================================================
+   MC 指挥中心 —— 前端逻辑
+   ⚠️ 数据层说明：以下均为 Mock 假数据。
+   若日后接入真实 MC 面板（如 MCSManager OpenAPI / RCON），只需替换 MC_MOCK
+   并在 renderAll() 里把拉取结果回填即可，渲染与交互代码无需改动：
+       const data = await BlogApi.get("/api/mc/status");   // ← 真实数据源接入点
+       renderAll(data);
+   注意：本页刻意不引入 services/request.js —— 它没有数据请求，
+   不必为用不上的网络层多花一个请求（新建页面不得拖慢既有首屏）。
+   ========================================================================== */
+
+/* ---------- Mock 数据（唯一需要替换的地方） ---------- */
+var MC_MOCK = {
+  address: "mc.yourdomain.com",   // ← 换成你真实的服务器域名/IP
+  port: 25565,
+  pingMs: 28,
+  players: ["Steve", "Alex", "Notch"],   // 在线玩家名，下方按此渲染方块头像
+  maxPlayers: 20,
+  cpuPercent: 34,
+  memUsedGB: 2.4,
+  memTotalGB: 4,
+  diskUsedGB: 18.6,
+  diskTotalGB: 40,
+};
+
+document.addEventListener("DOMContentLoaded", function () {
+  var $ = function (id) { return document.getElementById(id); };
+
+  /* ---------- 渲染 ---------- */
+  function renderPlayers(names) {
+    var box = $("mcPlayerList");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!names.length) {
+      var empty = document.createElement("div");
+      empty.className = "mc-players-empty";
+      empty.textContent = "当前无玩家在线";
+      box.appendChild(empty);
+      return;
+    }
+    names.forEach(function (n) {
+      var el = document.createElement("span");
+      el.className = "mc-player";
+      var avatar = document.createElement("i");
+      avatar.setAttribute("aria-hidden", "true");
+      var name = document.createElement("span");
+      name.textContent = n;
+      el.appendChild(avatar);
+      el.appendChild(name);
+      box.appendChild(el);
+    });
+  }
+
+  function renderAll(d) {
+    $("mcAddr").textContent = d.address;
+    $("mcPort").textContent = ":" + d.port;
+    $("mcPing").textContent = d.pingMs + " ms";
+
+    $("mcPlayers").textContent = String(d.players.length);
+    $("mcPlayers").nextElementSibling.textContent = `/ ${d.maxPlayers} 在线`;
+    renderPlayers(d.players);
+
+    $("mcCpuText").textContent = d.cpuPercent + "%";
+    $("mcCpuBar").style.width = Math.min(100, Math.max(0, d.cpuPercent)) + "%";
+
+    var memPct = Math.round((d.memUsedGB / d.memTotalGB) * 100);
+    $("mcMemText").textContent = d.memUsedGB + " GB / " + d.memTotalGB + " GB";
+    $("mcMemBar").style.width = Math.min(100, Math.max(0, memPct)) + "%";
+
+    var diskPct = Math.round((d.diskUsedGB / d.diskTotalGB) * 100);
+    $("mcDiskUsed").textContent = d.diskUsedGB + " GB";
+    $("mcDiskUsed").nextElementSibling.textContent = `/ ${d.diskTotalGB} GB 已用`;
+    $("mcDiskBar").style.width = Math.min(100, Math.max(0, diskPct)) + "%";
+  }
+  renderAll(MC_MOCK);
+
+  /* ---------- 一键复制服务器地址 ---------- */
+  $("btnCopyAddr").addEventListener("click", function () {
+    var addr = MC_MOCK.address + ":" + MC_MOCK.port;
+    // BlogUtils.copyText 内含 clipboard API → execCommand 降级
+    window.BlogUtils.copyText(addr).then(function (ok) {
+      window.BlogUtils.toast(ok ? "已复制服务器地址：" + addr : "复制失败，请手动选中复制");
+    });
+  });
+
+  /* ---------- 快捷操作：纯前端模拟 ---------- */
+  var ACTION_TEXT = { start: "启动", restart: "重启", stop: "停止服务器" };
+  Array.prototype.forEach.call(document.querySelectorAll(".mc-act"), function (btn) {
+    btn.addEventListener("click", function () {
+      var act = btn.getAttribute("data-act");
+      window.BlogUtils.toast("模拟操作：已发送" + (ACTION_TEXT[act] || "未知") + "指令");
+    });
+  });
+
+  /* ---------- 手机端汉堡菜单：抽屉 + 遮罩 ---------- */
+  var sidebar = $("mcSidebar");
+  var burger = $("mcBurger");
+  var overlay = null;
+  function closeDrawer() {
+    sidebar.classList.remove("open");
+    burger.setAttribute("aria-expanded", "false");
+    if (overlay) { overlay.remove(); overlay = null; }
+  }
+  burger.addEventListener("click", function () {
+    if (sidebar.classList.contains("open")) { closeDrawer(); return; }
+    sidebar.classList.add("open");
+    burger.setAttribute("aria-expanded", "true");
+    overlay = document.createElement("div");
+    overlay.className = "mc-sidebar-overlay";
+    overlay.addEventListener("click", closeDrawer);
+    document.body.appendChild(overlay);
+  });
+  // 抽屉内点链接后自动收起（跳转前）
+  sidebar.querySelectorAll("a").forEach(function (a) {
+    a.addEventListener("click", closeDrawer);
+  });
+});
+</script>
+</body>
+</html>

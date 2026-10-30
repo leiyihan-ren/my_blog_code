@@ -404,14 +404,20 @@ async function main() {
     ghLog.partPuts.length = 0;
     const cancels = [];
     for (let i = 0; i < 3; i++) {
-      cancels.push({ name: `sm-cancel-${i}.bin`, mimeType: "application/octet-stream", buffer: alloc(11, 0xb0 + i) });
+      // cancel-1 刻意做大（21MB / 5 片）：留出足够时间窗，保证点取消时它仍在
+      // 第 1~2 片，不会撞上「最后一片刚传完、finish 请求已发出」这段前端
+      // 侧也无法拦截的竞态（v8.1：uploadService 侧已加 throwIfPaused 闸门，
+      // 但 HTTP 请求一旦发出，服务端写入不可撤销，只能从时序上避开）。
+      // 上限约束：Playwright setInputFiles 单批合计不得超过 50MB（21+11+11）。
+      const mb = i === 1 ? 21 : 11;
+      cancels.push({ name: `sm-cancel-${i}.bin`, mimeType: "application/octet-stream", buffer: alloc(mb, 0xb0 + i) });
     }
     await page.setInputFiles("#fileInput", cancels);
     // 等 3 个都开始传（并发 3 全部占槽）
     await page.waitForFunction(
       () => ["sm-cancel-0.bin", "sm-cancel-1.bin", "sm-cancel-2.bin"].every((n) => {
         const it = document.querySelector(`.up-item[data-name="${n}"]`);
-        return it && /第 \d\/3 片/.test(it.textContent);
+        return it && /第 \d+\/\d+ 片/.test(it.textContent);
       }),
       null,
       { timeout: 30000 }
@@ -421,7 +427,10 @@ async function main() {
       const t = UploadService.tasks().find((x) => x.file.name === "sm-cancel-1.bin");
       return t ? t.uploadId : null;
     });
-    await page.click('.up-item[data-name="sm-cancel-1.bin"] .up-cancel');
+    // 队列面板随进度高频重渲染，原生 click 的 stability 等待会被反复 detach 打断
+    // （v7.1 起已知 flaky）。改为向同一个按钮直接派发 click：走的仍是
+    // 「真实 DOM 事件 → 页面 handler → UploadService.cancel」这条完整链路。
+    await page.$eval('.up-item[data-name="sm-cancel-1.bin"] .up-cancel', (el) => el.click());
     await page.waitForFunction(
       () => !document.querySelector('.up-item[data-name="sm-cancel-1.bin"]'),
       null,

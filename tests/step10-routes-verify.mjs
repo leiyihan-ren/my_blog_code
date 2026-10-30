@@ -136,7 +136,7 @@ console.log("\n═══ R4 全站链接完整性 ═══");
       if (!fs.existsSync(file)) missing.push(`${f} → ${ref}`);
     }
   }
-  check(`10 个页面 ${refTotal} 处本地引用全部落盘`, missing.length === 0, missing.slice(0, 5).join("；"));
+  check(`${htmlFiles.length} 个页面 ${refTotal} 处本地引用全部落盘`, missing.length === 0, missing.slice(0, 5).join("；"));
 
   // SW 预缓存清单
   const swSrc = fs.readFileSync(path.join(ROOT, "sw.js"), "utf8");
@@ -154,7 +154,7 @@ console.log("\n═══ R4 全站链接完整性 ═══");
 
   // 路由表登记的页面物理存在
   const pageMissing = Object.values(PAGE_FILES).filter((p) => !fs.existsSync(path.join(ROOT, p)));
-  check("路由表 10 个页面物理存在", pageMissing.length === 0, pageMissing.join(","));
+  check(`路由表 ${Object.keys(PAGE_FILES).length} 个页面物理存在`, pageMissing.length === 0, pageMissing.join(","));
 }
 
 /* ============ R5 SW 注册绝对路径 ============ */
