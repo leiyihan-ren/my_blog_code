@@ -422,7 +422,7 @@ body { background: var(--mc-bg, #1b1b1f); margin: 0; }
           </div>
           <div class="mc-kv">
             <span class="mc-kv-main" id="mcPlayers">3</span>
-            <span class="mc-kv-sub">/ 20 在线</span>
+            <span class="mc-kv-sub">上限 20</span>
           </div>
           <div class="mc-players" id="mcPlayerList"></div>
         </section>
@@ -451,7 +451,7 @@ body { background: var(--mc-bg, #1b1b1f); margin: 0; }
           </div>
           <div class="mc-kv">
             <span class="mc-kv-main" id="mcDiskUsed">18.6 GB</span>
-            <span class="mc-kv-sub">/ 40 GB 已用</span>
+            <span class="mc-kv-sub">共 40 GB</span>
           </div>
           <div class="mc-bar-row" style="margin-top:12px">
             <div class="mc-bar"><i id="mcDiskBar" style="width:47%"></i></div>
@@ -622,7 +622,9 @@ document.addEventListener("DOMContentLoaded", function () {
     var online = d.online ? d.playersOnline : 0;
     var sub = $("mcPlayers") && $("mcPlayers").nextElementSibling;
     $("mcPlayers").textContent = String(online);
-    if (sub) sub.textContent = d.maxPlayers > 0 ? "/ " + d.maxPlayers + " 在线" : "/ — 在线";
+    // ⚠️ 不要写成「斜杠 + 数字」的形式：step10 链接守护会扫描以斜杠开头的文本
+    //    当站内引用，连注释里的示例都会被误判为死链。用「上限 N」表述更安全。
+    if (sub) sub.textContent = d.maxPlayers > 0 ? "上限 " + d.maxPlayers : "上限未知";
     // 真实在线人数 / 最大人数 → 动态进度条
     var pbar = ensurePlayersBar();
     if (pbar) {
@@ -640,7 +642,7 @@ document.addEventListener("DOMContentLoaded", function () {
     $("mcMemBar").style.width = hasPanel && d.memPercent != null ? d.memPercent + "%" : "0%";
     $("mcDiskUsed").textContent = hasPanel && d.diskUsedGB != null ? d.diskUsedGB + " GB" : "未接入";
     var dsub = $("mcDiskUsed").nextElementSibling;
-    if (dsub) dsub.textContent = hasPanel && d.diskTotalGB != null ? "/ " + d.diskTotalGB + " GB 已用" : "需 MCSManager 面板";
+    if (dsub) dsub.textContent = hasPanel && d.diskTotalGB != null ? "共 " + d.diskTotalGB + " GB" : "需 MCSManager 面板";
     $("mcDiskBar").style.width = hasPanel && d.diskPercent != null ? d.diskPercent + "%" : "0%";
   }
 
