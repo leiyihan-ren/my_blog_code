@@ -69,6 +69,15 @@ function installStoreMock() {
     if (method === "PUT" && metaMatch) {
       const p = decodeURIComponent(metaMatch[1]);
       const existed = store.get(p);
+      // 真实 GitHub 语义：文件已存在但未带 sha → 422（"sha" wasn't supplied）。
+      // v8.2 去掉了「每片预检 GET 拿 sha」，改为「先无 sha PUT，冲突再补 sha」；
+      // 这里补齐该分支的模拟，守护自愈路径（见 C3a/C3b）。
+      if (existed && !body.sha) {
+        return new Response(
+          JSON.stringify({ message: 'Invalid request.\n\n"sha" wasn\'t supplied.' }),
+          { status: 422 }
+        );
+      }
       // sha 冲突模拟：更新时 sha 不匹配 → 409
       if (existed && body.sha && body.sha !== existed.sha) {
         return new Response(JSON.stringify({ message: "conflict" }), { status: 409 });
@@ -202,8 +211,15 @@ const FILE_SIZE = 12 * 1024 * 1024; // 12MB → 3 片（5+5+2）
     body: { uploadId: UID, index: 1, content: chunkB64(66, 1024) },
   });
   check("C3a 重传同一分片 ok（幂等）", r.status === 200 && r.json.existed === true, JSON.stringify(r.json));
-  const put = ghCalls.find((c) => c.method === "PUT");
+  const puts = ghCalls.filter((c) => c.method === "PUT");
+  const put = puts[puts.length - 1];
   check("C3b 重传 PUT 带 sha（覆盖分流）", !!put && !!put.body.sha, JSON.stringify(put && put.body));
+  // v8.2：首次写分片无需预检 GET（省一半请求）；仅当上游 422 提示已存在时才补 sha 覆盖
+  check(
+    "C3c 首次分片免预检：共 2 次 PUT，第一次不带 sha",
+    puts.length === 2 && !puts[0].body.sha,
+    `puts=${puts.length} firstSha=${puts[0] && puts[0].body.sha}`
+  );
 }
 
 // C4 finish 分片不齐 → 409
@@ -304,13 +320,13 @@ const FILE_SIZE = 12 * 1024 * 1024; // 12MB → 3 片（5+5+2）
   await drive("DELETE", "delete", { body: { path: `drive/.m-${uid}.json` } });
 }
 
-// C8 分片超 5MB → 413
+// C8 分片超上限 → 413（v8.2：分片上限 5MB → 8MB，故用 8.5MB 触发）
 {
-  const big = chunkB64(1, Math.floor(5.2 * 1024 * 1024)); // 解码后 5.2MB > 5MB 分片上限
+  const big = chunkB64(1, Math.floor(8.5 * 1024 * 1024)); // 解码后 8.5MB > 8MB 分片上限
   const r = await drive("POST", "upload/part", {
     body: { uploadId: "toobig", index: 0, content: big },
   });
-  check("C8 分片超 5MB → 413", r.status === 413 && /分片/.test(r.json.error), `got ${r.status} ${r.json && r.json.error}`);
+  check("C8 分片超 8MB → 413", r.status === 413 && /分片/.test(r.json.error), `got ${r.status} ${r.json && r.json.error}`);
 }
 
 // C9 非法 uploadId（路径穿越字符）→ 400

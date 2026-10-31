@@ -45,18 +45,32 @@ const CONFIG = {
     maxFileBytes: 8 * 1024 * 1024,
     // 小文件直传的 body 上限：8MB → 约 10.7MB Base64，留至 16MB
     maxBodyBytes: 16 * 1024 * 1024,
-    // 分片大小（字节）：5MB。Base64 后 6.7MB body，任何网络/平台限制下都稳妥；
-    // 分片数 = 文件大小 / 5MB，GitHub 配额 5000 次/小时下单文件可传约 24GB
-    chunkSize: 5 * 1024 * 1024,
+    // 分片大小（字节）：v8.2 由 5MB 提到 8MB。
+    //   为什么不再是 5MB：原实现每片要「GET 元数据拿 sha + PUT 写内容」两次请求，
+    //   且片内串行——5MB 时大文件的往返开销占比过高，实测就是「上传极慢」。
+    //   v8.2 去掉了预检 GET（改为 PUT → 冲突才补 sha），片内又并发 3 路，
+    //   在「每片 1 次请求 + 3 路并发」的新模型下，8MB 的总耗时最优：
+    //   Base64 后单片 body 约 10.7MB，仍远低于 CF 100MB body 上限与写超时安全区。
+    // 分片数 = 文件大小 / 8MB，GitHub 配额 5000 次/小时下单文件可传约 38GB（受 2GB 产品上限约束）。
+    // ⚠️ 与 services/uploadService.js 的 CHUNK_SIZE 必须同步。
+    chunkSize: 8 * 1024 * 1024,
     // 分片模式的单文件产品级上限：2GB。
     // 约束来源：GitHub 仓库软限制（官方建议单仓 <5GB，超 50MB 单文件仅 git push
     // 会警告，Contents/Blobs API 不受此限）；Git Data API blob 上限 100MB
     // （分片 5MB 远低于）；GitHub API 配额 5000 次/小时（2GB=410 片，可控）。
     maxChunkedFileBytes: 2 * 1024 * 1024 * 1024,
-    // 分片上传的 body 上限：5MB → 6.7MB Base64 + JSON 外壳，留至 8.5MB
-    maxPartBodyBytes: 8.5 * 1024 * 1024,
+    // 分片上传的 body 上限：8MB → 10.7MB Base64 + JSON 外壳，留至 12MB
+    // ⚠️ 必须大于 chunkSize * 4/3 + 外壳，否则合法分片会被 413 拒收。
+    maxPartBodyBytes: 12 * 1024 * 1024,
     // 写操作超时（毫秒）：读路径的 8s 不够上传大文件，单独放宽
-    writeTimeoutMs: 30000,
+    // v8.2：分片 5MB→8MB，同步把上游写超时放宽到 45s，避免弱网下 8MB 单片
+    // 卡在 30s 被掐断（表现为「传到一半失败，重来又失败」）。
+    writeTimeoutMs: 45000,
+    // v8.2 边缘写限流（防击穿）：同一 IP 每秒允许的云盘写请求数。
+    // 正常峰值 = 文件并发 MAX_CONCURRENT(3) × 片内并发 PART_PARALLEL(3) = 9 次/秒，
+    // 阈值取 16 留足余量：正常上传绝不会触发，只有异常高频（脚本刷、连点重传风暴）
+    // 才会被拦下。超限返回 429，前端单片退避重试会自动消化。
+    maxWritesPerSecond: 16,
     // 目录列表的 isolate 内缓存（毫秒）：列表含每文件一次 commits 查询（N+1），
     // 30s 内的重复刷新直接复用，压低 GitHub 配额消耗
     listCacheMs: 30000,
@@ -1404,9 +1418,34 @@ async function ghProxyRevalidate(cacheKey, cached, upstream, headers, opts) {
 }
 
 /**
+ * v8.2 强制下载头：解决「点击下载却在网页内预览」。
+ *   浏览器对 <a href> / location 跳转的默认行为是按 Content-Type 决策：
+ *   text/plain、image/png、application/pdf 等会直接内联渲染，用户以为没反应。
+ *   这里同时给出三样东西：
+ *     1) Content-Disposition: attachment  ——明确要求「存盘」而非「展示」
+ *     2) filename="..."（ASCII 安全回退）+ filename*=UTF-8''...（RFC 5987）
+ *        ——中文/空格/emoji 文件名在 Chrome/Safari/Firefox 下都不乱码
+ *     3) Content-Type: application/octet-stream ——通用二进制，彻底掐掉内联
+ * ⚠️ 只在显式要求下载（?dl=1）时生效：相册等 <img src> 仍走原路径，
+ *    attachment 对子资源加载无影响，但保持语义清晰、不误伤图片展示。
+ */
+function contentDispositionAttachment(name) {
+  const raw = String(name || "download").replace(/[\r\n"]/g, "");
+  const ascii = raw.replace(/[^\x20-\x7E]/g, "_") || "download";
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(raw)}`;
+}
+
+/** 从 raw 代理路径末段取文件名（URL 段已编码，需解码还原中文） */
+function driveFileNameFromPath(p) {
+  const segs = String(p || "").split("/").filter(Boolean);
+  const last = segs[segs.length - 1] || "download";
+  try { return decodeURIComponent(last); } catch (e) { return last; }
+}
+
+/**
  * 代理核心：Cache API SWR + ETag 条件请求 + 上游故障兜底。
  * @param {string} upstream  上游 URL
- * @param {object} opts      { ttl, headers, store(可空), env }
+ * @param {object} opts      { ttl, headers, store(可空), env, download(可空：需要强制下载时的文件名) }
  * @param {object} ctx      执行上下文（ctx.waitUntil 驱动后台重验；可空）
  * @returns {Promise<Response>} 始终返回可渲染响应（有旧缓存时绝不 5xx）
  */
@@ -1417,7 +1456,8 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
     const cachedAt = parseInt(cached.headers.get("X-Cache-Time") || "0", 10) || 0;
     const age = Date.now() - cachedAt;
     if (age < opts.ttl * 1000) {
-      return withXCache(cached, "HIT"); // 边缘缓存命中：不打上游、不耗配额
+      const hit = withXCache(cached, "HIT"); // 边缘缓存命中：不打上游、不耗配额
+      return opts.download ? withDownloadHeaders(hit, opts.download) : hit;
     }
     // 过期：SWR——先续期旧缓存并立即返回，再后台异步重验。
     // 先续期再排后台任务，避免重验抢在续期前写入导致旧内容覆盖新内容。
@@ -1453,7 +1493,13 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
           const status = res.status === 403 || res.status === 429 ? 503 : 502;
           return err(`GitHub 代理上游错误（HTTP ${res.status}）`, status);
         }
-        const body = await res.arrayBuffer();
+        // v8.2 流式透传：直接把上游的 ReadableStream 交给 Response，
+        // Worker 只做「搬运」，绝不等整个文件落内存。
+        // 旧实现 `await res.arrayBuffer()` 会把整个文件（大文件可达 GB 级）
+        // 先收进 isolate 内存再转发：首字节要等全部下完才发出去（TTFB 暴涨），
+        // 且 128MB 内存上限下大文件必然 OOM 崩溃。改成流式后：
+        //   - 首字节几乎立刻返回，下载器马上开始写盘；
+        //   - 内存占用恒定为几个 chunk，与文件大小无关。
         const headers = new Headers({
           "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
           // s-maxage：Cloudflare 边缘共享缓存新鲜期（api 代理 1h；raw 图片路径 ttl 本身即 1 天，取更大值）
@@ -1463,7 +1509,9 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
         });
         const etag = res.headers.get("ETag");
         if (etag) headers.set("ETag", etag);
-        const response = new Response(body, { status: 200, headers });
+        const response = new Response(res.body, { status: 200, headers });
+        // 写缓存用 clone：Cache API 会独立消费这一路，返回给客户端的那一路不受影响。
+        // 超过 Cache API 单条上限（512MB）时内部会失败，已由 try/catch 兜底，不阻断响应。
         await ghProxyCachePut(cacheKey, response.clone());
         return response;
       } finally {
@@ -1473,7 +1521,25 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
     ghProxyInflight.set(cacheKey.url, task);
   }
   // 每个调用方拿独立 clone（Response 体只能读一次）；错误响同样共享clone
-  return withXCache((await task).clone(), "MISS");
+  const fresh = withXCache((await task).clone(), "MISS");
+  return opts.download ? withDownloadHeaders(fresh, opts.download) : fresh;
+}
+
+/**
+ * 给响应叠加「强制下载」头（v8.2）。
+ * 缓存里存的永远是原始响应（不带 disposition），需要下载时在出口处叠加，
+ * 这样「预览」与「下载」共用同一份边缘缓存，不会因为多一个查询参数就多打一次上游。
+ * ⚠️ cache.match 返回的 headers 是 immutable guard，必须先复制再改。
+ */
+function withDownloadHeaders(response, name) {
+  const headers = new Headers(response.headers);
+  headers.set("Content-Type", "application/octet-stream");
+  headers.set("Content-Disposition", contentDispositionAttachment(name));
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 /** contents 列表请求识别：repos/:owner/:repo/contents/:path?ref=:branch */
@@ -1566,10 +1632,15 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     }, ctx);
   }
   if (rest.startsWith("raw/")) {
-    const upstream = "https://raw.githubusercontent.com/" + rest.slice(4);
+    const rel = rest.slice(4);
+    const upstream = "https://raw.githubusercontent.com/" + rel;
+    // ?dl=1 / ?download=1 → 出口叠加 Content-Disposition: attachment，
+    // 强制唤醒系统下载器（详见 contentDispositionAttachment 注释）。
+    const wantDownload = url.searchParams.get("dl") || url.searchParams.get("download");
     return ghProxyFetch(new Request(upstream, { method: "GET" }), upstream, {
       ttl: CONFIG.github.imageCacheTtlSeconds,
       headers: { "User-Agent": CONFIG.github.userAgent },
+      download: wantDownload ? driveFileNameFromPath(rel) : null,
     }, ctx);
   }
   return err("不支持的代理路径（仅 api/ 与 raw/）", 400);
@@ -1812,28 +1883,38 @@ async function driveChunkStatus(env, uploadId) {
 
 /**
  * 分片上传：把一片 Base64 内容写入 drive/.parts/<uploadId>/part-NNNNN。
- * 已存在则带 sha 覆盖（重传同一片是幂等的），保证重试安全。
+ *
+ * v8.2 提速核心（砍掉一半请求）：
+ *   旧实现每片都要先 GET 一次元数据拿 sha，再 PUT 一次——即每片 2 次 GitHub 写路径请求。
+ *   100MB 文件 = 20 片 = 40 次请求，且串行排队，这正是「上传极慢」的主因。
+ *   新路径：直接 PUT（不带 sha）。GitHub 仅在文件**已存在**时才要求 sha 并返回 422，
+ *   而「首次上传」是绝对主流场景（续传时仅缺失片需要覆盖），这部分直接省掉一次往返。
+ *   命中 422/409 时退回一次「GET sha → PUT 覆盖」，正确性完全不变，且重传仍幂等。
  */
 async function driveChunkSave(env, uploadId, index, content) {
   const path = drivePartPath(uploadId, index);
-  const metaRes = await ghApiRequest(driveContentsUrl(CONFIG.drive.repo, CONFIG.drive.branch, path), null, env, null);
-  let sha = null;
-  if (metaRes.ok) {
-    const meta = await metaRes.json();
-    sha = meta && meta.sha ? meta.sha : null;
-  } else if (metaRes.status !== 404) {
-    return githubWriteError(metaRes);
-  }
+  const url = driveContentsUrl(CONFIG.drive.repo, CONFIG.drive.branch, path);
   const body = {
     message: `drive: part ${uploadId}/${index}`,
     content: String(content).replace(/\s+/g, ""),
     branch: CONFIG.drive.branch,
   };
-  if (sha) body.sha = sha;
-  const res = await ghApiWrite(driveContentsUrl(CONFIG.drive.repo, CONFIG.drive.branch, path), env, "PUT", body);
+
+  let res = await ghApiWrite(url, env, "PUT", body);
+  if (!res.ok && (res.status === 422 || res.status === 409)) {
+    // 分片已存在（重传/续传覆盖）：取回 sha 再覆盖一次
+    const metaRes = await ghApiRequest(url, null, env, null);
+    if (metaRes.ok) {
+      const meta = await metaRes.json().catch(() => null);
+      if (meta && meta.sha) {
+        body.sha = meta.sha;
+        res = await ghApiWrite(url, env, "PUT", body);
+      }
+    }
+  }
   if (!res.ok) return githubWriteError(res);
   driveListMemo.data = null; // parts 目录变化不影响顶层列表，但保守失效
-  return driveOk({ ok: true, uploadId, index, existed: !!sha });
+  return driveOk({ ok: true, uploadId, index, existed: !!body.sha });
 }
 
 /**
@@ -1874,15 +1955,82 @@ function jsonToBase64(str) {
   return btoa(bin);
 }
 
+/* ============================================================
+ * v8.2 云盘写操作边缘限流（防击穿）
+ * ------------------------------------------------------------
+ * 分片并发从「片内串行」提到 3 路后，单文件瞬时写请求数 ×3。
+ * GitHub Contents API 对同仓库高频写有隐性限流，一旦触发会连带
+ * 全局 403/429（表现为「所有上传都失败」）。这里加一道软闸：
+ *   - 按 IP + 1 秒滑动窗口计数，超过 maxWritesPerSecond 直接 429；
+ *   - 只在 isolate 内生效（多实例时阈值成倍放宽），定位是「兜底」而非硬配额；
+ *   - 前端单片失败本就有指数退避重试，被限流的请求会自然退避后成功。
+ * ============================================================ */
+const DRIVE_WRITE_GUARD = { hits: new Map(), lastSweep: 0 };
+
+function driveWriteRateGuard(request) {
+  const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for");
+  // 无客户端 IP（本地静态服务 / 测试环境）：无法归属，直接放行。
+  // 限流是「防异常高频」的兜底，绝不因此误伤正常请求。
+  if (!ip) return null;
+  const now = Date.now();
+  const rec = DRIVE_WRITE_GUARD.hits.get(ip) || { win: now, n: 0 };
+  if (now - rec.win > 1000) { rec.win = now; rec.n = 0; }
+  rec.n += 1;
+  DRIVE_WRITE_GUARD.hits.set(ip, rec);
+  if (rec.n > CONFIG.drive.maxWritesPerSecond) {
+    return driveErr("云盘写入过于频繁，已触发边缘保护，请稍后重试", 429);
+  }
+  // 定期清理，防止 Map 无界增长（每 5 分钟全量扫一次）
+  if (now - DRIVE_WRITE_GUARD.lastSweep > 300000) {
+    DRIVE_WRITE_GUARD.lastSweep = now;
+    DRIVE_WRITE_GUARD.hits.forEach((v, k) => {
+      if (now - v.win > 60000) DRIVE_WRITE_GUARD.hits.delete(k);
+    });
+  }
+  return null;
+}
+
 /**
  * /api/drive/* 统一入口。
- * 口令校验 → 路径净化 → 大小兜底 → 转发 GitHub Contents API。
+ * 预热 → 写限流 → 口令校验 → 路径净化 → 大小兜底 → 转发 GitHub Contents API。
  */
 async function handleDrive(request, env, ctx, url) {
+  const sub = url.pathname.replace(/^\/api\/drive\/?/, "");
+
+  // ---- v8.2 链路预热（必须放在口令校验之前：它不返回任何数据）----
+  // 背景：生产域名走免费二级域，边缘节点可能被调度到欧洲（LHR/AMS），
+  // Worker→GitHub 每次新连接都要付一次完整的 DNS + TCP + TLS 握手（数百 ms 起，
+  // 跨洲时更久）。页面一加载就异步预热这两条上游连接，等真正请求时
+  // 连接已就位，省掉握手等待。失败完全无害（catch 静默）。
+  if (request.method === "GET" && sub === "warmup") {
+    if (ctx && typeof ctx.waitUntil === "function") {
+      ctx.waitUntil(
+        (async () => {
+          const ua = { "User-Agent": CONFIG.github.userAgent };
+          try {
+            await Promise.all([
+              fetch("https://api.github.com/rate_limit", { headers: ua, cf: { cacheTtl: 60 } }),
+              fetch(`https://raw.githubusercontent.com/${CONFIG.drive.repo}/${CONFIG.drive.branch}/drive/.gitkeep`, { headers: ua, cf: { cacheTtl: 60 } }),
+            ]);
+          } catch (e) { /* 预热失败无所谓 */ }
+        })()
+      );
+    }
+    return new Response(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+  }
+
+  // ---- v8.2 边缘写限流（防击穿）：分片并发提高后的安全兜底 ----
+  // Workers 无跨实例共享内存，这里是「isolate 内 + 时间窗」的软限流：
+  // 单用户单文件 3 路并发写不会触发，异常高频（脚本刷/连点重传）会被挡下，
+  // 宁可让前端退避重试，也不让 GitHub 侧被击穿导致全局 403/429。
+  if (request.method !== "GET") {
+    const guard = driveWriteRateGuard(request);
+    if (guard) return guard;
+  }
+
   const pinGuard = drivePinGuard(request, env, "云盘口令错误或未提供（请求头 x-drive-pin）", driveErr);
   if (pinGuard) return pinGuard;
 
-  const sub = url.pathname.replace(/^\/api\/drive\/?/, "");
   const repo = CONFIG.drive.repo;
   const branch = CONFIG.drive.branch;
 

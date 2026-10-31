@@ -12,6 +12,11 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="stylesheet" href="/styles/common.css">
   <link rel="stylesheet" href="/styles/drive.css">
+  <!-- v8.2 链路预热：本页所有读写都经 Worker 转发 GitHub，且生产域名会绕路欧洲边缘，
+       提前把 DNS/TCP/TLS 握手做完，首次上传/下载可省下数百毫秒的连接建立时间。
+       与页面加载时并发发出的 /api/drive/warmup 互为补充（前者建连、后者连到源站上游）。 -->
+  <link rel="preconnect" href="https://api.github.com" crossorigin>
+  <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
 </head>
 <body>
   <nav class="navbar">
@@ -455,6 +460,9 @@
           } else {
             a.href = f.downloadUrl;
             a.title = "下载 " + f.name;
+            // v8.2：点击文件名也是下载（同源链接加 download 属性即强制存盘，
+            // 同时保留右键「链接另存为」的能力）
+            a.setAttribute("download", f.name);
           }
           a.textContent = f.name + (f.storage === "chunked" ? " 🧩" : "");
           nameBox.appendChild(icon);
@@ -477,8 +485,10 @@
           dl.title = "下载";
           a._dlBtn = dl; // 名称链接复用同一个下载按钮作状态回显
           dl.onclick = function () {
-            if (f.storage === "chunked") UploadService.downloadChunked(f, dl);
-            else window.location.href = f.downloadUrl;
+            // v8.2：统一走 downloadFile —— 小文件也用 fetch→Blob→<a download>，
+            // 不再 location.href（那会让 txt/png/pdf 被浏览器直接内联预览，
+            // 用户点了「下载」却只在网页里看到内容，以为坏了）。
+            UploadService.downloadFile(f, dl);
           };
           var del = document.createElement("button");
           del.className = "del";
@@ -553,7 +563,8 @@
         var dl = $("btnPreviewDl");
         body.innerHTML = "";
         title.textContent = "👁️ " + f.name;
-        dl.href = f.downloadUrl;
+        // v8.2：带 dl=1，让 Worker 出口叠加 attachment 头，下载不会被预览
+        dl.href = (f.downloadUrl || "") + "?dl=1";
         dl.setAttribute("download", f.name);
         if (kind === "img") {
           var img = document.createElement("img");
@@ -1333,6 +1344,11 @@
       /* v7.2 崩溃恢复：此时渲染层助手（$/fmtBytes/renderQueue）已就绪，
          恢复非空时会经 notify → renderQueue 画队列——必须放在启动区而非 IIFE 顶部 */
       UploadService.restore();
+      /* v8.2 链路预热：异步触发一次 warmup，让 Worker 提前建立到 GitHub 的
+         上游连接（DNS/TCP/TLS）。不 await、不阻塞首屏，失败静默。 */
+      try {
+        fetch("/api/drive/warmup", { method: "GET", credentials: "same-origin" }).catch(function () {});
+      } catch (e) {}
       if (pin) {
         loadList(); // 带旧 PIN 直接加载；失效则 api() 自动弹重验
       } else {

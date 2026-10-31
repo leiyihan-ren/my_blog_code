@@ -53,10 +53,17 @@ window.UploadService = (function () {
 
   /* ---------- 大小与并发策略（与 Worker CONFIG.drive 保持一致） ---------- */
   var SMALL_LIMIT = 8 * 1024 * 1024; // ≤8MB 直传（Contents API 单次 PUT）
-  var CHUNK_SIZE = 5 * 1024 * 1024; // 分片大小 5MB
+  // v8.2 分片调优：5MB → 8MB。
+  //   权衡：片越大请求越少（握手/排队/TLS 开销摊薄），但单片超时与内存风险上升。
+  //   8MB 处在「请求数 × 单片耗时」的谷底：100MB 文件由 20 片降到 13 片，
+  //   Base64 后单片请求体约 10.7MB，仍在 CF 100MB body 上限与写超时内的安全区。
+  // ⚠️ 改动必须与 _worker.js 的 CONFIG.drive.chunkSize / maxPartBodyBytes 同步。
+  var CHUNK_SIZE = 8 * 1024 * 1024; // 分片大小 8MB
   var MAX_TOTAL = 2 * 1024 * 1024 * 1024; // 单文件产品级上限 2GB
   var MAX_CONCURRENT = 3; // 同时上传的文件数上限（v7.1：2→3，step9 V5 / step11 S5 守护）
+  var PART_PARALLEL = 3; // v8.2：单文件内并行上传的分片数（与文件间并发相乘为总并发上限）
   var PART_RETRY = 3; // 单片失败自动重试次数
+  var DL_PART_RETRY = 2; // v8.2：下载单片失败重试次数（GitHub raw 突发限流自愈）
   var DOWNLOAD_CONCURRENT = 4; // 下载重组并发拉片路数
 
   /* ---------- 状态机（v7.1）：值保持既有字符串，UI/测试零破坏 ---------- */
@@ -148,31 +155,47 @@ window.UploadService = (function () {
     });
   }
 
-  /** 分片读取：只把 5MB 薄片读进内存，ArrayBuffer → Base64 */
+  /**
+   * 分片读取（v8.2 提速关键）：改走原生 FileReader.readAsDataURL。
+   * 旧实现是 ArrayBuffer → JS 循环 String.fromCharCode 拼串 → btoa：
+   * 8MB 分片要在主线程拼出约 16MB 字符串，还要再复制一次给 btoa——
+   * 这正是「点了上传先卡一下」的来源，且随分片变大急剧恶化。
+   * readAsDataURL 的编码在浏览器原生层完成，快一个数量级且不占 JS 堆。
+   * ⚠️ 协议约束：GitHub Contents API 只接受 Base64 文本，
+   * 故 Base64 无法彻底丢弃，只能把编码成本从 JS 移到原生层。
+   */
   function readChunkBase64(blob) {
-    return blob.arrayBuffer().then(function (buf) {
-      var bytes = new Uint8Array(buf);
-      var bin = "";
-      // 分块拼接避免 String.fromCharCode.apply 的爆栈问题
-      var STEP = 0x8000;
-      for (var i = 0; i < bytes.length; i += STEP) {
-        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + STEP));
-      }
-      return btoa(bin);
-    });
+    return readAsBase64(blob);
   }
 
   /* ---------- XHR 上传助手（统一重试/进度/超时逻辑） ----------
    * task 传入时登记 task._abort：暂停/取消可在传输途中立即掐断 XHR，
-   * onabort 抛出 PAUSE_SENTINEL——各层 catch 依 status 判读，不误报失败。 */
+   * onabort 抛出 PAUSE_SENTINEL——各层 catch 依 status 判读，不误报失败。
+   *
+   * v8.2 多槽修复：分片并发后，同一任务会同时存在 PART_PARALLEL 个在途 XHR。
+   *   旧实现 `task._abort = fn` 是**单槽**——后发起的请求会覆盖前一个，
+   *   暂停/取消时只能掐断最后一个，其余并发片照常传完并落库。
+   *   后果：所有片都落库后 failedParts 为空 → 流程继续走到 finish →
+   *   被取消的文件静默写进 manifest、混入云盘列表（S5d 守护点）。
+   *   改为把每次请求的 abort 登记进 task._aborts 数组，_abort 掐断全部。 */
   function xhrUpload(method, path, payload, onProgress, timeoutMs, task) {
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       var settled = false;
-      function clearAbort() { if (task && task._abort) task._abort = null; }
+      var abortFn = function () { try { xhr.abort(); } catch (e) { /* 已终态 */ } };
+      function clearAbort() {
+        if (!task || !task._aborts) return;
+        var i = task._aborts.indexOf(abortFn);
+        if (i >= 0) task._aborts.splice(i, 1);
+      }
       if (task) {
+        if (!task._aborts) task._aborts = [];
+        task._aborts.push(abortFn);
+        // 覆盖式赋值：每次新请求都把入口指向最新数组，掐断时遍历全部在途请求
         task._abort = function () {
-          try { xhr.abort(); } catch (e) { /* 已终态 */ }
+          (task._aborts || []).slice().forEach(function (fn) {
+            try { fn(); } catch (e) { /* 已终态 */ }
+          });
         };
       }
       xhr.open(method, path);
@@ -293,7 +316,8 @@ window.UploadService = (function () {
   /**
    * 大文件分片上传：
    * 1) 先问服务端已有哪些分片（断点续传，重试/继续时跳过已传片）
-   * 2) 串行传缺失分片（每片独立 commit，天然断点）
+   * 2) 并行传缺失分片（v8.2：串行 → PART_PARALLEL 路并发；每片独立 commit，
+   *    天然断点，并发不改变幂等性——重传同一片仍是覆盖同一个 part 文件）
    * 3) 全部到位 → finish 写 manifest
    * 任何失败：保留 task.doneBytes，「继续上传」从断点接着来
    */
@@ -318,37 +342,64 @@ window.UploadService = (function () {
         task.status = STATE.UPLOADING;
         notify();
 
-        // 2) 串行传缺失分片。
+        // 2) 并行传缺失分片。
         // 单片彻底失败不中断后续片（弱网稳定性核心）：收集失败序号，
         // 全部跑完后统一进入失败态——已传分片保留，「继续上传」只补失败的。
+        // v8.2：原实现逐片串行（每片「读+传」串行排队），大文件的总耗时 = 片数 ×
+        // 单片往返，而单片大部分时间是空等上游（Worker→GitHub 的 RTT），并发可把
+        // 这段空等重叠掉。并发数取 3：Worker 侧有写限流守卫兜底，不会打爆配额。
         var failedParts = [];
-        var chain = Promise.resolve();
-        for (var i = 0; i < total; i++) {
-          if (task.done[i]) continue;
-          (function (idx) {
-            chain = chain.then(function () {
-              if (task.status === STATE.FAILED || task.status === STATE.CANCELED ||
-                  task.status === STATE.PAUSED) return;
-              task.hint = "第 " + (idx + 1) + "/" + total + " 片";
-              notify();
-              var blob = file.slice(idx * CHUNK_SIZE, Math.min((idx + 1) * CHUNK_SIZE, file.size));
-              return readChunkBase64(blob).then(function (b64) {
-                return uploadPartWithRetry(task, idx, b64);
-              }).then(function () {
-                task.done[idx] = true;
-                task.bytesDone += chunkLen(file.size, idx);
-                task.progress = Math.round((task.bytesDone / file.size) * 100);
-                task.hint = "";
-                notify();
-              }, function () {
-                failedParts.push(idx);
-                task.hint = "第 " + (idx + 1) + " 片失败，继续传后续片…";
-                notify();
-              });
-            });
-          })(i);
+        var queue = [];
+        for (var i = 0; i < total; i += 1) {
+          if (!task.done[i]) queue.push(i);
         }
-        return chain.then(function () {
+        var parallel = Math.min(PART_PARALLEL, queue.length);
+        var workers = [];
+        for (var w = 0; w < parallel; w += 1) {
+          workers.push(
+            (function () {
+              function next() {
+                if (task.status === STATE.FAILED || task.status === STATE.CANCELED ||
+                    task.status === STATE.PAUSED) return Promise.resolve();
+                if (!queue.length) return Promise.resolve();
+                var idx = queue.shift();
+                task.hint = "第 " + (idx + 1) + "/" + total + " 片（并发 " + parallel + "）";
+                notify();
+                // v8.2 闸门 A：取消/暂停可能恰好落在「取片」这一刻——此时本片
+                //   连 XHR 都还没建立（无 abort 可掐）。若不拦，切片与编码
+                //   照做，读完后仍会把请求发出去。这里先确认状态再动手。
+                try {
+                  throwIfPaused(task);
+                } catch (e) {
+                  queue.unshift(idx); // 归还队列，保持断点完整
+                  return Promise.resolve();
+                }
+                var blob = file.slice(idx * CHUNK_SIZE, Math.min((idx + 1) * CHUNK_SIZE, file.size));
+                return readChunkBase64(blob)
+                  .then(function (b64) {
+                    // 闸门 B：读片（8MB 编码，耗时可达数十毫秒）期间被取消时，
+                    //   这里再确认一次，避免把已编码的分片真的发出去。
+                    throwIfPaused(task);
+                    return uploadPartWithRetry(task, idx, b64);
+                  })
+                  .then(function () {
+                    task.done[idx] = true;
+                    task.bytesDone += chunkLen(file.size, idx);
+                    task.progress = Math.round((task.bytesDone / file.size) * 100);
+                    task.hint = "";
+                    notify();
+                  }, function () {
+                    failedParts.push(idx);
+                    task.hint = "第 " + (idx + 1) + " 片失败，继续传后续片…";
+                    notify();
+                  })
+                  .then(next);
+              }
+              return next();
+            })()
+          );
+        }
+        return Promise.all(workers).then(function () {
           if (failedParts.length) {
             throw new Error("分片 " + failedParts.map(function (i) { return i + 1; }).join("、") + " 上传失败");
           }
@@ -499,7 +550,16 @@ window.UploadService = (function () {
   /* ---------- 大文件重组下载 ----------
    * GitHub 无多 blob 拼接 API，下载只能在浏览器端完成——
    * 读 manifest → 并发 DOWNLOAD_CONCURRENT 路拉分片 raw → Blob 顺序重组。
-   * Blob 由浏览器磁盘承载，不全量进 JS 堆；保存动作经 hooks.saveBlob 交还页面。 */
+   * Blob 由浏览器磁盘承载，不全量进 JS 堆；保存动作经 hooks.saveBlob 交还页面。
+   *
+   * v8.2 提速：单片失败指数退避重试 2 次（GitHub raw 对突发并发会限流 429，
+   *   旧实现一次失败即整单失败，大文件下载成功率随片数指数下降）。
+   *
+   * ⚠️ 「下载变预览」的根治点在 downloadFile()：只要走 fetch→Blob→<a download>，
+   *    浏览器必定唤起系统下载器（服务端 Content-Disposition 只在直接导航时生效）。
+   *    拉片 URL 保持纯净（不加查询参数），避免破坏缓存键与测试 mock 匹配；
+   *    Worker 侧仍保留 ?dl=1 兜底，供「直接拿链接下载」的场景使用。
+   */
   function downloadChunked(f, btn) {
     var repo = "leiyihan-ren/Blog";
     btn.disabled = true;
@@ -514,6 +574,24 @@ window.UploadService = (function () {
         var parts = [];
         var next = 0;
         var base = "/api/github/raw/" + repo + "/main/drive/.parts/" + manifest.uploadId + "/part-";
+        /** 单片拉取：429/5xx/网络错误退避重试，最多 DL_PART_RETRY 次 */
+        function fetchPart(idx) {
+          var pad = String(idx).padStart(5, "0");
+          var url = base + pad;
+          var attempt = 0;
+          function fire() {
+            return fetch(url).then(function (r) {
+              if (r.ok) return r.blob();
+              var retryable = r.status === 429 || r.status >= 500;
+              if (!retryable) throw new Error("分片 " + (idx + 1) + " 拉取失败（HTTP " + r.status + "）");
+              attempt += 1;
+              if (attempt > DL_PART_RETRY) throw new Error("分片 " + (idx + 1) + " 拉取失败（HTTP " + r.status + "）");
+              var wait = Math.pow(2, attempt - 1) * 500;
+              return new Promise(function (res) { setTimeout(res, wait); }).then(fire);
+            });
+          }
+          return fire().then(function (b) { parts[idx] = b; });
+        }
         function pump() {
           var batch = [];
           while (next < total && batch.length < DOWNLOAD_CONCURRENT) { batch.push(next); next += 1; }
@@ -525,13 +603,7 @@ window.UploadService = (function () {
             hooks.toast("已重组下载 " + (manifest.name || f.name), "ok");
             return;
           }
-          return Promise.all(batch.map(function (idx) {
-            var pad = String(idx).padStart(5, "0");
-            return fetch(base + pad).then(function (r) {
-              if (!r.ok) throw new Error("分片 " + idx + " 拉取失败（HTTP " + r.status + "）");
-              return r.blob();
-            }).then(function (b) { parts[idx] = b; });
-          })).then(function () {
+          return Promise.all(batch.map(fetchPart)).then(function () {
             btn.textContent = "⏳ 重组 " + Math.min(next, total) + "/" + total;
             return pump();
           });
@@ -542,6 +614,45 @@ window.UploadService = (function () {
         btn.disabled = false;
         btn.textContent = "⬇️ 下载";
         hooks.toast(e.message || "重组下载失败", "err");
+      });
+  }
+
+  /**
+   * 下载统一入口（v8.2 修复「点击下载变成网页内预览」）：
+   * 不论大小文件，一律 fetch → Blob → <a download> 触发系统下载器，
+   * 绝不用 window.location.href / <a target=_blank> 让浏览器按 MIME 自行决定
+   * （txt/png/pdf 等会被内联预览，用户以为点了没反应）。
+   * @param {object} f    文件条目（storage: "contents" | "chunked"）
+   * @param {HTMLElement} btn 触发按钮（用于禁用与文案回显，可空）
+   */
+  function downloadFile(f, btn) {
+    if (f && f.storage === "chunked") return downloadChunked(f, btn);
+    var url = f && f.downloadUrl;
+    if (!url) {
+      hooks.toast("该文件没有可用的下载地址", "err");
+      return Promise.resolve();
+    }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "⏳ 下载中…";
+    }
+    return fetch(url)
+      .then(function (r) {
+        if (!r.ok) throw new Error("下载失败（HTTP " + r.status + "）");
+        return r.blob();
+      })
+      .then(function (blob) {
+        hooks.saveBlob(blob, (f && f.name) || "download");
+        hooks.toast("已下载 " + ((f && f.name) || "download"), "ok");
+      })
+      .catch(function (e) {
+        hooks.toast(e.message || "下载失败", "err");
+      })
+      .then(function () {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "⬇️ 下载";
+        }
       });
   }
 
@@ -749,6 +860,7 @@ window.UploadService = (function () {
     isUploading: isUploading,
     isBusy: isBusy,
     downloadChunked: downloadChunked,
+    downloadFile: downloadFile,
     STATE: STATE,
     constants: function () {
       return {
@@ -756,7 +868,9 @@ window.UploadService = (function () {
         CHUNK_SIZE: CHUNK_SIZE,
         MAX_TOTAL: MAX_TOTAL,
         MAX_CONCURRENT: MAX_CONCURRENT,
+        PART_PARALLEL: PART_PARALLEL,
         PART_RETRY: PART_RETRY,
+        DL_PART_RETRY: DL_PART_RETRY,
         DOWNLOAD_CONCURRENT: DOWNLOAD_CONCURRENT,
       };
     },

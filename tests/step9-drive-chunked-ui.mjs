@@ -140,12 +140,16 @@ globalThis.fetch = async (input, init) => {
 
 /* ---------- 预置：一个已存在的大文件（manifest，用于覆盖与锁测试） ---------- */
 {
+  // v8.2：预置的旧分片按「当前分片大小」切分，避免测试与引擎常量漂移
+  const CHUNK_SIZE = 8 * 1024 * 1024;
+  const SIZE = 12 * 1024 * 1024;
+  const n = Math.ceil(SIZE / CHUNK_SIZE);
   const manifest = {
     uploadId: "bigexist",
     name: "big.bin",
-    size: 12 * 1024 * 1024,
-    total: 3,
-    chunkBytes: 5 * 1024 * 1024,
+    size: SIZE,
+    total: n,
+    chunkBytes: CHUNK_SIZE,
     createdAt: "2026-10-24T09:00:00Z",
   };
   store.set("drive/.m-bigexist.json", {
@@ -154,10 +158,11 @@ globalThis.fetch = async (input, init) => {
     size: 120,
   });
   for (let i = 0; i < 1; i++) {
+    const len = Math.min(CHUNK_SIZE, SIZE - i * CHUNK_SIZE);
     store.set(`drive/.parts/bigexist/part-0000${i}`, {
       sha: `psha-bigexist-${i}`,
-      content: Buffer.alloc(i === 2 ? 2 * 1024 * 1024 : 5 * 1024 * 1024, 65 + i).toString("base64"),
-      size: i === 2 ? 2 * 1024 * 1024 : 5 * 1024 * 1024,
+      content: Buffer.alloc(len, 65 + i).toString("base64"),
+      size: len,
     });
   }
 }
@@ -266,6 +271,15 @@ async function main() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const doneSel = (name) => `.up-item[data-name="${name}"].done`;
 
+  /* v8.2：分片大小是「可调策略常量」而非协议常量，断言必须从引擎实时读取，
+     否则每次调参都要改一堆写死的数字（这里就是血的教训：5MB→8MB 曾让
+     step9 一次性红了 11 条，全是写死片数/字节数导致的假阳性）。 */
+  const CHUNK = await page.evaluate(() =>
+    window.UploadService && UploadService.constants ? UploadService.constants().CHUNK_SIZE : 8 * 1024 * 1024
+  );
+  const partsOf = (mb) => Math.ceil((mb * 1024 * 1024) / CHUNK);
+  const seq = (n) => Array.from({ length: n }, function (_, i) { return i; });
+
   try {
     console.log("== V 组：大文件分片端到端 ==");
 
@@ -285,9 +299,12 @@ async function main() {
     });
     await page.waitForSelector(doneSel("movie-12mb.bin"), { timeout: 90000 });
     check("V1a 12MB 文件分片上传完成", true);
+    const n1 = partsOf(12);
     check(
-      "V1b 3 个分片按序落库（part-00000/1/2）",
-      ghLog.partPuts.length === 3 && ghLog.partPuts.every((p, i) => p.index === i),
+      `V1b ${n1} 个分片全部落库（序号齐全）`,
+      ghLog.partPuts.length === n1 &&
+        ghLog.partPuts.map((p) => p.index).sort(function (a, b) { return a - b; }).join(",") ===
+          seq(n1).join(","),
       JSON.stringify(ghLog.partPuts.map((p) => p.index))
     );
     check(
@@ -313,8 +330,9 @@ async function main() {
       buffer: Buffer.alloc(11 * 1024 * 1024, 0x43),
     });
     await page.waitForSelector(doneSel("weak-net.bin"), { timeout: 90000 });
-    check("V2a 弱网下分片自动重试并成功", ghLog.partFails >= 1 && ghLog.partPuts.length === 3, `注入失败=${ghLog.partFails} 落库=${ghLog.partPuts.length}`);
-    check("V2b 3 片全部落库", ghLog.partPuts.length === 3, `puts=${ghLog.partPuts.length}`);
+    const n2 = partsOf(11);
+    check("V2a 弱网下分片自动重试并成功", ghLog.partFails >= 1 && ghLog.partPuts.length === n2, `注入失败=${ghLog.partFails} 落库=${ghLog.partPuts.length}`);
+    check(`V2b ${n2} 片全部落库`, ghLog.partPuts.length === n2, `puts=${ghLog.partPuts.length}`);
 
     // V3 断点续传：index=1 连续失败耗尽 1+3 次尝试 → 继续上传只补失败片
     partFail[1] = 4;
@@ -327,7 +345,8 @@ async function main() {
     await page.waitForSelector('.up-item[data-name="resumable.bin"].failed', { timeout: 120000 });
     const beforeFail = ghLog.partPuts.map((p) => p.index).sort();
     check("V3a 重试耗尽后进入失败态", true);
-    check("V3b 失败前其余分片已落库（0 和 2）", JSON.stringify(beforeFail) === JSON.stringify([0, 2]), JSON.stringify(beforeFail));
+    const exp3 = seq(partsOf(13)).filter(function (i) { return i !== 1; });
+    check("V3b 失败前其余分片已落库", JSON.stringify(beforeFail) === JSON.stringify(exp3), JSON.stringify(beforeFail));
     // 放行 index=1，点击「继续上传（断点续传）」
     partFail[1] = 0;
     const before = ghLog.partPuts.length;
@@ -372,10 +391,11 @@ async function main() {
     check("V4c 同名覆盖不产生重复条目", bigRows === 1, `rows=${bigRows}`);
     // 覆盖上传复用原 uploadId：parts 落在 .parts/bigexist/ 下
     check(
-      "V4d 覆盖上传复用原 uploadId（断点跳过 part0，补传 1/2 于原目录）",
-      ghLog.partPuts.length === 2 &&
+      "V4d 覆盖上传复用原 uploadId（断点跳过 part0，其余片补传于原目录）",
+      ghLog.partPuts.length === partsOf(12) - 1 &&
         ghLog.partPuts.every((p) => p.path.includes("/.parts/bigexist/")) &&
-        ghLog.partPuts.map((p) => p.index).sort().join(",") === "1,2",
+        ghLog.partPuts.map((p) => p.index).sort().join(",") ===
+          seq(partsOf(12)).filter(function (i) { return i !== 0; }).join(","),
       JSON.stringify(ghLog.partPuts.map((p) => p.path))
     );
 
@@ -424,11 +444,16 @@ async function main() {
       } catch (e) { out.err = String(e); }
       return out;
     });
+    const n6 = partsOf(12);
+    const n8 = partsOf(32);
+    const sizes6 = seq(n6).map(function (i) {
+      return Math.min(CHUNK, 12 * 1024 * 1024 - i * CHUNK);
+    });
     check(
-      "V6a manifest 与 3 个分片直链全部 200（字节 5M+5M+2M）",
-      chain.manifestStatus === 200 && chain.total === 3 &&
-        chain.parts.length === 3 && chain.parts.every((p) => p[0] === 200) &&
-        chain.parts.map((p) => p[1]).join(",") === [5242880, 5242880, 2097152].join(","),
+      `V6a manifest 与 ${n6} 个分片直链全部 200（字节 ${sizes6.map(function (s) { return (s / 1048576) + "M"; }).join("+")}）`,
+      chain.manifestStatus === 200 && chain.total === n6 &&
+        chain.parts.length === n6 && chain.parts.every((p) => p[0] === 200) &&
+        chain.parts.map((p) => p[1]).join(",") === sizes6.join(","),
       JSON.stringify(chain)
     );
     await page.evaluate(() => { window.__blobSizes = []; });
@@ -455,10 +480,30 @@ async function main() {
     check("V7a 小文件上传完成", true);
     check("V7b 小文件不走分片（零 part PUT）", ghLog.partPuts.length === 0, `partPuts=${ghLog.partPuts.length}`);
 
-    // V8 32MB 端到端（20-50MB 区间）：7 片上传 → 进度条 → 列表可见
+    // V8 32MB 端到端（20-50MB 区间）：分片上传 → 进度条 → 列表可见
     //     → 重组下载 32MB Blob → 删除时注入 409 读副本滞后 → worker 自愈后删除成功
     ghLog.partPuts.length = 0;
     ghLog.deletes.length = 0;
+    /* v8.2：hint 是「上传期间的瞬时状态」——每片完成即清空。
+       分片变大（5→8MB）后片数变少、单片耗时变短，hint 存活窗口只有几毫秒，
+       任何采样式断言（evaluate 单点读 / waitForFunction 的 raf 轮询）都会漏掉，
+       造成「功能正常但测试红」的假阳性。
+       改用 MutationObserver 做**事件驱动**捕获：DOM 每次变更都同步记录一份快照，
+       微任务级别精度，绝无采样漏采，且仍保留「必须真的出现过」的断言强度。 */
+    await page.evaluate(() => {
+      window.__hintLog = [];
+      window.__hintObserver = new MutationObserver(function () {
+        var it = document.querySelector('.up-item[data-name="movie-32mb.bin"]');
+        if (!it) return;
+        var t = it.textContent || "";
+        if (window.__hintLog[window.__hintLog.length - 1] !== t) window.__hintLog.push(t);
+      });
+      window.__hintObserver.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+    });
     await page.setInputFiles("#fileInput", {
       name: "movie-32mb.bin",
       mimeType: "application/octet-stream",
@@ -476,16 +521,26 @@ async function main() {
       { timeout: 60000 }
     );
     check("V8a 上传中进度条实时推进", true);
-    const hintSeen = await page.evaluate(() => {
-      const it = document.querySelector('.up-item[data-name="movie-32mb.bin"]');
-      return it ? /第 \d\/7 片/.test(it.textContent) : false;
-    });
-    check("V8b 队列显示分片进度（第 x/7 片）", hintSeen);
+    // hint 历史由上面挂载的 MutationObserver 全程记录，此处只做「出现过」断言
+    const hintInfo = await page.evaluate(function (n) {
+      var log = window.__hintLog || [];
+      var re = new RegExp("第 \\d/" + n + " 片");
+      var hit = log.filter(function (t) { return re.test(t); });
+      if (window.__hintObserver) window.__hintObserver.disconnect();
+      return { total: log.length, hit: hit.length, sample: (hit[0] || log[log.length - 1] || "").slice(-60) };
+    }, n8);
+    check(
+      `V8b 队列显示分片进度（第 x/${n8} 片）`,
+      hintInfo.hit > 0,
+      `快照=${hintInfo.total} 命中=${hintInfo.hit} 样例="${hintInfo.sample}"`
+    );
     await page.waitForSelector(doneSel("movie-32mb.bin"), { timeout: 150000 });
     check("V8c 32MB 文件上传完成", true);
     check(
-      "V8d 7 个分片按序落库（6×5MB + 1×2MB）",
-      ghLog.partPuts.length === 7 && ghLog.partPuts.every((p, i) => p.index === i),
+      `V8d ${n8} 个分片全部落库（序号齐全）`,
+      ghLog.partPuts.length === n8 &&
+        ghLog.partPuts.map((p) => p.index).sort(function (a, b) { return a - b; }).join(",") ===
+          seq(n8).join(","),
       JSON.stringify(ghLog.partPuts.map((p) => p.index))
     );
     await page.waitForFunction(
@@ -532,7 +587,7 @@ async function main() {
       `del409=${JSON.stringify(ghLog.del409)} deletes0=${ghLog.deletes.filter((p) => p === p0).length}`
     );
     const all32 = ghLog.deletes.filter((p) => p.includes(uid32));
-    check("V8i 7 片 + manifest 全部删除（自愈不影响其余）", all32.length === 8, `got ${all32.length}`);
+    check(`V8i ${n8} 片 + manifest 全部删除（自愈不影响其余）`, all32.length === n8 + 1, `got ${all32.length}`);
   } finally {
     await browser.close();
     staticServer.close();
