@@ -262,6 +262,14 @@ async function main() {
 
   let page = await openDrive();
 
+  /* v8.2：分片大小是「可调策略常量」（5MB→8MB），片数 = ⌈size/CHUNK⌉。
+     断言里的片数一律实时推算，禁止写死——否则每次调参都会假阳性。 */
+  const CHUNK = await page.evaluate(() =>
+    window.UploadService && UploadService.constants ? UploadService.constants().CHUNK_SIZE : 8 * 1024 * 1024
+  );
+  const partsOf = (mb) => Math.ceil((mb * 1024 * 1024) / CHUNK);
+  const seq = (n) => Array.from({ length: n }, (_, i) => i);
+
   try {
     console.log("== P 组：v7.2 反脆弱魔鬼压测 ==");
 
@@ -328,10 +336,14 @@ async function main() {
     );
     check("P2a 50MB 上传中进度条实时推进", true);
     await page.waitForSelector(doneSel("movie-50mb.bin"), { timeout: 180000 });
-    check("P2b 50MB（10 片）上传完成", true);
+    const n50 = partsOf(50);
+    check(`P2b 50MB（${n50} 片）上传完成`, true);
+    // v8.2：并发上传下分片落库顺序不保证，断言改为「序号齐全且不重复」
+    const p2 = ghLog.partPuts.map((p) => p.index).sort((a, b) => a - b);
     check(
-      "P2c 10 个分片按序落库",
-      ghLog.partPuts.length === 10 && ghLog.partPuts.every((p, i) => p.index === i),
+      `P2c ${n50} 个分片全部落库`,
+      p2.length === n50 && new Set(p2).size === n50 &&
+        p2.join(",") === seq(n50).join(","),
       JSON.stringify(ghLog.partPuts.map((p) => p.index))
     );
     // 重组下载 50MB Blob
@@ -399,9 +411,11 @@ async function main() {
     await page2.waitForSelector(doneSel("crash-12mb.bin"), { timeout: 90000 });
     check("P3d 重选同名文件后断点续传完成", true);
     const crashIdx = ghLog.partPuts.map((p) => p.index).sort((a, b) => a - b);
+    const n12 = partsOf(12);
     check(
-      "P3e 分片无重复（强关前 1 片 + 重开后补齐，共 3 片各一次）",
-      crashIdx.length === 3 && new Set(crashIdx).size === 3,
+      `P3e 分片无重复（强关前 1 片 + 重开后补齐，共 ${n12} 片各一次）`,
+      crashIdx.length === n12 && new Set(crashIdx).size === n12 &&
+        crashIdx.join(",") === seq(n12).join(","),
       `indices=${JSON.stringify(crashIdx)}`
     );
     // 崩溃恢复数据在任务完成后自动清除

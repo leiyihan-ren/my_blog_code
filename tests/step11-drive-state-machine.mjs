@@ -537,7 +537,9 @@ async function main() {
     check("S5a 取消后任务立即出队", true);
     // 在途 PUT 服务端可能已收完（HTTP 语义，落库 ≤+1 属正常，resume 时断点查询会跳过）；
     // 等 500ms 让其落定后，该任务必须零增长
-    await sleep(500);
+    // 落定等待必须大于单片传输窗口（慢速模式下为 1200ms），否则会把
+    // 「尚未落定的在途请求」误判为「取消后仍在落库」
+    await sleep(slowMode ? 1800 : 500);
     const putsOfCanceled = () => ghLog.partPuts.filter((p) => cancelUid && p.path.includes(cancelUid)).length;
     const cancelPutsAt = putsOfCanceled();
     await sleep(1200);
