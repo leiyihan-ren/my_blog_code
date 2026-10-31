@@ -43,7 +43,14 @@
   --mc-font: "Segoe UI", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
 
   min-height: 100vh;
-  background: var(--mc-bg);
+  /* v9.0 磨砂玻璃（Tailwind 风格 glassmorphism，纯 CSS 实现）：
+     ① 卡片用 backdrop-filter 需要底层存在色差才可见，故铺两层极淡径向光晕；
+     ② 刻意不引 Tailwind CDN —— 站点 CSP 会拦截外链脚本，且多一个第三方
+        请求就是多一跳首屏开销。手写等价效果，零请求、零依赖。 */
+  background:
+    radial-gradient(900px 520px at 12% -8%, rgba(79, 195, 247, .13), transparent 60%),
+    radial-gradient(760px 460px at 92% 4%, rgba(76, 175, 80, .10), transparent 60%),
+    var(--mc-bg);
   color: var(--mc-text);
   font-family: var(--mc-font);
   font-size: 14px;
@@ -193,12 +200,44 @@ body { background: var(--mc-bg, #1b1b1f); margin: 0; }
 @media (max-width: 640px)  { .mc-grid { grid-template-columns: 1fr; } }
 
 .mc-card {
-  background: var(--mc-panel);
-  border: 1px solid var(--mc-line);
-  border-radius: 6px;
+  /* v9.0 磨砂玻璃卡片：半透明底 + 背景模糊 + 顶部高光内描边 */
+  background: linear-gradient(180deg, rgba(44, 44, 50, .72), rgba(32, 32, 37, .66));
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, .09);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .34), inset 0 1px 0 rgba(255, 255, 255, .06);
+  border-radius: 10px;
   padding: 14px 16px;
   min-width: 0;
 }
+/* 不支持 backdrop-filter 的浏览器：退回不透明底，保证可读性不塌 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mc-card { background: var(--mc-panel); }
+}
+
+/* ---------- v9.0 骨架屏（Skeleton）：数据到达前占位，杜绝白屏/布局跳动 ---------- */
+.mc-skel {
+  display: inline-block;
+  border-radius: 5px;
+  background: linear-gradient(90deg, rgba(255,255,255,.055) 25%, rgba(255,255,255,.115) 37%, rgba(255,255,255,.055) 63%);
+  background-size: 400% 100%;
+  animation: mc-skel-shine 1.3s ease-in-out infinite;
+  color: transparent !important;
+  user-select: none;
+}
+.mc-skel-line  { display: block; height: 10px; }
+.mc-skel-lg    { display: block; height: 26px; width: 62%; }
+.mc-skel-block { display: block; height: 12px; width: 100%; }
+@keyframes mc-skel-shine {
+  0%   { background-position: 100% 50%; }
+  100% { background-position: 0 50%;    }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc-skel { animation: none; }
+}
+/* 数据未就绪：隐藏真实数值，只露骨架（aria-busy 供读屏器识别） */
+.mc-card[aria-busy="true"] .mc-kv-main,
+.mc-card[aria-busy="true"] .mc-bar-label b { visibility: hidden; }
 .mc-card-head {
   display: flex;
   align-items: center;
@@ -451,32 +490,78 @@ body { background: var(--mc-bg, #1b1b1f); margin: 0; }
    不必为用不上的网络层多花一个请求（新建页面不得拖慢既有首屏）。
    ========================================================================== */
 
-/* ---------- Mock 数据（唯一需要替换的地方） ---------- */
-var MC_MOCK = {
-  address: "mc.yourdomain.com",   // ← 换成你真实的服务器域名/IP
-  port: 25565,
-  pingMs: 28,
-  players: ["Steve", "Alex", "Notch"],   // 在线玩家名，下方按此渲染方块头像
-  maxPlayers: 20,
-  cpuPercent: 34,
-  memUsedGB: 2.4,
-  memTotalGB: 4,
-  diskUsedGB: 18.6,
-  diskTotalGB: 40,
-};
+/* ---------- v9.0 真实数据源 ------------------------------------------
+   公开查询接口 mcsrvstat.us（免密钥、支持 CORS、覆盖 Java/基岩版）。
+   换服务器：把 SERVER_ADDR 改成你自己的域名/IP 即可，其余逻辑全部自适应。
+   ⚠️ CPU/内存/磁盘这类**宿主机指标**不在该 API 的能力范围内——
+      公开查询只能看到「服务端对外暴露的信息」。要拿到真实资源占用，
+      需在服务端装 MCSManager / Prometheus exporter 并配 MC_PANEL_API
+      （本页已预留接入点，未配置时该项显示「未接入」而非伪造数字。
+       用假数据冒充监控指标，比留空更危险——运维面板的第一原则是别骗人）。
+   ------------------------------------------------------------------ */
+var SERVER_ADDR = "play.hypixel.net";   // ← 换成你自己的服务器地址
+var SERVER_PORT = 25565;
+var MC_PANEL_API = "";                  // ← 可选：MCSManager OpenAPI，留空则不显示资源占用
+
+function statusUrl(addr, port) {
+  return "https://api.mcsrvstat.us/3/" + encodeURIComponent(addr) +
+    (port && port !== 25565 ? ":" + port : "");
+}
+
+/**
+ * 拉取真实服务器状态，并归一化成渲染所需结构。
+ * 任何异常都降级为 offline 视图——面板绝不因接口抖动而白屏。
+ */
+function fetchServerStatus() {
+  return fetch(statusUrl(SERVER_ADDR, SERVER_PORT), { cache: "no-store" })
+    .then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    })
+    .then(function (j) {
+      var p = (j && j.players) || {};
+      var dbg = (j && j.debug) || {};
+      return {
+        address: SERVER_ADDR,
+        port: (j && j.port) || SERVER_PORT,
+        online: !!(j && j.online),
+        // mcsrvstat 的 debug.ping 即探测往返延迟；部分节点不返回，回退为 null
+        pingMs: typeof dbg.ping === "number" ? Math.round(dbg.ping) : null,
+        playersOnline: typeof p.online === "number" ? p.online : 0,
+        maxPlayers: typeof p.max === "number" && p.max > 0 ? p.max : 0,
+        playerNames: Array.isArray(p.list) ? p.list.slice(0, 36) : [],
+        version: (j && j.version) || "",
+        motd: flattenMotd(j && j.motd),
+      };
+    });
+}
+
+/** MOTD 可能是 {clean:[...]} / 字符串 / 数组，统一压平成一行纯文本 */
+function flattenMotd(m) {
+  if (!m) return "";
+  if (typeof m === "string") return m.replace(/\s+/g, " ").trim();
+  var arr = m.clean || m.raw || (Array.isArray(m) ? m : null);
+  if (!arr) return "";
+  return (Array.isArray(arr) ? arr.join(" ") : String(arr)).replace(/\s+/g, " ").trim();
+}
 
 document.addEventListener("DOMContentLoaded", function () {
   var $ = function (id) { return document.getElementById(id); };
 
   /* ---------- 渲染 ---------- */
-  function renderPlayers(names) {
+  function renderPlayers(names, online) {
     var box = $("mcPlayerList");
     if (!box) return;
     box.innerHTML = "";
     if (!names.length) {
       var empty = document.createElement("div");
       empty.className = "mc-players-empty";
-      empty.textContent = "当前无玩家在线";
+      // 大服（如 Hypixel）出于隐私不公开玩家名单，只报总数。
+      // 此时若照写「当前无玩家在线」是严重误导——必须区分
+      // 「真的没人」与「拿不到名单」，运维面板不能给错信息。
+      empty.textContent = online > 0
+        ? "在线 " + online + " 人（服务器未公开玩家名单）"
+        : "当前无玩家在线";
       box.appendChild(empty);
       return;
     }
@@ -493,32 +578,91 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   }
 
+  /* ---------- 骨架屏控制：数据未到前占位，杜绝白屏与布局跳动 ---------- */
+  var SKEL_IDS = ["mcAddr", "mcPlayers", "mcPing", "mcCpuText", "mcMemText", "mcDiskUsed"];
+  function setBusy(busy) {
+    SKEL_IDS.forEach(function (id) {
+      var el = $(id);
+      if (!el) return;
+      var card = el.closest(".mc-card");
+      if (card) card.setAttribute("aria-busy", busy ? "true" : "false");
+      var sk = el.querySelector(".mc-skel");
+      if (busy) {
+        if (!sk) {
+          sk = document.createElement("i");
+          sk.className = "mc-skel " + (id === "mcAddr" || id === "mcPlayers" ? "mc-skel-lg" : "mc-skel-line");
+          el.appendChild(sk);
+        }
+      } else if (sk) { sk.remove(); }
+    });
+  }
+
+  /** 保障玩家卡片存在「在线/上限」进度条（缺失则就地创建，不依赖改 HTML） */
+  function ensurePlayersBar() {
+    var bar = $("mcPlayersBar");
+    if (bar) return bar;
+    var host = $("mcPlayers");
+    if (!host) return null;
+    var wrap = document.createElement("div");
+    wrap.className = "mc-bar";
+    bar = document.createElement("i");
+    bar.id = "mcPlayersBar";
+    bar.style.width = "0%";
+    wrap.appendChild(bar);
+    var card = host.closest(".mc-card");
+    if (card) card.appendChild(wrap);
+    return bar;
+  }
+
   function renderAll(d) {
     $("mcAddr").textContent = d.address;
     $("mcPort").textContent = ":" + d.port;
-    $("mcPing").textContent = d.pingMs + " ms";
+    $("mcPing").textContent = d.pingMs == null ? "—" : d.pingMs + " ms";
 
-    $("mcPlayers").textContent = String(d.players.length);
-    $("mcPlayers").nextElementSibling.textContent = `/ ${d.maxPlayers} 在线`;
-    renderPlayers(d.players);
+    var online = d.online ? d.playersOnline : 0;
+    var sub = $("mcPlayers") && $("mcPlayers").nextElementSibling;
+    $("mcPlayers").textContent = String(online);
+    if (sub) sub.textContent = d.maxPlayers > 0 ? "/ " + d.maxPlayers + " 在线" : "/ — 在线";
+    // 真实在线人数 / 最大人数 → 动态进度条
+    var pbar = ensurePlayersBar();
+    if (pbar) {
+      var pct = d.maxPlayers > 0 ? Math.round((online / d.maxPlayers) * 100) : 0;
+      pbar.style.width = Math.min(100, Math.max(0, pct)) + "%";
+    }
+    renderPlayers(d.playerNames, online);
 
-    $("mcCpuText").textContent = d.cpuPercent + "%";
-    $("mcCpuBar").style.width = Math.min(100, Math.max(0, d.cpuPercent)) + "%";
-
-    var memPct = Math.round((d.memUsedGB / d.memTotalGB) * 100);
-    $("mcMemText").textContent = d.memUsedGB + " GB / " + d.memTotalGB + " GB";
-    $("mcMemBar").style.width = Math.min(100, Math.max(0, memPct)) + "%";
-
-    var diskPct = Math.round((d.diskUsedGB / d.diskTotalGB) * 100);
-    $("mcDiskUsed").textContent = d.diskUsedGB + " GB";
-    $("mcDiskUsed").nextElementSibling.textContent = `/ ${d.diskTotalGB} GB 已用`;
-    $("mcDiskBar").style.width = Math.min(100, Math.max(0, diskPct)) + "%";
+    // 资源占用：公开查询 API 不提供宿主机指标，未接面板时如实标注「未接入」
+    var hasPanel = !!MC_PANEL_API;
+    ["mcCpuText", "mcMemText"].forEach(function (id, i) {
+      $(id).textContent = hasPanel ? (d.resources && d.resources[i]) || "—" : "未接入";
+    });
+    $("mcCpuBar").style.width = hasPanel && d.cpuPercent != null ? d.cpuPercent + "%" : "0%";
+    $("mcMemBar").style.width = hasPanel && d.memPercent != null ? d.memPercent + "%" : "0%";
+    $("mcDiskUsed").textContent = hasPanel && d.diskUsedGB != null ? d.diskUsedGB + " GB" : "未接入";
+    var dsub = $("mcDiskUsed").nextElementSibling;
+    if (dsub) dsub.textContent = hasPanel && d.diskTotalGB != null ? "/ " + d.diskTotalGB + " GB 已用" : "需 MCSManager 面板";
+    $("mcDiskBar").style.width = hasPanel && d.diskPercent != null ? d.diskPercent + "%" : "0%";
   }
-  renderAll(MC_MOCK);
+
+  /* ---------- 启动：先上骨架屏 → 拉真实数据 → 回填 ---------- */
+  setBusy(true);
+  var REFRESH_MS = 60000; // 公开查询接口有速率限制，60s 轮询已足够灵敏
+  function boot() {
+    fetchServerStatus()
+      .then(renderAll)
+      .catch(function () {
+        // 接口不可达：保留骨架移除，渲染离线态，不白屏
+        renderAll({ address: SERVER_ADDR, port: SERVER_PORT, online: false, pingMs: null,
+          playersOnline: 0, maxPlayers: 0, playerNames: [] });
+      })
+      .then(function () { setBusy(false); });
+  }
+  boot();
+  setInterval(boot, REFRESH_MS);
 
   /* ---------- 一键复制服务器地址 ---------- */
   $("btnCopyAddr").addEventListener("click", function () {
-    var addr = MC_MOCK.address + ":" + MC_MOCK.port;
+    var addr = SERVER_ADDR + ":" + SERVER_PORT;
     // BlogUtils.copyText 内含 clipboard API → execCommand 降级
     window.BlogUtils.copyText(addr).then(function (ok) {
       window.BlogUtils.toast(ok ? "已复制服务器地址：" + addr : "复制失败，请手动选中复制");

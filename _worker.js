@@ -1535,6 +1535,10 @@ function withDownloadHeaders(response, name) {
   const headers = new Headers(response.headers);
   headers.set("Content-Type", "application/octet-stream");
   headers.set("Content-Disposition", contentDispositionAttachment(name));
+  // v8.3：下载走 fetch→Blob（前端需读取响应并交给 <a download>）。
+  //   若资源从其它源引用，Content-Disposition 默认不在 CORS 白名单内，
+  //   前端读不到文件名、也拿不到 body。显式暴露给 JS，保证跨域场景同样可用。
+  headers.set("Access-Control-Expose-Headers", "Content-Disposition, Content-Length, ETag");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

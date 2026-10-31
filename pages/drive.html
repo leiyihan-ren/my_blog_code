@@ -583,7 +583,8 @@
           tip.className = "preview-tip";
           tip.textContent = "加载中…";
           body.appendChild(tip);
-          fetch(f.downloadUrl).then(function (r) {
+          // v8.3：raw 代理需口令，缺头即 401（文本预览也是此路径）
+          fetch(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (r) {
             if (!r.ok) throw new Error("HTTP " + r.status);
             return r.text();
           }).then(function (txt) {
@@ -708,7 +709,7 @@
         var dir = f.path.replace(/[^/]*$/, ""); // 保留所在目录
         var newPath = dir + newName;
         // 1) 读回旧文件内容（raw 代理）
-        fetch(f.downloadUrl).then(function (res) {
+        fetch(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (res) {
           if (!res.ok) throw new Error("读取原文件失败（HTTP " + res.status + "）");
           return res.arrayBuffer();
         }).then(function (buf) {
@@ -1044,7 +1045,7 @@
       /** 抓取单个文件 Blob：小文件走 downloadUrl 直拉；大文件经引擎重组（临时劫持 saveBlob） */
       function fetchFileBlob(f) {
         if (f.storage !== "chunked") {
-          return fetch(f.downloadUrl).then(function (r) {
+          return fetch(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (r) {
             if (!r.ok) throw new Error(f.name + " 下载失败（HTTP " + r.status + "）");
             return r.blob();
           });

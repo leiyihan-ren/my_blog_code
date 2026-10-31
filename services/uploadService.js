@@ -580,7 +580,8 @@ window.UploadService = (function () {
           var url = base + pad;
           var attempt = 0;
           function fire() {
-            return fetch(url).then(function (r) {
+            // v8.3：同 downloadFile——拉片走 Worker 代理须带口令，否则 401
+            return fetch(url, { headers: { "x-drive-pin": hooks.getPin() } }).then(function (r) {
               if (r.ok) return r.blob();
               var retryable = r.status === 429 || r.status >= 500;
               if (!retryable) throw new Error("分片 " + (idx + 1) + " 拉取失败（HTTP " + r.status + "）");
@@ -636,7 +637,10 @@ window.UploadService = (function () {
       btn.disabled = true;
       btn.textContent = "⏳ 下载中…";
     }
-    return fetch(url)
+    // v8.3 修复「点击下载报错」：/api/github/raw/ 走 Worker 的 GitHub 代理，
+    //   该路径要求 x-drive-pin。fetch 与 <img src> 不同——后者由浏览器自动带上
+    //   同源凭据，前者不会，缺头即被 Worker 挡回 401，前端表现为「下载失败」。
+    return fetch(url, { headers: { "x-drive-pin": hooks.getPin() } })
       .then(function (r) {
         if (!r.ok) throw new Error("下载失败（HTTP " + r.status + "）");
         return r.blob();
