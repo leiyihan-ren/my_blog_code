@@ -274,3 +274,43 @@ body.page-enter { animation: page-enter-in 0.28s var(--ease); }
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================
+   v9.1 全局精修：统一令牌 / 跨页淡入淡出 / 细腻 Hover / 对比度
+   纯增量：低特异性兜底，不覆盖任何页面私有样式；渐进增强，不支持即忽略。
+   ============================================================ */
+
+/* 统一组件令牌：圆角 / 阴影 / 边框在全站对齐到同一套值 */
+:root {
+  --radius-card: 12px;
+  --radius-field: 8px;
+  --shadow-card: 0 2px 12px rgba(0,0,0,0.04);
+  --field-border: var(--border);
+}
+body.dark { --shadow-card: 0 2px 12px rgba(0,0,0,0.30); }
+
+/* 零特异性兜底：仅在页面未自定义圆角时生效，绝不覆盖既有视觉 */
+:where(.glass, .toast) { border-radius: var(--radius-card); }
+:where(input, textarea, select, .btn) { border-radius: var(--radius-field); }
+
+/* 数据密集页（云盘 / MC）对比度：次要文字明暗两态都拉到 AA 以上，
+   长时间盯数据不刺眼，不改动主文字与主题色，保持既有基调 */
+:root { --text-mute: #5b6472; }
+body.dark { --text-mute: #b3bac8; }
+
+/* 跨文档淡入淡出：View Transitions（零 JS、原生 MPA 转场）。
+   站内跳转时由浏览器自动 cross-fade；不支持的浏览器完全忽略，行为同旧版。 */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: v91-vt-out 0.18s ease both; }
+::view-transition-new(root) { animation: v91-vt-in 0.32s var(--ease) both; }
+@keyframes v91-vt-out { to   { opacity: 0; } }
+@keyframes v91-vt-in  { from { opacity: 0; } }
+
+/* 细腻 Hover：玻璃层极轻的边框高亮（不含位移/阴影，零布局影响） */
+:where(.glass) { transition: border-color 0.28s var(--ease); }
+:where(.glass):hover { border-color: rgba(var(--primary-rgb), 0.35); }
+
+/* 系统减弱动效偏好下，连跨页转场一并关闭 */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none !important; }
+}

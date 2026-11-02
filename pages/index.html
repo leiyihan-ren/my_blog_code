@@ -25,6 +25,17 @@
 <link rel="canonical" href="https://leiyihan.dpdns.org/index.html">
   <meta name="twitter:card" content="summary">
   <title>首页 - 我的博客</title>
+  <!-- v9.1：图片 CDN 预解析，首屏外链资源少一跳 DNS/TLS -->
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link rel="dns-prefetch" href="https://cdn.statically.io">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <!-- 首屏关键 CSS 提权：与下方 stylesheet 同 URL，浏览器复用同一次请求 -->
+  <link rel="preload" as="style" href="/styles/common.css">
+  <!-- 首屏 4 个核心 JS 提前发起请求（body 中仍同步加载、顺序不变，零执行风险） -->
+  <link rel="preload" as="script" href="/components/ui.js">
+  <link rel="preload" as="script" href="/utils/common.js">
+  <link rel="preload" as="script" href="/utils/blog-utils.js">
+  <link rel="preload" as="script" href="/services/request.js">
   <link rel="stylesheet" href="/styles/common.css">
     <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }

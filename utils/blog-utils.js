@@ -25,19 +25,21 @@ window.BlogUtils = (function () {
   const $ = (id) => document.getElementById(id);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
 
-  /* ---- HTML 转义 ----
-     同时转义 < > & " ：文本位置安全，拼进属性也不会被注入闭合。
-     （历史教训：旧版 game-core 的 escapeHtml 不转义引号，属性位置
-      必须再套一层 escapeAttr；现在一个函数全覆盖，杜绝用错。） */
+  /* ---- HTML 转义（v9.1 纵深加固）----
+     转义 < > & " '：文本位置与单/双引号属性位置均安全，任何位置拼进
+     DOM 都不会被注入闭合。历史教训：旧版 game-core 的 escapeHtml 不转义
+     引号，属性位置必须再套 escapeAttr 才安全；现 escapeHtml 自身全覆盖，
+     即使有人误在单引号属性里用了 escapeHtml 也不会被突破。
+     （escapeAttr 仍保留并幂等：先过 escapeHtml 再补一次单引号，结果不变。） */
   function escapeHtml(str) {
     const div = document.createElement("div");
     div.textContent = str == null ? "" : String(str);
-    return div.innerHTML.replace(/"/g, "&quot;");
+    return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
-  /** 属性位置转义：在 escapeHtml 基础上再转义单引号（兼容单引号属性写法） */
+  /** 属性位置转义：escapeHtml 已全覆盖，保留此别名以保持全站调用点语义清晰 */
   function escapeAttr(str) {
-    return escapeHtml(str).replace(/'/g, "&#39;");
+    return escapeHtml(str);
   }
 
   /* ---- 安全存储：隐私模式 / 存储被禁用时不抛错，避免中断业务循环 ---- */

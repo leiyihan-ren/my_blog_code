@@ -505,8 +505,14 @@ function sanitizeUserContent(content) {
 const CSP_POLICY =
   "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; " +
   "style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data: https:; font-src 'self' data: https:; media-src https: data:; " +
-  "connect-src 'self' https://static.cloudflareinsights.com https://cloudflareinsights.com; " +
+  // v9.1 收紧：字体全为系统/本地字体，去掉 font-src 的 https: 通配，
+  // 杜绝第三方字体被注入；img/media 的 https: 通配是用户图片、外链音乐的
+  // 刚需（内容仓域名不固定），保留以免误伤现有资源加载。
+  "img-src 'self' data: https:; font-src 'self' data:; media-src https: data:; " +
+  // v9.1：MC 指挥中心在浏览器侧直连 mcsrvstat 状态 API（免密钥、CORS），
+  // connect-src 必须显式放行，否则 fetch 被 CSP 拦截、面板恒显「离线」。
+  // 其余依旧只信任 'self' 与 Cloudflare Insights 上报域，未授权第三方一律拒绝。
+  "connect-src 'self' https://api.mcsrvstat.us https://static.cloudflareinsights.com https://cloudflareinsights.com; " +
   // worker-src 必须放行 'self'：否则浏览器会以 CSP 为由拒绝注册 sw.js（PWA 直接失效）。
   // sw.js 为同源静态文件，不引入任何外部脚本，放行同源是安全的。
   "frame-src 'none'; object-src 'none'; base-uri 'none'; " +
@@ -540,6 +546,11 @@ function buildHeaders(extra) {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Content-Security-Policy": CSP_POLICY,
+    // v9.1：API 响应补齐与静态页一致的安全头，避免「HTML 有、接口没有」的漏网面
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "X-Permitted-Cross-Domain-Policies": "none",
+    "Strict-Transport-Security": "max-age=15552000",
   };
   if (extra) Object.assign(headers, extra);
   return headers;
@@ -629,6 +640,9 @@ function addStaticSecurityHeaders(response, pathname) {
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  // v9.1 安全加固：静态资源同样补传输层与跨域策略头（与 API 出口一致）
+  headers.set("X-Permitted-Cross-Domain-Policies", "none");
+  headers.set("Strict-Transport-Security", "max-age=15552000");
   // 仅 HTML 页面加 CSP（含 media-src 以支持外链音频）
   if ((headers.get("Content-Type") || "").includes("text/html")) {
     headers.set("Content-Security-Policy", CSP_POLICY);
@@ -1982,7 +1996,9 @@ function driveWriteRateGuard(request) {
   rec.n += 1;
   DRIVE_WRITE_GUARD.hits.set(ip, rec);
   if (rec.n > CONFIG.drive.maxWritesPerSecond) {
-    return driveErr("云盘写入过于频繁，已触发边缘保护，请稍后重试", 429);
+    // v9.1：429 带 Retry-After，合规客户端可据此退避，避免无脑重试放大压力
+    return err("云盘写入过于频繁，已触发边缘保护，请稍后重试", 429,
+      { "Cache-Control": "no-store", "Retry-After": "1" });
   }
   // 定期清理，防止 Map 无界增长（每 5 分钟全量扫一次）
   if (now - DRIVE_WRITE_GUARD.lastSweep > 300000) {
