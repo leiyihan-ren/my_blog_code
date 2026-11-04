@@ -401,6 +401,21 @@ async function main() {
 
     // V5 并发控制：3 个 11MB 文件 → 峰值并发 ≤3（v7.1：MAX_CONCURRENT 2→3）
     maxInFlight = 0;
+    // 并发判据补强（v11.0）：mock 侧 inFlight 统计的是「请求经 HTTP/1.1
+    // 到达本地 Node server」的时序。浏览器对同源连接复用会把 JS 层并发
+    // 发出的请求串行送达，导致该峰值恒为 1（假阴性，与产品队列无关）。
+    // 这里在页面内包装 XHR.send，直接记录 JS 发起分片的时刻，用「在途
+    // 重叠」判定产品是否真的并发派发——与 step19-v11-range 的判据一致。
+    await page.evaluate(() => {
+      window.__xhrLog = [];
+      const orig = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function () {
+        const rec = { t0: performance.now() };
+        window.__xhrLog.push(rec);
+        this.addEventListener("loadend", () => { rec.t1 = performance.now(); }, { once: true });
+        return orig.apply(this, arguments);
+      };
+    });
     const files = [];
     for (let i = 0; i < 3; i++) {
       files.push({
@@ -416,8 +431,20 @@ async function main() {
       { timeout: 180000 }
     );
     check("V5a 3 个 11MB 文件全部完成", true);
-    check("V5b 分片并发峰值 ≤3（队列限流生效，v7.1 并发 3）", maxInFlight <= 3, `峰值=${maxInFlight}`);
-    check("V5c 3 并发确有并行（峰值 ≥2，非退化为串行）", maxInFlight >= 2, `峰值=${maxInFlight}`);
+    check("V5b 服务端到达峰值 ≤3（队列限流生效，v7.1 并发 3）", maxInFlight <= 3, `峰值=${maxInFlight}`);
+    const clientOverlap = await page.evaluate(() => {
+      const evs = [];
+      (window.__xhrLog || []).forEach((r) => {
+        if (typeof r.t0 !== "number" || typeof r.t1 !== "number") return;
+        evs.push([r.t0, 1]); evs.push([r.t1, -1]);
+      });
+      evs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      let cur = 0, mx = 0;
+      evs.forEach(([, d]) => { cur += d; mx = Math.max(mx, cur); });
+      return mx;
+    });
+    check("V5c 3 并发确有并行（页面内 XHR 在途重叠 ≥2，非退化为串行）", clientOverlap >= 2,
+      `clientOverlap=${clientOverlap} serverPeak=${maxInFlight}`);
 
     // V6 大文件重组下载：先校验 manifest 与分片直链可用，再点击下载验证 Blob 重组
     await page.addInitScript(() => { window.__blobSizes = []; });
