@@ -528,6 +528,64 @@
 
     
 
+    /* ---------- v9.2 沉浸式阅读 ----------
+     * 只收起「外壳」，不动正文 DOM：TOC 的 IntersectionObserver 高亮、
+     * 阅读进度条、评论脚本全部照常运行，退出即原样还原。 */
+    .zen-fab, .zen-bar button {
+      font-family: inherit;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text);
+      box-shadow: var(--card-shadow);
+      transition: transform .18s var(--ease), opacity .18s var(--ease);
+    }
+    .zen-fab:hover, .zen-bar button:hover { transform: translateY(-2px); }
+    .zen-fab {
+      position: fixed; right: 22px; bottom: 92px; z-index: 60;
+      width: 46px; height: 46px; border-radius: 50%; font-size: 19px;
+      display: grid; place-items: center;
+    }
+    .zen-bar {
+      position: fixed; right: 22px; bottom: 150px; z-index: 60;
+      display: flex; flex-direction: column; gap: 8px;
+      opacity: 0; pointer-events: none; transform: translateY(8px);
+      transition: opacity .2s var(--ease), transform .2s var(--ease);
+    }
+    .zen-bar.show { opacity: 1; pointer-events: auto; transform: none; }
+    .zen-bar button {
+      width: 46px; height: 40px; border-radius: 12px; font-size: 14px;
+    }
+    body.zen-mode .navbar,
+    body.zen-mode .mobile-menu,
+    body.zen-mode .toc-sidebar,
+    body.zen-mode .toc-toggle,
+    body.zen-mode .back-top,
+    body.zen-mode .footer,
+    body.zen-mode .back-link,
+    body.zen-mode .article-actions,
+    body.zen-mode .post-nav,
+    body.zen-mode .comments-section,
+    body.zen-mode .progress-bar { display: none !important; }
+    body.zen-mode .container { max-width: 780px; padding-top: 56px; }
+    body.zen-mode .article {
+      background: transparent; border: none; box-shadow: none;
+      padding: 0; animation: none;
+    }
+    body.zen-mode .article-content {
+      font-size: var(--zen-size, 18px);
+      line-height: 2.05;
+    }
+    body.zen-mode .article-content img { border-radius: 10px; }
+    @media (max-width: 640px) {
+      .zen-fab { right: 14px; bottom: 84px; }
+      .zen-bar { right: 14px; bottom: 138px; }
+      body.zen-mode .container { padding: 32px 20px 80px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .zen-fab, .zen-bar, .zen-bar button { transition: none; }
+    }
+
     /* 目录导航 TOC */
     .toc-sidebar {
       position: fixed;
@@ -1597,9 +1655,60 @@
     }
     init();
     // 滚动效果（navbar .scrolled + backTop .show）由 common.js 统一处理
+
+    /* ---------- v9.2 沉浸式阅读 ----------
+     * 纯表现层开关：只切 body class，不增删正文节点，因此 TOC 高亮、
+     * 阅读进度、评论、上一篇/下一篇等既有逻辑零感知，退出即完整还原。
+     * 开关状态与字号持久化，跨文章保持一致的阅读偏好。 */
+    (function initZenMode() {
+      const KEY = "post_zen_on", SIZE_KEY = "post_zen_size";
+      const MIN = 15, MAX = 26, STEP = 2;
+      const fab = document.getElementById("zenFab");
+      const bar = document.getElementById("zenBar");
+      let on = false;
+      let size = parseInt(localStorage.getItem(SIZE_KEY) || "18", 10);
+      if (!isFinite(size)) size = 18;
+      size = Math.max(MIN, Math.min(MAX, size));
+      document.documentElement.style.setProperty("--zen-size", size + "px");
+
+      function apply(next) {
+        on = !!next;
+        document.body.classList.toggle("zen-mode", on);
+        fab.textContent = on ? "✕" : "📖";
+        fab.title = on ? "退出沉浸阅读（Esc）" : "沉浸阅读";
+        fab.setAttribute("aria-label", on ? "退出沉浸阅读" : "切换沉浸阅读");
+        fab.setAttribute("aria-pressed", String(on));
+        bar.classList.toggle("show", on);
+        try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) { /* 隐私模式 */ }
+      }
+      function setSize(v) {
+        size = Math.max(MIN, Math.min(MAX, v));
+        document.documentElement.style.setProperty("--zen-size", size + "px");
+        try { localStorage.setItem(SIZE_KEY, String(size)); } catch (e) { /* 隐私模式 */ }
+      }
+      fab.addEventListener("click", () => apply(!on));
+      document.getElementById("zenFontUp").addEventListener("click", () => setSize(size + STEP));
+      document.getElementById("zenFontDown").addEventListener("click", () => setSize(size - STEP));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && on) { apply(false); return; }
+        // 输入时不抢快捷键
+        const t = e.target && e.target.tagName;
+        if (t === "INPUT" || t === "TEXTAREA" || !on) return;
+        if (e.key === "+" || e.key === "=") setSize(size + STEP);
+        if (e.key === "-") setSize(size - STEP);
+      });
+      try { if (localStorage.getItem(KEY) === "1") apply(true); } catch (e) { /* 隐私模式 */ }
+    })();
   </script>
 
   <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
+
+  <!-- v9.2 沉浸式阅读：入口 + 仅在沉浸态出现的字号工具条 -->
+  <div class="zen-bar" id="zenBar" aria-label="阅读字号">
+    <button type="button" id="zenFontUp" title="放大字号" aria-label="放大字号">A＋</button>
+    <button type="button" id="zenFontDown" title="缩小字号" aria-label="缩小字号">A－</button>
+  </div>
+  <button class="zen-fab" id="zenFab" type="button" aria-pressed="false" title="沉浸阅读" aria-label="切换沉浸阅读">📖</button>
 
   <!-- 目录导航 -->
   <button class="toc-toggle" id="tocToggle" onclick="toggleTocMobile()" title="目录">📑</button>

@@ -304,6 +304,35 @@
       border-radius: 12px;
       box-shadow: 0 20px 60px rgba(0,0,0,0.5);
       animation: lightboxZoom 0.3s var(--ease);
+      /* v9.2 手势：禁掉浏览器原生滚动/双指缩放，交给下面脚本精确控制 */
+      touch-action: none;
+      cursor: zoom-in;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+    .lightbox-img.lb-transform {
+      /* 手势进行中关掉过渡，否则每一帧都被 180ms 动画拖出果冻感 */
+      transition: none;
+      will-change: transform;
+    }
+    .lightbox-img.lb-zoomed { cursor: grab; }
+    .lightbox-img.lb-zoomed:active { cursor: grabbing; }
+    .lightbox-zoom-hint {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(255,255,255,0.72);
+      font-size: 12px;
+      letter-spacing: .04em;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .25s ease;
+      white-space: nowrap;
+    }
+    .lightbox.active .lightbox-zoom-hint { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) {
+      .lightbox-img { animation: none; }
     }
     @keyframes lightboxZoom {
       from { opacity: 0; transform: scale(0.9); }
@@ -528,6 +557,7 @@
     </div>
     <button class="lightbox-next" onclick="nextPhoto(event)" aria-label="下一张">›</button>
     <div class="lightbox-caption" id="lightbox-caption" aria-live="polite"></div>
+    <div class="lightbox-zoom-hint" aria-hidden="true">双指 / 滚轮缩放 · 左右滑动切图 · 双击放大</div>
   </div>
 
   <script>
@@ -978,6 +1008,7 @@
       const p = photos[idx];
       const img = document.getElementById("lightbox-img");
       img.style.opacity = ""; // 复位关闭时清图的隐藏态（v7.3）
+      lbResetZoom();          // v9.2：切图前复位缩放/平移，避免上一张的 transform 带过去
       loadLightboxImage(img, idx);
       document.getElementById("lightbox-caption").textContent = `${idx + 1} / ${photos.length} · ${p.name}`;
       const lb = document.getElementById("lightbox");
@@ -1011,6 +1042,114 @@
       img.dataset.imgLoading = "";
       loadLightboxImage(img, currentPhotoIdx);
     }
+
+    /* ---------- v9.2 大图查看器手势 ----------
+     * 只绑定在 <img> 上：closeLightbox 的点击判定要求 e.target 必须是
+     * .lightbox / .lightbox-close，点在图片上天然不会误关，手势与关闭逻辑
+     * 因此完全解耦，也不影响 step4 的键盘焦点陷阱。
+     * 支持：单指左右滑动切图、双指捏合缩放、放大后单指平移、双击、
+     *       滚轮缩放。所有 touchmove 都 preventDefault（passive:false），
+     *       否则移动端会把 pinch 当成页面缩放、把横滑当成返回手势。 */
+    (function bindLightboxGestures() {
+      const img = document.getElementById("lightbox-img");
+      if (!img) return;
+      const MIN = 1, MAX = 5;
+      let scale = 1, tx = 0, ty = 0;
+      let single = null, pinch = null, pan = null;
+
+      function clampPan() {
+        const w = img.offsetWidth * scale, h = img.offsetHeight * scale;
+        const mx = Math.max(0, (w - window.innerWidth * 0.9) / 2 + 60);
+        const my = Math.max(0, (h - window.innerHeight * 0.85) / 2 + 60);
+        tx = Math.max(-mx, Math.min(mx, tx));
+        ty = Math.max(-my, Math.min(my, ty));
+      }
+      function apply() {
+        // 关掉入场动画：CSS animation 在级联中压过 inline transform，
+        // 不关掉手势期间每一帧都会被 0.3s 的入场动画覆盖。
+        img.style.animation = "none";
+        img.classList.add("lb-transform");
+        img.classList.toggle("lb-zoomed", scale > 1.01);
+        img.style.transform = (scale > 1.01 || tx || ty)
+          ? `translate(${tx}px, ${ty}px) scale(${scale})`
+          : "";
+      }
+      function setScale(s) {
+        scale = Math.max(MIN, Math.min(MAX, s));
+        if (scale <= 1.01) { scale = 1; tx = 0; ty = 0; }
+        else clampPan();
+        apply();
+      }
+      function dist(t) {
+        const dx = t[0].clientX - t[1].clientX;
+        const dy = t[0].clientY - t[1].clientY;
+        return Math.hypot(dx, dy);
+      }
+      // 供 openLightbox 调用：切图/重开时回到 1x
+      window.lbResetZoom = function () {
+        scale = 1; tx = 0; ty = 0;
+        img.style.transform = "";
+        img.classList.remove("lb-zoomed");
+      };
+
+      img.addEventListener("touchstart", (e) => {
+        if (e.touches.length === 2) {
+          pinch = { d: dist(e.touches), s: scale };
+          single = null; pan = null;
+        } else if (e.touches.length === 1) {
+          const t = e.touches[0];
+          single = { x: t.clientX, y: t.clientY, dx: 0, dy: 0, moved: false };
+          if (scale > 1.01) pan = { x: t.clientX, y: t.clientY, tx, ty };
+        }
+      }, { passive: true });
+
+      img.addEventListener("touchmove", (e) => {
+        if (e.cancelable) e.preventDefault(); // 阻止原生页面缩放 / 下拉 / 返回手势
+        if (e.touches.length === 2 && pinch) {
+          setScale(pinch.s * (dist(e.touches) / Math.max(1, pinch.d)));
+          return;
+        }
+        if (e.touches.length !== 1) return;
+        const t = e.touches[0];
+        if (pan && scale > 1.01) {
+          tx = pan.tx + (t.clientX - pan.x);
+          ty = pan.ty + (t.clientY - pan.y);
+          clampPan(); apply();
+          return;
+        }
+        if (single) {
+          single.dx = t.clientX - single.x;
+          single.dy = t.clientY - single.y;
+          if (Math.abs(single.dx) > 8 || Math.abs(single.dy) > 8) single.moved = true;
+        }
+      }, { passive: false });
+
+      img.addEventListener("touchend", (e) => {
+        if (e.touches.length === 0) {
+          // 未缩放、无平移、横滑超过 60px → 切图
+          if (single && single.moved && scale <= 1.01 &&
+              Math.abs(single.dx) > 60 && Math.abs(single.dx) > Math.abs(single.dy) * 1.3) {
+            const fake = { stopPropagation() {} };
+            if (single.dx < 0) nextPhoto(fake); else prevPhoto(fake);
+          }
+          single = null; pan = null; pinch = null;
+        } else if (e.touches.length === 1) {
+          pinch = null;
+          const t = e.touches[0];
+          single = { x: t.clientX, y: t.clientY, dx: 0, dy: 0, moved: false };
+        }
+      }, { passive: true });
+
+      img.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        setScale(scale > 1.01 ? 1 : 2.5);
+      });
+      img.addEventListener("wheel", (e) => {
+        if (!document.getElementById("lightbox").classList.contains("active")) return;
+        e.preventDefault();
+        setScale(scale * (e.deltaY < 0 ? 1.12 : 0.89));
+      }, { passive: false });
+    })();
 
     // 记录按下点：仅当按下与松开都落在背景/关闭按钮上才允许关闭，
     // 防御「按钮带按压动画导致按下后位移、释放在背景」类回归（mousedown 在按钮、mouseup 在背景时 click 目标为背景）。

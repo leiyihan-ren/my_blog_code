@@ -445,6 +445,48 @@ var bootMusicPlayer = function() {
   const audio = new Audio();
   audio.preload = "metadata";
 
+  /* ---------- v9.2 跨页续播 ----------
+   * 本站是纯静态多页（MPA）：整份文档在跳转时卸载，<audio> 元素随之销毁，
+   * 所以「同一个 Audio 实例跨页存活」在架构上做不到（那需要 SPA 化或
+   * 常驻 frameset，两者都会破坏现有路由/SEO）。这里做的是 MPA 下能达到的
+   * 最接近方案：把曲目序号 + 播放进度 + 播放态持续落盘，新页面 boot 时
+   * 自动恢复到断点并请求续播；若浏览器拦截自动播放，音频已加载且已 seek，
+   * 用户点一下播放键即从原位置继续，不会从头开始。
+   * 只恢复 10 分钟内的会话，避免隔天打开突然出声。 */
+  const MP_RESUME_KEY = "mp_resume_v1";
+  let mpResumeSaveAt = 0;
+  function mpSaveResume() {
+    try {
+      safeStorage.set(MP_RESUME_KEY, JSON.stringify({
+        idx: currentIdx,
+        t: Number(audio.currentTime) || 0,
+        playing: !audio.paused && !audio.ended,
+        at: Date.now(),
+      }));
+    } catch (e) { /* 隐私模式：降级为不续播，不影响播放 */ }
+  }
+  function mpReadResume() {
+    try {
+      const raw = safeStorage.get(MP_RESUME_KEY);
+      if (!raw) return null;
+      const r = JSON.parse(raw);
+      if (!r || typeof r !== "object") return null;
+      return r;
+    } catch (e) { return null; }
+  }
+  audio.addEventListener("timeupdate", () => {
+    const now = Date.now();
+    if (now - mpResumeSaveAt < 1500) return; // timeupdate 每 ~250ms 触发，节流写盘
+    mpResumeSaveAt = now;
+    mpSaveResume();
+  });
+  audio.addEventListener("play", mpSaveResume);
+  audio.addEventListener("pause", mpSaveResume);
+  audio.addEventListener("ended", mpSaveResume);
+  // pagehide 比 beforeunload 可靠（移动端 / BFCache 场景都会触发），同步落盘
+  window.addEventListener("pagehide", mpSaveResume);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) mpSaveResume(); });
+
   // ---- 状态 ----
   let playlist = [];
   let currentIdx = 0;
@@ -1010,7 +1052,22 @@ var bootMusicPlayer = function() {
       };
       playlist = data.filter(s => s && s.url && okUrl(s.url));
       if (playlist.length) {
-        loadSong(0, false);
+        const r = mpReadResume();
+        const fresh = r && Date.now() - (Number(r.at) || 0) < 10 * 60 * 1000;
+        if (r && r.playing && fresh && Number.isInteger(r.idx) && r.idx >= 0 && r.idx < playlist.length) {
+          // 断点续播：音频元数据就绪后 seek 回原位置；loadSong 会请求自动播放，
+          // 若被浏览器策略拦截，用户点播放键即从该位置继续（不会从头开始）。
+          const seekTo = Math.max(0, Number(r.t) || 0);
+          const seekOnce = () => {
+            audio.removeEventListener("loadedmetadata", seekOnce);
+            try { if (isFinite(audio.duration)) audio.currentTime = Math.min(seekTo, Math.max(0, audio.duration - 0.25)); }
+            catch (e) { /* 元数据尚未就绪：忽略，下次交互自然继续 */ }
+          };
+          audio.addEventListener("loadedmetadata", seekOnce);
+          loadSong(r.idx, true);
+        } else {
+          loadSong(0, false);
+        }
       } else {
         $("mpTitle").textContent = "暂无歌曲";
         $("mpArtist").textContent = "去管理后台添加音乐吧";
