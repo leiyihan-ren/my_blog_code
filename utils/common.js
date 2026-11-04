@@ -272,16 +272,54 @@
     });
   }
 
+  /* ---- v11.0 战役四：全站本地搜索（IndexedDB + MiniSearch + 拼音）----
+   * 依赖两个同源静态脚本（vendor/minisearch.js、utils/pinyin-gb2312.js），
+   * 均为 UMD/IIFE 挂全局；加载完成后再动态 import ESM 主模块。
+   * 为什么用动态 import 而非给 11 个页面逐个加 <script>：
+   *   - 本站严格 CSP 的 script-src-elem 含 'self'，同源模块天然放行，
+   *     无需 nonce（nonce 只约束内联脚本），老浏览器回退原 script-src
+   *     同样含 'self'，全版本兼容；
+   *   - 首屏零成本：requestIdleCallback 空闲才加载，且 loadScript 用
+   *     async=true，不阻塞解析、不抢关键资源带宽；
+   *   - 全站一处注入，页面 HTML 零改动。
+   * 任一环失败静默降级（搜索不可用，但站点其余功能毫发无损）。 */
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = src; s.async = true;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error("加载失败: " + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  function initGlobalSearch() {
+    var idle = window.requestIdleCallback || function (fn) { setTimeout(fn, 1800); };
+    idle(function () {
+      Promise.resolve()
+        .then(function () { return window.MiniSearch ? null : loadScript("/vendor/minisearch.js"); })
+        .then(function () { return window.PinyinGB2312 ? null : loadScript("/utils/pinyin-gb2312.js"); })
+        .then(function () { return import("/components/global-search.js"); })
+        .catch(function () { /* 搜索是增强项，失败不影响全站 */ });
+    });
+  }
+
+  /**
+   * v11.0：逐项隔离执行。旧实现里任一 init 抛错会连锁阻断其后所有初始化
+   * （例如 SW 注册环境异常时，排在后面的全局搜索会静默失效）。每项独立
+   * try/catch 后，单点故障只影响该增强项，站点主功能照常可用。
+   * 正常路径无异常，行为与改造前逐字节一致。
+   */
   function boot() {
-    initTheme();
-    initMobileMenu();
-    initScrollFx();
-    initSeoUrls();
-    initPwa();
-    initPrefetch();
-    initPageEnter();
-    initOfflineBanner();
-    initErrorBoundary();
+    const steps = [
+      initTheme, initMobileMenu, initScrollFx, initSeoUrls, initPwa,
+      initPrefetch, initPageEnter, initOfflineBanner, initErrorBoundary,
+      initGlobalSearch,
+    ];
+    steps.forEach(function (fn) {
+      try { fn(); } catch (e) {
+        try { console.warn("[common] 初始化项失败（已隔离）:", fn.name, e && e.message); } catch (_) {}
+      }
+    });
   }
 
   /* ---- v7.3 进场淡入：body.page-enter 一次性动画，结束即摘除类（不干扰后续过渡） ---- */

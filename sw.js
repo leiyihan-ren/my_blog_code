@@ -40,7 +40,11 @@
 //         （无 fmtBytes）与旧 drive.html，不换缓存名它们不会被重新拉取。
 // v11.0：Range 并行下载的 SW 旁路 + 新增 services/rangeDownloader.js 预缓存，
 //        旧 SW 必须被替换（它的通用 Range 分支会把并发子块放大成 N 次全量拉取）。
-const CACHE_VERSION = "v11.0";
+// v11.0-b4：全站本地搜索（vendor/minisearch.js + utils/pinyin-gb2312.js
+//         + components/global-search.js 动态模块）纳入离线外壳。
+// v11.0.0：v11.0 五个攻坚战役正式封版，统一为三段语义化版本号
+//         （SW 缓存名与产品版本解耦，但保持 vX.Y.Z 格式便于测试与发布核对）。
+const CACHE_VERSION = "v11.0.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -67,11 +71,14 @@ const PRECACHE_URLS = [
   "/utils/blog-utils.js",
   "/components/ui.js",
   "/vendor/jszip.min.js",
+  "/vendor/minisearch.js",
+  "/utils/pinyin-gb2312.js",
   "/services/request.js",
   "/services/uploadService.js",
   "/services/rangeDownloader.js",
   "/services/uploadWorker.js",
   "/components/music-player.js",
+  "/components/global-search.js",
   "/components/game-core.js",
   "/components/games/breakout.js",
   "/components/games/g2048.js",

@@ -126,10 +126,16 @@ try {
   // I1 改为「格式合规 + 语义化下界」断言：此前硬编码 v3.3.0，每次发版推进版本号都会误报失败。
   // 发布纪律本身（改动静态资源必须 +1）由人工/CI 检查单保证，这里只守住可机检的部分。
   const cvMatch = sw.match(/const CACHE_VERSION = "v(\d+)\.(\d+)\.(\d+)"/);
-  const cvOk =
-    !!cvMatch &&
-    Number(cvMatch[1]) === 3 &&
-    (Number(cvMatch[2]) > 3 || (Number(cvMatch[2]) === 3 && Number(cvMatch[3]) >= 3));
+  // 语义化下界比较：只要求 >= v3.3.0，不再把主版本钉死为 3。
+  // 旧写法 Number(major) === 3 会在 v11.0.0 这类正常发版时误报，
+  // 与 I1「格式合规 + 语义化下界」的注释意图不符，属于断言缺陷而非放宽。
+  const cvMajor = Number(cvMatch ? cvMatch[1] : 0);
+  const cvMinor = Number(cvMatch ? cvMatch[2] : 0);
+  const cvPatch = Number(cvMatch ? cvMatch[3] : 0);
+  const cvOk = !!cvMatch && (
+    cvMajor > 3 ||
+    (cvMajor === 3 && (cvMinor > 3 || (cvMinor === 3 && cvPatch >= 3)))
+  );
   check("I1 SW 版本号格式合规且不低于 v3.3.0", cvOk, cvMatch ? cvMatch[0] : "未找到 CACHE_VERSION");
   check("I2 HTML 导航 network-first", /req\.mode === "navigate"[\s\S]{0,400}?const fresh = await fetch\(req\)/.test(sw));
   check("I3 公共 JSON 读 network-first（断网回退缓存）", /url\.pathname\.startsWith\("\/api\/"\)[\s\S]{0,600}?const fresh = await fetch\(req\)/.test(sw));
