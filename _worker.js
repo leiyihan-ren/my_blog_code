@@ -633,6 +633,15 @@ const PAGE_REWRITES = {
   "/timeline.html": "/pages/timeline.html",
 };
 
+/** 每请求生成 CSP nonce（16 字节密码学随机 → Base64） */
+function makeCspNonce() {
+  const buf = new Uint8Array(16);
+  crypto.getRandomValues(buf);
+  let bin = "";
+  for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+  return btoa(bin);
+}
+
 /** 为静态资源响应附加安全响应头 */
 function addStaticSecurityHeaders(response, pathname) {
   const headers = new Headers(response.headers);
@@ -643,9 +652,36 @@ function addStaticSecurityHeaders(response, pathname) {
   // v9.1 安全加固：静态资源同样补传输层与跨域策略头（与 API 出口一致）
   headers.set("X-Permitted-Cross-Domain-Policies", "none");
   headers.set("Strict-Transport-Security", "max-age=15552000");
-  // 仅 HTML 页面加 CSP（含 media-src 以支持外链音频）
+  // ---- v9.2 CSP 严格化：让 unsafe-inline 在现代浏览器里「实际失效」 ----
+  // 全站 73 处内联 <script> 与 57 处内联事件处理器，直接删 unsafe-inline
+  // 会让整站脚本立即停摆（违反「绝不宕机」底线）。改用 CSP3 分级指令：
+  //   script-src-elem  → 元素级：只放行带 nonce 的内联脚本 + 同源外链
+  //   script-src-attr  → 属性级：onclick 等内联处理器仍放行（XSS 由渲染层
+  //                      全量 escapeHtml/escapeAttr 防守，见 blog-utils.js）
+  // 支持 CSP3 的浏览器遇到 *-elem / *-attr 会忽略顶层 script-src 里的
+  // 'unsafe-inline'，因此注入的无 nonce 脚本一律被拦；旧浏览器不认识新指令，
+  // 自动回退到原 script-src，功能不受影响。step3 对 script-src 前缀的硬断言
+  // 也原样保留（顶层策略字符串一字未改）。
+  // nonce 只在「确实能给 HTML 打标记」时才下发：测试环境 / 旧 runtime 无
+  // HTMLRewriter → 降级为原宽松策略，绝不出现「下发严格头但没注入 nonce」
+  // 这种会导致全站白屏的组合。
+  let cspNonce = null;
   if ((headers.get("Content-Type") || "").includes("text/html")) {
-    headers.set("Content-Security-Policy", CSP_POLICY);
+    if (typeof HTMLRewriter === "function" &&
+        typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      cspNonce = makeCspNonce();
+      headers.set(
+        "Content-Security-Policy",
+        CSP_POLICY +
+          `; script-src-elem 'self' 'nonce-${cspNonce}' https://static.cloudflareinsights.com` +
+          "; script-src-attr 'unsafe-inline'"
+      );
+      // HTMLRewriter 会给每个 <script> 插入属性，body 长度必变；
+      // 留着上游的 Content-Length 会导致客户端提前截断响应。
+      headers.delete("Content-Length");
+    } else {
+      headers.set("Content-Security-Policy", CSP_POLICY);
+    }
   }
   // v8.1 性能攻坚（实测取证）：
   // Pages 上游默认给静态资源 `no-store` / `max-age=0, must-revalidate`，
@@ -659,11 +695,31 @@ function addStaticSecurityHeaders(response, pathname) {
   }
   // 304 响应无 body，需传 null
   const body = response.status === 304 ? null : response.body;
-  return new Response(body, {
+  const base = new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers,
   });
+  if (!cspNonce || response.status !== 200 || !base.body) return base;
+
+  // 留一份未消费的副本，供改写失败时无损回退
+  let fallback = null;
+  try { fallback = base.clone(); } catch (e) { /* ignore */ }
+  try {
+    // 只加 nonce 属性，不改 DOM 结构；带 src 的外链 script 也加（无害且双保险）
+    return new HTMLRewriter()
+      .on("script", { element(el) { el.setAttribute("nonce", cspNonce); } })
+      .transform(base);
+  } catch (e) {
+    // 改写失败 → 退回宽松 CSP，保证页面脚本照常执行，绝不因安全加固宕机
+    const h2 = new Headers(headers);
+    h2.set("Content-Security-Policy", CSP_POLICY);
+    return new Response(fallback ? fallback.body : null, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: h2,
+    });
+  }
 }
 
 // ============================================================
