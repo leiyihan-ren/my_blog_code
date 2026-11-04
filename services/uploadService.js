@@ -321,7 +321,7 @@ window.UploadService = (function () {
    * 3) 全部到位 → finish 写 manifest
    * 任何失败：保留 task.doneBytes，「继续上传」从断点接着来
    */
-  function uploadChunked(task) {
+  function uploadChunkedLegacy(task) {
     var file = task.file;
     var total = Math.ceil(file.size / CHUNK_SIZE);
     task.total = total;
@@ -438,6 +438,229 @@ window.UploadService = (function () {
         notify();
         throw e;
       });
+  }
+
+  /* ============================================================
+   * v11.0 战役二：原子批量上传（Git Data API）+ Web Worker 切片
+   * ------------------------------------------------------------
+   * 相对 Legacy 逐片 Contents API 的实质提升：
+   *   1) 浏览器 → Worker 走 application/octet-stream 裸 ArrayBuffer，
+   *      省掉 33% Base64 膨胀与主线程编码；GitHub 边界的 Base64 由
+   *      Worker 承担（协议强制，无法消除）。
+   *   2) 切片与 SHA-256 在 Web Worker 后台线程完成，主线程零卡顿。
+   *   3) N 个分片经一次 Trees/Commits/refs 原子提交，仓库历史从
+   *      N 条 commit 降为 1 条，且不存在「传了一半列表里有残片」的中间态。
+   *
+   * 安全红线（与 Legacy 完全对齐）：
+   *   - 能力探测失败 / Worker 不可用 / 任一片失败 → 整体回退到
+   *     uploadChunkedLegacy，绝不因用新 API 而让用户传不上去。
+   *   - 暂停/取消逐片检查并登记 AbortController，与 Legacy 的 _aborts 语义一致。
+   *   - 不改动 Legacy 一个字节：它是经过 22 套件验证的稳定基线。
+   * ============================================================ */
+  var atomicCapability = null; // null 未探测 / true / false（进程内复用）
+  var atomicProbePromise = null; // inflight 去重：N 个文件同时入队只发一次探测
+  var atomicWorker = null;     // 惰性创建的 Web Worker
+  var atomicWorkerBroken = false;
+
+  function probeAtomic() {
+    if (atomicCapability !== null) return Promise.resolve(atomicCapability);
+    if (atomicProbePromise) return atomicProbePromise;
+    if (typeof fetch !== "function") { atomicCapability = false; return Promise.resolve(false); }
+    atomicProbePromise = fetch("/api/drive/upload/capability", { headers: { "x-drive-pin": hooks.getPin() } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        atomicCapability = !!(j && j.atomicBatch === true && j.binaryBody === true);
+        return atomicCapability;
+      })
+      .catch(function () { atomicCapability = false; return false; })
+      .then(function (v) { atomicProbePromise = null; return v; });
+    return atomicProbePromise;
+  }
+
+  /** 惰性创建切片 Worker；CSP worker-src 'self' 已放行同源 worker */
+  function getAtomicWorker() {
+    if (atomicWorkerBroken) return null;
+    if (atomicWorker) return atomicWorker;
+    if (typeof Worker === "undefined") { atomicWorkerBroken = true; return null; }
+    try {
+      atomicWorker = new Worker("/services/uploadWorker.js");
+      atomicWorker.onerror = function () {
+        atomicWorkerBroken = true;
+        try { atomicWorker.terminate(); } catch (e) { /* ignore */ }
+        atomicWorker = null;
+      };
+    } catch (e) { atomicWorkerBroken = true; atomicWorker = null; }
+    return atomicWorker;
+  }
+
+  /** 后台线程切一片；Worker 不可用时主线程兜底（仍用原生 arrayBuffer，不占 JS 堆） */
+  function sliceInWorker(file, index, start, end) {
+    var w = getAtomicWorker();
+    if (!w) {
+      return file.slice(start, end).arrayBuffer().then(function (buf) {
+        return { ok: true, index: index, buffer: buf, bytes: buf.byteLength };
+      });
+    }
+    return new Promise(function (resolve, reject) {
+      function onMessage(e) {
+        if (!e.data || e.data.index !== index) return;
+        w.removeEventListener("message", onMessage);
+        w.removeEventListener("error", onError);
+        if (e.data.ok) resolve(e.data);
+        else reject(new Error(e.data.error || "后台切片失败"));
+      }
+      function onError() {
+        w.removeEventListener("message", onMessage);
+        w.removeEventListener("error", onError);
+        atomicWorkerBroken = true;
+        // 单次失败直接主线程兜底，不影响后续任务
+        file.slice(start, end).arrayBuffer().then(function (buf) {
+          resolve({ ok: true, index: index, buffer: buf, bytes: buf.byteLength });
+        }, reject);
+      }
+      w.addEventListener("message", onMessage);
+      w.addEventListener("error", onError);
+      try {
+        w.postMessage({ cmd: "slice", file: file, index: index, start: start, end: end });
+      } catch (e) {
+        atomicWorkerBroken = true;
+        onError();
+      }
+    });
+  }
+
+  /** 裸 ArrayBuffer 单片上传：带 AbortController 登记，支持暂停/取消 */
+  function uploadBlobPart(task, index, buffer) {
+    var ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var abortFn = function () { if (ctl) { try { ctl.abort(); } catch (e) { /* ignore */ } } };
+    if (!task._aborts) task._aborts = [];
+    task._aborts.push(abortFn);
+    task._abort = function () {
+      (task._aborts || []).slice().forEach(function (fn) { try { fn(); } catch (e) { /* ignore */ } });
+    };
+    function unregister() {
+      if (!task._aborts) return;
+      var i = task._aborts.indexOf(abortFn);
+      if (i >= 0) task._aborts.splice(i, 1);
+    }
+    var opts = {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "x-drive-pin": hooks.getPin(),
+        "x-drive-upload-id": task.uploadId,
+        "x-drive-index": String(index),
+      },
+      body: buffer,
+    };
+    if (ctl) opts.signal = ctl.signal;
+    return fetch("/api/drive/upload/blob", opts).then(function (r) {
+      unregister();
+      if (!r.ok) throw new Error("第 " + (index + 1) + " 片上传失败（HTTP " + r.status + "）");
+      return r.json();
+    }).then(function (j) {
+      if (!j || !j.sha) throw new Error("第 " + (index + 1) + " 片未返回 sha");
+      return { index: index, sha: j.sha };
+    }, function (e) {
+      unregister();
+      if (task.status === STATE.CANCELED || task.status === STATE.PAUSED) throw PAUSE_SENTINEL;
+      throw e;
+    });
+  }
+
+  /** 原子收尾：一次 Trees/Commits/refs 提交所有分片 + manifest */
+  function finishAtomic(task, parts, total) {
+    return fetch("/api/drive/upload/finish-atomic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-drive-pin": hooks.getPin() },
+      body: JSON.stringify({
+        uploadId: task.uploadId,
+        name: task.file.name,
+        size: task.file.size,
+        total: total,
+        dir: task.file.__driveDir || "",
+        parts: parts,
+      }),
+    }).then(function (r) {
+      if (!r.ok) throw new Error("原子提交失败（HTTP " + r.status + "）");
+      return r.json();
+    });
+  }
+
+  /**
+   * 原子批量主链。任何失败一律向上抛，由包装器统一回退 Legacy，
+   * 绝不在这里做「部分成功」的复杂补偿（那正是要消灭的中间态）。
+   */
+  function uploadAtomicBatch(task) {
+    var file = task.file;
+    var total = Math.ceil(file.size / CHUNK_SIZE);
+    task.total = total;
+    task.status = STATE.UPLOADING;
+    task.hint = "后台切片中…";
+    notify();
+
+    var parts = [];
+    var queue = [];
+    for (var i = 0; i < total; i += 1) queue.push(i);
+    var cursor = 0;
+    var parallel = Math.min(PART_PARALLEL, queue.length);
+
+    function next() {
+      if (task.status === STATE.CANCELED || task.status === STATE.PAUSED) return Promise.resolve();
+      if (cursor >= queue.length) return Promise.resolve();
+      var idx = queue[cursor];
+      cursor += 1;
+      throwIfPaused(task);
+      var start = idx * CHUNK_SIZE;
+      var end = Math.min(start + CHUNK_SIZE, file.size);
+      return sliceInWorker(file, idx, start, end)
+        .then(function (r) {
+          throwIfPaused(task); // 读片后、发送前的取消闸门（v8.2 同款防线）
+          return uploadBlobPart(task, idx, r.buffer);
+        })
+        .then(function (p) {
+          parts.push(p);
+          task.bytesDone += (end - start);
+          task.progress = Math.round((task.bytesDone / file.size) * 100);
+          task.hint = "原子上传 " + parts.length + "/" + total + " 片";
+          notify();
+          return next();
+        });
+    }
+    var workers = [];
+    for (var w = 0; w < parallel; w += 1) workers.push(next());
+    return Promise.all(workers).then(function () {
+      throwIfPaused(task);
+      if (parts.length !== total) throw new Error("分片数量不完整");
+      task.status = STATE.FINISHING;
+      task.hint = "原子提交中…";
+      notify();
+      return finishAtomic(task, parts, total);
+    }).then(function () {
+      task.progress = 100;
+      task.status = STATE.DONE;
+      task.hint = "";
+      notify();
+    });
+  }
+
+  /**
+   * 上传入口（包装器）：能力探测 → 原子批量 / Legacy。
+   * 能力探测本身也是「零额外风险」的：探测失败、原子路径任何异常，
+   * 都退回经过 22 套件验证的 Legacy；暂停/取消不触发回退，静默收场。
+   */
+  function uploadChunked(task) {
+    return probeAtomic().then(function (useAtomic) {
+      if (!useAtomic) return uploadChunkedLegacy(task);
+      return uploadAtomicBatch(task).catch(function (e) {
+        if (task.status === STATE.CANCELED || task.status === STATE.PAUSED) return;
+        // 服务端能力已变或 GitHub 侧异常：本次与后续都回退兼容路径
+        atomicCapability = false;
+        task.hint = "已切换兼容上传模式";
+        notify();
+        return uploadChunkedLegacy(task);
+      });
+    });
   }
 
   /* ---------- 并发队列：最多 MAX_CONCURRENT 个文件同时上传 ----------

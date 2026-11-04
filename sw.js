@@ -70,6 +70,7 @@ const PRECACHE_URLS = [
   "/services/request.js",
   "/services/uploadService.js",
   "/services/rangeDownloader.js",
+  "/services/uploadWorker.js",
   "/components/music-player.js",
   "/components/game-core.js",
   "/components/games/breakout.js",

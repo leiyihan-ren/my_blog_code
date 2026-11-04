@@ -542,7 +542,9 @@ function buildHeaders(extra) {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    // v11.0：Range 并行下载与原子批量上传引入的同源自定义头；同源请求本不触发
+    // CORS 预检，显式放行是为了将来接入独立媒体域名时不被预检拦下。
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Range, x-drive-pin, x-drive-range, x-drive-index, x-drive-upload-id",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Content-Security-Policy": CSP_POLICY,
@@ -2151,6 +2153,203 @@ function jsonToBase64(str) {
 }
 
 /* ============================================================
+ * v11.0 战役二：Git Data API 批量原子提交上传
+ * ------------------------------------------------------------
+ * 用户诉求 vs 协议现实（GitHub REST Docs，2026-03-10 版，已复核）：
+ *   ✗「ArrayBuffer 裸二进制直推 GitHub / 绝不使用 Base64」——物理不可行。
+ *     POST /repos/{owner}/{repo}/git/blobs 的 body 只有 `content`(string)
+ *     与 `encoding`，且官方明确「Currently "utf-8" and "base64" are
+ *     supported」。GitHub 没有任何接受 raw binary body 的写端点
+ *     （Releases Asset 需 Content-Length + 认证，Workers 出站流式请求
+ *     无法设置该头，见《终极重构报告》）。同理 `request.body.pipeTo()`
+ *     只能把入站流**接住**，出站到 api.github.com 仍须组装 JSON。
+ *   ✓ 真正能拿到的红利是 **Git Data API 的原子性**：
+ *     Contents API 每片一次 PUT = N 次 commit，伴随 N 次 SHA 冲突重试、
+ *     N 条仓库历史、N 次配额消耗，且中途失败会留下「半截文件」。
+ *     Blobs → Trees(base_tree) → Commits → refs 可以把同一批分片
+ *     合并成**一次 commit**：要么全部可见，要么全部不可见。
+ *
+ * 因此本实现：
+ *   1) 浏览器 → Worker：`application/octet-stream` 裸 ArrayBuffer，
+ *      Worker 用 `request.arrayBuffer()` 流式接住（不落 Base64 膨胀）；
+ *   2) Worker → GitHub 边界：按协议转 Base64 调 Blobs API（唯一一次编码）；
+ *   3) 收尾：单次 Trees/Commits/refs 原子提交，manifest 与 parts 同批落地；
+ *   4) withWriteLock 串行化 ref 更新，杜绝并发上传互相覆盖；
+ *   5) 全程可回退：前端能力探测失败或任一步异常即退回原逐片 Contents
+ *      路径，「绝不宕机」优先于「用上新 API」。
+ * ============================================================ */
+
+/** 裸二进制请求体流式读取：逐 chunk 累计，超限立即拒绝，杜绝大 body 打爆 isolate */
+async function readBinaryBody(request, maxBytes) {
+  if (!request.body) return { tooLarge: false, bytes: new Uint8Array(0) };
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) { await reader.cancel(); return { tooLarge: true, bytes: null }; }
+      chunks.push(value);
+    }
+  } finally {
+    try { reader.releaseLock(); } catch (e) { /* ignore */ }
+  }
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.byteLength; }
+  return { tooLarge: false, bytes: out };
+}
+
+/** Uint8Array → Base64，分块转换避免超大参数爆栈（仅 GitHub API 边界使用） */
+function bytesToBase64(bytes) {
+  const CH = 0x8000;
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += CH) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  }
+  return btoa(bin);
+}
+
+/** Git Data API 基址 */
+function gitDataBase(repo) {
+  return `https://api.github.com/repos/${repo}/git`;
+}
+
+/**
+ * 能力探测：真实向 GitHub 发一次只读 ref 查询，确认 Git Data API 可用。
+ * 不做硬编码开关——测试环境 mock 不认识该 URL 会返回非 200，
+ * 前端据此自动退回老路径，22 个既有套件零破坏；线上则自然启用。
+ */
+const atomicCapabilityMemo = { at: 0, value: null };
+async function driveAtomicCapability(env) {
+  if (atomicCapabilityMemo.value !== null && Date.now() - atomicCapabilityMemo.at < 60000) {
+    return atomicCapabilityMemo.value;
+  }
+  let ok = false;
+  try {
+    const res = await ghApiRequest(
+      `${gitDataBase(CONFIG.drive.repo)}/ref/heads/${CONFIG.drive.branch}`, null, env, null
+    );
+    ok = res.ok;
+  } catch (e) { ok = false; }
+  atomicCapabilityMemo.at = Date.now();
+  atomicCapabilityMemo.value = ok;
+  return ok;
+}
+
+/** 单片：裸 ArrayBuffer → GitHub Blobs API → { sha } */
+async function driveBlobSave(env, uploadId, index, bytes) {
+  const res = await ghApiWrite(
+    `${gitDataBase(CONFIG.drive.repo)}/blobs`, env, "POST",
+    { content: bytesToBase64(bytes), encoding: "base64" }
+  );
+  if (!res.ok) return githubWriteError(res);
+  const data = await res.json();
+  if (!data || !data.sha) return driveErr("GitHub 未返回 blob sha", 502);
+  return driveOk({ ok: true, uploadId, index, sha: String(data.sha), size: bytes.byteLength });
+}
+
+/**
+ * 批量原子收尾：把 N 个 blob + manifest 合并为一次 commit。
+ * 流程：GET ref → GET commit(base tree) → POST blobs(manifest)
+ *      → POST trees(base_tree + entries) → POST commits → PATCH ref
+ * 任一失败都在 ref 更新之前，仓库对外状态完全不变（真原子）。
+ */
+async function driveAtomicCommit(env, uploadId, name, size, total, dir, parts) {
+  const repo = CONFIG.drive.repo;
+  const branch = CONFIG.drive.branch;
+  const base = gitDataBase(repo);
+
+  // 结构校验：分片序号必须 0..total-1 不重不漏，sha 为 40 位十六进制
+  if (!Number.isInteger(total) || total < 1 || total > 100000) return driveErr("分片总数不合法", 400);
+  if (!Array.isArray(parts) || parts.length !== total) return driveErr("分片 sha 数量与 total 不符", 400);
+  const seen = new Set();
+  for (const p of parts) {
+    const i = Number(p && p.index);
+    const sha = p && p.sha;
+    if (!Number.isInteger(i) || i < 0 || i >= total || seen.has(i) || !/^[a-f0-9]{40}$/i.test(String(sha || ""))) {
+      return driveErr("分片 sha 清单不合法（序号重复/缺失或 sha 格式错误）", 400);
+    }
+    seen.add(i);
+  }
+  const manifest = {
+    uploadId,
+    name: String(name || "unnamed").slice(0, 200),
+    size: Number(size) || 0,
+    total,
+    chunkBytes: CONFIG.drive.chunkSize,
+    createdAt: new Date().toISOString(),
+    storage: "atomic", // 标记：本文件由 Git Data API 单次原子提交落地
+  };
+
+  return withWriteLock("drive:atomic-ref", async () => {
+    // 1) 当前分支指向的 commit
+    const refRes = await ghApiRequest(`${base}/ref/heads/${branch}`, null, env, null);
+    if (!refRes.ok) return githubWriteError(refRes);
+    const refData = await refRes.json();
+    const parentSha = refData && refData.object && refData.object.sha;
+    if (!parentSha) return driveErr("无法读取分支 HEAD", 502);
+
+    // 2) 该 commit 的 base tree（用 base_tree 增量提交，不重建整棵树）
+    const commitRes = await ghApiRequest(`${base}/commits/${parentSha}`, null, env, null);
+    if (!commitRes.ok) return githubWriteError(commitRes);
+    const commitData = await commitRes.json();
+    const baseTree = commitData && commitData.tree && commitData.tree.sha;
+    if (!baseTree) return driveErr("无法读取 base tree", 502);
+
+    // 3) manifest 也作为一个 blob 纳入同一棵树
+    const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
+    const mRes = await ghApiWrite(`${base}/blobs`, env, "POST",
+      { content: bytesToBase64(manifestBytes), encoding: "base64" });
+    if (!mRes.ok) return githubWriteError(mRes);
+    const mData = await mRes.json();
+    if (!mData || !mData.sha) return driveErr("manifest blob 创建失败", 502);
+
+    // 4) 一次性建树：所有 part + manifest
+    const tree = parts.map((p) => ({
+      path: drivePartPath(uploadId, Number(p.index)),
+      mode: "100644", type: "blob", sha: String(p.sha),
+    }));
+    tree.push({
+      path: driveManifestPath(uploadId, dir || ""),
+      mode: "100644", type: "blob", sha: String(mData.sha),
+    });
+    const treeRes = await ghApiWrite(`${base}/trees`, env, "POST",
+      { base_tree: baseTree, tree });
+    if (!treeRes.ok) return githubWriteError(treeRes);
+    const treeData = await treeRes.json();
+    if (!treeData || !treeData.sha) return driveErr("tree 创建失败", 502);
+
+    // 5) 单次 commit
+    const newCommitRes = await ghApiWrite(`${base}/commits`, env, "POST", {
+      message: `drive: atomic upload ${manifest.name} (${total} parts)`,
+      tree: treeData.sha,
+      parents: [parentSha],
+    });
+    if (!newCommitRes.ok) return githubWriteError(newCommitRes);
+    const newCommit = await newCommitRes.json();
+    if (!newCommit || !newCommit.sha) return driveErr("commit 创建失败", 502);
+
+    // 6) 原子移动分支指针（唯一对外可见的一步）
+    const refWrite = await ghApiWrite(`${base}/refs/heads/${branch}`, env, "PATCH",
+      { sha: newCommit.sha, force: false });
+    if (!refWrite.ok) return githubWriteError(refWrite);
+
+    driveListMemo.data = null;
+    return driveOk({
+      ok: true, atomic: true, uploadId,
+      commit: newCommit.sha,
+      tree: treeData.sha,
+      parts: total,
+      // 与 Contents API 的 finish 返回保持同构，前端无需分支处理
+      path: driveManifestPath(uploadId, dir || ""),
+    });
+  });
+}
+
+/* ============================================================
  * v8.2 云盘写操作边缘限流（防击穿）
  * ------------------------------------------------------------
  * 分片并发从「片内串行」提到 3 路后，单文件瞬时写请求数 ×3。
@@ -2347,6 +2546,53 @@ async function handleDrive(request, env, ctx, url) {
     driveListMemo.key = dir;
     driveListMemo.data = payload;
     return driveOk(payload);
+  }
+
+  // ---- v11.0 战役二：能力探测（前端据此决定走原子批量还是老逐片路径）----
+  // GET 且与其他 /api/drive/* 端点同一 PIN 基线；返回体不含任何凭据信息。
+  if (request.method === "GET" && sub === "upload/capability") {
+    const atomic = await driveAtomicCapability(env);
+    return driveOk({
+      ok: true,
+      atomicBatch: atomic,
+      chunkSize: CONFIG.drive.chunkSize,
+      binaryBody: true, // 浏览器→Worker 段走 application/octet-stream 裸流
+    });
+  }
+
+  // ---- v11.0 战役二：裸 ArrayBuffer 单片 → GitHub Blobs API ----
+  if (request.method === "POST" && sub === "upload/blob") {
+    const uploadId = sanitizeUploadId(request.headers.get("x-drive-upload-id"));
+    if (!uploadId) return driveErr("uploadId 不合法（x-drive-upload-id）", 400);
+    const index = Number(request.headers.get("x-drive-index"));
+    if (!Number.isInteger(index) || index < 0 || index > 100000) {
+      return driveErr("分片序号不合法（x-drive-index，0-100000）", 400);
+    }
+    const ct = request.headers.get("content-type") || "";
+    if (!/application\/octet-stream/i.test(ct)) {
+      return driveErr("Content-Type 必须为 application/octet-stream（裸二进制分片）", 415);
+    }
+    // 读流上限比 Base64 路径更紧：裸字节本身就是 8MB，无需 12MB 的编码余量
+    const { tooLarge, bytes } = await readBinaryBody(request, CONFIG.drive.chunkSize);
+    if (tooLarge) return driveErr("二进制分片超过 8MB 上限", 413);
+    if (!bytes || bytes.byteLength === 0) return driveErr("分片内容为空", 400);
+    return driveBlobSave(env, uploadId, index, bytes);
+  }
+
+  // ---- v11.0 战役二：批量原子收尾（Trees/Commits/refs 单次 commit）----
+  if (request.method === "POST" && sub === "upload/finish-atomic") {
+    const body = await readDriveJson(request);
+    if (!body || typeof body.uploadId !== "string") return driveErr("参数缺失：需要 uploadId", 400);
+    const uploadId = sanitizeUploadId(body.uploadId);
+    if (!uploadId) return driveErr("uploadId 不合法", 400);
+    if (typeof body.name !== "string" || !body.name.trim()) return driveErr("参数缺失：需要 name", 400);
+    const dir = body.dir === undefined || body.dir === null || body.dir === ""
+      ? "" : sanitizeDriveSubdir(body.dir);
+    if (dir === null) return driveErr("非法目录：不允许 . .. 与隐藏目录", 400);
+    return driveAtomicCommit(
+      env, uploadId, body.name.trim(), Number(body.size) || 0,
+      Number(body.total), dir, body.parts
+    );
   }
 
   // ---- v6.0 分片上传：断点查询（已落库分片序号，断点续传的依据）----
