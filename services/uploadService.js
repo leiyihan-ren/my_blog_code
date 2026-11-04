@@ -64,7 +64,7 @@ window.UploadService = (function () {
   var PART_PARALLEL = 3; // v8.2：单文件内并行上传的分片数（与文件间并发相乘为总并发上限）
   var PART_RETRY = 3; // 单片失败自动重试次数
   var DL_PART_RETRY = 2; // v8.2：下载单片失败重试次数（GitHub raw 突发限流自愈）
-  var DOWNLOAD_CONCURRENT = 4; // 下载重组并发拉片路数
+  var DOWNLOAD_CONCURRENT = 5; // v9.2：下载重组并发拉片 4→5 路（只读、不占写限流，纯提速）
 
   /* ---------- 状态机（v7.1）：值保持既有字符串，UI/测试零破坏 ---------- */
   var STATE = {
@@ -560,6 +560,70 @@ window.UploadService = (function () {
    *    拉片 URL 保持纯净（不加查询参数），避免破坏缓存键与测试 mock 匹配；
    *    Worker 侧仍保留 ?dl=1 兜底，供「直接拿链接下载」的场景使用。
    */
+  /* ---------- v9.2 下载断点续传：已拉分片落 IndexedDB ----------
+   * Worker 的边缘 Cache API 已能让「第二次下载」命中 CDN，但下载到一半
+   * 断网/刷新/强关，已拉取的分片仍会全部作废，重下要从第 1 片开始。
+   * 这里按 uploadId + 片号把 Blob 存进 IndexedDB：
+   *   - 未走到完成分支 → 分片留库，下次下载同文件直接跳过网络（真续传）；
+   *   - 完成并触发保存 → 立即清空该文件分片，既不长期占用浏览器配额，
+   *     也不改变「连续下载两次」的网络行为（守护断言不受影响）。
+   * IndexedDB 不可用 / 隐私模式 / 配额满：全部静默降级为纯网络下载，
+   * 绝不因缓存问题阻断用户拿到文件。 */
+  var DL_DB_NAME = "drive_dl_parts", DL_STORE = "parts", dlDbPromise = null;
+  function dlDb() {
+    if (dlDbPromise) return dlDbPromise;
+    dlDbPromise = new Promise(function (resolve) {
+      if (typeof indexedDB === "undefined") return resolve(null);
+      var req;
+      try { req = indexedDB.open(DL_DB_NAME, 1); } catch (e) { return resolve(null); }
+      req.onupgradeneeded = function () {
+        try {
+          var db = req.result;
+          if (!db.objectStoreNames.contains(DL_STORE)) db.createObjectStore(DL_STORE);
+        } catch (e) { /* ignore */ }
+      };
+      req.onsuccess = function () { resolve(req.result); };
+      req.onerror = function () { resolve(null); };
+      req.onblocked = function () { resolve(null); };
+    });
+    return dlDbPromise;
+  }
+  function dlGet(db, key) {
+    return new Promise(function (resolve) {
+      if (!db) return resolve(null);
+      try {
+        var r = db.transaction(DL_STORE, "readonly").objectStore(DL_STORE).get(key);
+        r.onsuccess = function () { resolve(r.result || null); };
+        r.onerror = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+  }
+  function dlPut(db, key, blob) {
+    return new Promise(function (resolve) {
+      if (!db) return resolve();
+      try {
+        var tx = db.transaction(DL_STORE, "readwrite");
+        tx.objectStore(DL_STORE).put(blob, key);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); };   // 配额满：静默降级
+        tx.onabort = function () { resolve(); };
+      } catch (e) { resolve(); }
+    });
+  }
+  function dlClear(db, prefix, total) {
+    return new Promise(function (resolve) {
+      if (!db) return resolve();
+      try {
+        var tx = db.transaction(DL_STORE, "readwrite");
+        var st = tx.objectStore(DL_STORE);
+        for (var i = 0; i < total; i++) st.delete(prefix + i);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); };
+        tx.onabort = function () { resolve(); };
+      } catch (e) { resolve(); }
+    });
+  }
+
   function downloadChunked(f, btn) {
     var repo = "leiyihan-ren/Blog";
     btn.disabled = true;
@@ -591,18 +655,32 @@ window.UploadService = (function () {
               return new Promise(function (res) { setTimeout(res, wait); }).then(fire);
             });
           }
-          return fire().then(function (b) { parts[idx] = b; });
+          var cacheKey = "dl:" + manifest.uploadId + ":" + idx;
+          return dlDb().then(function (db) {
+            return dlGet(db, cacheKey).then(function (hit) {
+              // 上次中断留下的分片：直接复用，不再发网络请求（断点续传）
+              if (hit && hit.size > 0) { parts[idx] = hit; return; }
+              return fire().then(function (b) {
+                parts[idx] = b;
+                return dlPut(db, cacheKey, b);
+              });
+            });
+          });
         }
         function pump() {
           var batch = [];
           while (next < total && batch.length < DOWNLOAD_CONCURRENT) { batch.push(next); next += 1; }
           if (!batch.length) {
             var blob = new Blob(parts, { type: "application/octet-stream" });
-            btn.disabled = false;
-            btn.textContent = "⬇️ 下载";
-            hooks.saveBlob(blob, manifest.name || f.name);
-            hooks.toast("已重组下载 " + (manifest.name || f.name), "ok");
-            return;
+            var outName = manifest.name || f.name;
+            var prefix = "dl:" + manifest.uploadId + ":";
+            // 已完整交付 → 清掉本地续传分片，避免长期占配额
+            return dlDb().then(function (db) { return dlClear(db, prefix, total); }).then(function () {
+              btn.disabled = false;
+              btn.textContent = "⬇️ 下载";
+              hooks.saveBlob(blob, outName);
+              hooks.toast("已重组下载 " + outName, "ok");
+            });
           }
           return Promise.all(batch.map(fetchPart)).then(function () {
             btn.textContent = "⏳ 重组 " + Math.min(next, total) + "/" + total;

@@ -2274,6 +2274,63 @@ async function handleDrive(request, env, ctx, url) {
     return driveSaveFile(env, path, body.content, body.message, true);
   }
 
+  // ---- v9.2 大文件安全重命名 ----------------------------------------
+  // 旧版大文件（分片 manifest）禁用重命名：唯一办法是「读回 2GB → 重新
+  // 上传 → 删除旧文件」，既慢又会在中途失败时留下半成品。
+  // 实际上 name 只是 manifest 里的一个字段，parts 内容完全不含文件名，
+  // 因此正确解法是原子改这一个字段：O(1) 一次 PUT，零数据搬运、零风险。
+  // 服务端做路径白名单 + 名称校验 + 清单结构校验，避免前端写坏协议文件。
+  if (request.method === "POST" && sub === "rename") {
+    const body = await readDriveJson(request);
+    if (!body || typeof body.path !== "string" || typeof body.name !== "string") {
+      return driveErr("参数缺失：需要 path 与 name", 400);
+    }
+    const newName = body.name.trim();
+    if (!newName || newName.length > 200 ||
+        /[\/\\\u0000-\u001f]/.test(newName) ||
+        newName === "." || newName === ".." || newName.startsWith(".")) {
+      return driveErr("非法文件名：不能为空、含路径符号/控制字符或以点开头", 400);
+    }
+    const renamePath = sanitizeDrivePath(body.path);
+    if (!renamePath) return driveErr("非法路径：必须位于云盘目录内且不含 .. 穿越", 400);
+    // 只接受分片清单，杜绝借这个端点覆写任意普通文件
+    if (!/^drive\/(?:[^/]+\/)*\.m-[A-Za-z0-9_-]{1,64}\.json$/.test(renamePath)) {
+      return driveErr("仅支持重命名分片大文件（manifest）", 400);
+    }
+
+    const metaRes = await ghApiRequest(
+      driveContentsUrl(repo, branch, renamePath), null, env, null
+    );
+    if (!metaRes.ok) {
+      return metaRes.status === 404
+        ? driveErr("清单不存在或已被删除", 404)
+        : githubWriteError(metaRes);
+    }
+    const meta = await metaRes.json();
+    let manifest;
+    try {
+      // GitHub 返回 Base64(UTF-8 JSON)：atob 拿到的是字节串，必须 TextDecoder
+      // 还原多字节字符，否则中文名会变成乱码写回。
+      const bin = atob(String(meta.content || "").replace(/\s+/g, ""));
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      manifest = JSON.parse(new TextDecoder().decode(bytes));
+    } catch (e) {
+      return driveErr("清单内容损坏，无法重命名", 422);
+    }
+    if (!manifest || !Number.isInteger(manifest.total) || manifest.total < 1) {
+      return driveErr("清单结构异常（total 缺失），拒绝写入", 422);
+    }
+    if (manifest.name === newName) {
+      return driveOk({ ok: true, path: renamePath, name: newName, unchanged: true });
+    }
+    manifest.name = newName;
+    manifest.renamedAt = new Date().toISOString();
+    return driveSaveFile(
+      env, renamePath, jsonToBase64(JSON.stringify(manifest)),
+      `drive: rename ${manifest.uploadId || "manifest"} → ${newName}`, true
+    );
+  }
+
   // ---- 删除（后端先 GET sha，再 DELETE）----
   if (request.method === "DELETE" && sub === "delete") {
     const body = await readDriveJson(request);

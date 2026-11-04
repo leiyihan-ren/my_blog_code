@@ -141,11 +141,11 @@
     </div>
   </div>
 
-  <!-- 重命名模态（v7.3：仅小文件；大文件 manifest 协议不支持改名） -->
+  <!-- 重命名模态（v9.2：大文件改 manifest.name，小文件仍走「读回→新传→删旧」） -->
   <div class="modal-mask" id="renameModal">
     <div class="modal">
       <h3>✏️ 重命名文件</h3>
-      <p class="m-desc">当前名称：<span class="warn-file" id="renameOldName"></span><br>重命名会以新名称重新上传并删除旧文件，内容不变。</p>
+      <p class="m-desc">当前名称：<span class="warn-file" id="renameOldName"></span><br>分片大文件只改清单里的文件名（秒级、不重传数据）；小文件会以新名称重新上传并删除旧文件，内容不变。</p>
       <input type="text" id="renameInput" placeholder="输入新文件名" autocomplete="off" spellcheck="false">
       <div class="modal-btns">
         <button class="btn" id="btnRenameCancel">取消</button>
@@ -503,15 +503,12 @@
           }
           tdOps.appendChild(dl);
           tdOps.appendChild(del);
-          // v7.3 重命名：仅小文件（大文件为分片 manifest 协议，不支持改名）
+          // v9.2 重命名：大文件与小文件均可用（大文件走 /api/drive/rename 只改清单）
           var rn = document.createElement("button");
           rn.className = "rn";
           rn.textContent = "✏️";
           rn.title = "重命名";
-          if (f.storage === "chunked") {
-            rn.disabled = true;
-            rn.title = "大文件暂不支持重命名（分片协议）";
-          } else if (UploadService.isUploading(f.name)) {
+          if (UploadService.isUploading(f.name)) {
             rn.disabled = true;
             rn.title = "上传中，暂不可重命名";
           } else {
@@ -706,6 +703,25 @@
         var btn = this;
         btn.disabled = true;
         btn.textContent = "处理中…";
+        /* v9.2 大文件安全重命名：不再「读回 2GB → 重传 → 删旧」。
+         * 服务端 /api/drive/rename 只改 manifest 的 name 字段（一次 PUT），
+         * 分片内容零搬运；路径白名单、名称与清单结构校验都在 Worker 侧。 */
+        if (f.storage === "chunked") {
+          api("/api/drive/rename", {
+            method: "POST",
+            body: { path: f.path, name: newName }
+          }).then(function () {
+            btn.disabled = false;
+            btn.textContent = "确认";
+            toast("已重命名为「" + newName + "」（分片数据未改动）", "ok");
+            loadList();
+          }).catch(function (e) {
+            btn.disabled = false;
+            btn.textContent = "确认";
+            toast(e.message || "重命名失败", "err");
+          });
+          return;
+        }
         var dir = f.path.replace(/[^/]*$/, ""); // 保留所在目录
         var newPath = dir + newName;
         // 1) 读回旧文件内容（raw 代理）
