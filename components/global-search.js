@@ -134,7 +134,11 @@ async function fetchDocs() {
           title: String(f.title).slice(0, 160),
           body: String(f.body || "").slice(0, 600),
           type: src.type,
-          url: f.url || "/index.html",
+          // 空串是 safeUrl() 对非法协议（javascript:/data: 等）的明确拒绝信号，
+          // 不能用 `|| "/index.html"` 兜底成首页——否则 go() 里的
+          // `if (!u) return` 二次防线永远不触发，点恶意结果会跳首页。
+          // 各数据源的 fields() 都已给出明确 url；缺省时保持空串（不可跳转）。
+          url: typeof f.url === "string" ? f.url : "",
           date: String(f.date || ""),
         });
       });

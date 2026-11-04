@@ -1,5 +1,5 @@
 // ============================================================
-// 全链路测试总runner：顺序执行 22 个测试套件，汇总通过/失败
+// 全链路测试总runner：顺序执行 25 个测试套件，汇总通过/失败
 // 任一失败 → 进程退出码 1（CI 直接判红）
 // 用法：node tests/run-all.mjs
 // 环境变量：CHROMIUM_PATH 指定 Chromium 可执行文件路径
@@ -34,6 +34,9 @@ const SUITES = [
   { name: "路由重写与链接守护", file: "step10-routes-verify.mjs" },
   { name: "云盘专业版（v8.0 A–G）", file: "step17-drive-pro.mjs" },
   { name: "大文件安全重命名（v9.2）", file: "step18-drive-rename.mjs" },
+  { name: "v11.0 Range 并行下载端到端", file: "step19-v11-range.mjs" },
+  { name: "v11.0 Git Data API 原子上传端到端", file: "step20-v11-atomic-upload.mjs" },
+  { name: "v11.0 全站本地搜索端到端", file: "step21-v11-global-search.mjs" },
 ];
 
 function runSuite(file) {
