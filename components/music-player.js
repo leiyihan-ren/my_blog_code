@@ -479,13 +479,95 @@ var bootMusicPlayer = function() {
     if (now - mpResumeSaveAt < 1500) return; // timeupdate 每 ~250ms 触发，节流写盘
     mpResumeSaveAt = now;
     mpSaveResume();
+    // v11.0：同节流窗口内把精确断点广播给同站其他页面（跨页接力）
+    mpChannelPost({ type: "progress", state: mpSnapshot() });
   });
   audio.addEventListener("play", mpSaveResume);
   audio.addEventListener("pause", mpSaveResume);
   audio.addEventListener("ended", mpSaveResume);
   // pagehide 比 beforeunload 可靠（移动端 / BFCache 场景都会触发），同步落盘
-  window.addEventListener("pagehide", mpSaveResume);
+  window.addEventListener("pagehide", () => {
+    mpSaveResume();
+    // 切页瞬间再推一次最精确的进度，把新页面续播的 gap 压到最小
+    mpChannelPost({ type: "progress", state: mpSnapshot() });
+  });
   document.addEventListener("visibilitychange", () => { if (document.hidden) mpSaveResume(); });
+
+  /* ---------- v11.0 战役三：跨页/跨标签播放仲裁（BroadcastChannel） ----------
+   * 物理边界（诚实标注）：本站是纯 MPA，整页导航会卸载文档并销毁 <audio>，
+   * 「同一个 Audio 实例跨页存活」在架构上做不到；隐藏 iframe 被本站点
+   * X-Frame-Options: DENY + CSP frame-src 'none' / frame-ancestors 'none'
+   * 明令禁止，SharedWorker / ServiceWorker 全局没有 HTMLMediaElement 更不能
+   * 播放音频。字面意义的「零中断」只能 SPA 化或整站 iframe 外壳化，
+   * 两者都违反「严禁推倒重来、在原有代码基础上优化」的底线。
+   *
+   * 因此在 MPA 约束下拿到三件实事：
+   *  1) 单实例仲裁：任一页面开始播放，其他正在播放的页面立即让位，
+   *     杜绝「开了 3 个标签同时响」——全局播放器的核心体验。
+   *  2) 精确断点接力：播放页持续广播 {idx,t,playing,at}，其他页把它写入
+   *     本地 resume；旧页被系统回收/崩溃时，新页仍能拿到 1.5s 内的精确
+   *     断点，把续播 gap 压到最小（现有 localStorage 续播的增强，不替换）。
+   *  3) Media Session 全动作（见 updateMediaSession）：锁屏/耳机可拖进度、
+   *     快进快退、停止，OS 媒体中心完整接管。
+   *
+   * 全程能力探测 + try/catch：BroadcastChannel 不可用（隐私模式/旧浏览器/
+   * 测试环境）时静默降级，绝不因增强功能让音乐播不出来。 */
+  const MP_CHANNEL_NAME = "mp_global_v11";
+  const MP_CLIENT_ID = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+  let mpChannel = null;
+  let mpSelfPlaying = false;
+
+  function mpSnapshot() {
+    // currentIdx / playlist 在下方初始化，但本函数只在事件回调里被调用，
+    // 运行时早已就绪（不在模块顶层同步访问，无 TDZ 风险）。
+    return { idx: currentIdx, t: Number(audio.currentTime) || 0, playing: mpSelfPlaying, at: Date.now() };
+  }
+  function mpChannelPost(msg) {
+    if (!mpChannel) return;
+    try { mpChannel.postMessage(Object.assign({ from: MP_CLIENT_ID }, msg)); } catch (e) { /* 通道已关闭 */ }
+  }
+  /** 采纳其它页面广播来的精确状态，落到本地断点（等价 mpSaveResume，数据更准） */
+  function mpAdoptRemoteState(s) {
+    if (!s || !Number.isInteger(s.idx) || s.idx < 0) return;
+    try {
+      safeStorage.set(MP_RESUME_KEY, JSON.stringify({
+        idx: s.idx, t: Number(s.t) || 0, playing: !!s.playing, at: Number(s.at) || Date.now(),
+      }));
+    } catch (e) { /* 隐私模式 */ }
+  }
+  function initGlobalArbitration() {
+    if (typeof BroadcastChannel === "undefined") return;
+    try {
+      mpChannel = new BroadcastChannel(MP_CHANNEL_NAME);
+      mpChannel.onmessage = (e) => {
+        const m = e.data;
+        if (!m || m.from === MP_CLIENT_ID) return; // 忽略自己（BroadcastChannel 本就不回派，双保险）
+        if (m.type === "claim") {
+          // 别的页面开始播放 → 本页让位，保证全站只有一个声音
+          if (!audio.paused) {
+            audio.pause();
+            syncPlayUI();
+            mpAdoptRemoteState(m.state);
+          }
+        } else if (m.type === "progress") {
+          // 本页未在播放：帮播放页接力保存精确断点，不抢播、不改自身状态
+          if (audio.paused) mpAdoptRemoteState(m.state);
+        } else if (m.type === "hello" && !audio.paused) {
+          // 新页面入场询问：告知它「已有实例在播」并附精确状态
+          mpChannelPost({ type: "progress", state: mpSnapshot() });
+        }
+      };
+    } catch (e) { mpChannel = null; }
+    audio.addEventListener("play", () => {
+      mpSelfPlaying = true;
+      // 自动续播 / ended 自动切歌只发 progress，绝不发 claim：
+      // 否则两个页面会因循环自动切歌互相抢播（真实浏览器复现过）。
+      mpChannelPost({ type: "progress", state: mpSnapshot() });
+    });
+    audio.addEventListener("pause", () => { mpSelfPlaying = false; });
+    // 本页入场：询问是否已有播放中的实例（有则它会回 progress，新页不抢播）
+    mpChannelPost({ type: "hello" });
+  }
 
   // ---- 状态 ----
   let playlist = [];
@@ -682,6 +764,9 @@ var bootMusicPlayer = function() {
       return;
     }
     if (audio.paused) {
+      // v11.0：用户主动点击播放 = 明确接管意图，广播 claim 让其他页面让位。
+      // 只在用户手势路径发 claim（自动续播/自动切歌走 progress），杜绝抢播循环。
+      mpChannelPost({ type: "claim", state: mpSnapshot() });
       if (!audio.src) { loadSong(currentIdx, true); return; }
       audio.play().then(syncPlayUI).catch(() => {
         syncPlayUI();
@@ -766,7 +851,29 @@ var bootMusicPlayer = function() {
   }
 
   // ---- 系统媒体控制（锁屏 / 耳机按键 / 通知栏）----
-  /** 更新系统媒体中心元数据（标题/艺术家/封面，锁屏可见） */
+  /**
+   * v11.0 战役三：把锁屏控制从「4 个按钮」补全为「全动作 + 进度条」。
+   * 逐条 setActionHandler 独立 try/catch：Safari/旧 Chromium 只支持部分动作，
+   * 某个动作抛错不能让整块注册失败（历史 bug：一个 try 包全部动作，
+   * 遇到不支持的 seekto 会连 play/pause 一起丢掉）。
+   */
+  function msAction(name, fn) {
+    try { navigator.mediaSession.setActionHandler(name, fn); } catch (e) { /* 该动作不支持 */ }
+  }
+  /** 锁屏进度条：duration/position/playbackRate 三件套，拖动进度由 seekto 回写 */
+  function syncMediaPosition() {
+    if (!("mediaSession" in navigator) || typeof navigator.mediaSession.setPositionState !== "function") return;
+    const dur = isFinite(audio.duration) ? audio.duration : 0;
+    if (dur <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: dur,
+        position: Math.min(audio.currentTime || 0, dur),
+        playbackRate: audio.playbackRate || 1,
+      });
+    } catch (e) { /* 部分实现要求 duration > position，忽略 */ }
+  }
+  /** 更新系统媒体中心元数据（标题/艺术家/封面，锁屏可见）+ 全部动作 */
   function updateMediaSession(song) {
     if (!("mediaSession" in navigator) || typeof MediaMetadata !== "function") return;
     try {
@@ -779,11 +886,22 @@ var bootMusicPlayer = function() {
           ? [{ src: song.cover, sizes: "512x512", type: "image/jpeg" }]
           : [],
       });
-      navigator.mediaSession.setActionHandler("play", () => audio.play().then(syncPlayUI));
-      navigator.mediaSession.setActionHandler("pause", () => { audio.pause(); syncPlayUI(); });
-      navigator.mediaSession.setActionHandler("previoustrack", prevSong);
-      navigator.mediaSession.setActionHandler("nexttrack", nextSong);
-    } catch (e) { /* 部分浏览器不支持 */ }
+    } catch (e) { /* metadata 不支持 */ }
+    msAction("play", () => audio.play().then(syncPlayUI));
+    msAction("pause", () => { audio.pause(); syncPlayUI(); });
+    msAction("previoustrack", prevSong);
+    msAction("nexttrack", nextSong);
+    msAction("stop", () => { audio.pause(); try { audio.currentTime = 0; } catch (e) {} syncPlayUI(); });
+    msAction("seekbackward", (d) => seekBy(-((d && d.seekOffset) || 10)));
+    msAction("seekforward", (d) => seekBy(((d && d.seekOffset) || 10)));
+    msAction("seekto", (d) => {
+      if (!d || typeof d.seekTime !== "number") return;
+      if (!isFinite(audio.duration) || audio.duration <= 0) return;
+      try { audio.currentTime = Math.max(0, Math.min(audio.duration, d.seekTime)); } catch (e) {}
+      syncProgressUI();
+      syncMediaPosition();
+    });
+    syncMediaPosition();
   }
 
   // ---- 播放列表 ----
@@ -880,6 +998,8 @@ var bootMusicPlayer = function() {
     if (now - lastProgressUpdate < 250) return;
     lastProgressUpdate = now;
     syncProgressUI();
+    // v11.0：锁屏进度条跟随（已有 250ms 节流，不额外增加调用频率）
+    syncMediaPosition();
   });
 
   audio.addEventListener("progress", syncBufferUI);
@@ -887,6 +1007,8 @@ var bootMusicPlayer = function() {
     $("mpDuration").textContent = formatTime(audio.duration);
     $("mpProgress").setAttribute("data-ready", "1");
     syncBufferUI();
+    // v11.0：元数据就绪后锁屏才能显示总时长/进度条
+    syncMediaPosition();
   });
   audio.addEventListener("durationchange", () => {
     $("mpDuration").textContent = formatTime(audio.duration);
@@ -1104,6 +1226,8 @@ var bootMusicPlayer = function() {
   renderPlaylist();
   syncPlayUI();
   loadMusic();
+  // v11.0：最后启动跨页仲裁（能力探测降级，绝不阻断上面的既有初始化）
+  try { initGlobalArbitration(); } catch (e) { /* 增强功能失败不影响播放 */ }
 })();
 };
 
