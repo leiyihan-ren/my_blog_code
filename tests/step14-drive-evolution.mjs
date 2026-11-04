@@ -278,13 +278,32 @@ async function main() {
     check("E6c 重命名 → 旧路径删除", ghDrive.delBodies.length > delBefore && ghDrive.delBodies[ghDrive.delBodies.length - 1].path === "drive/hello.txt", JSON.stringify(ghDrive.delBodies[ghDrive.delBodies.length - 1] && ghDrive.delBodies[ghDrive.delBodies.length - 1].path));
     check("E6d 上传内容为 Base64", /^[A-Za-z0-9+/\s]+=*$/.test(ghDrive.putBodies[ghDrive.putBodies.length - 1].body.content || ""), "");
 
-    // E7 大文件重命名按钮禁用
+    // E7 v9.2：大文件重命名已开放（v7.3 起长期禁用）。
+    // 现在走 Worker 的 /api/drive/rename，只改 manifest.name，一次 PUT，
+    // 不再「读回 2GB → 重传 → 删旧」。端点级边界（非法路径/名称、UTF-8、
+    // 清单结构、PIN）由 step18-drive-rename.mjs 覆盖，这里验证 UI 接线。
     const bigRn = await page.evaluate(() => {
       const tr = [...document.querySelectorAll("#fileTbody tr")].find((t) => (t.textContent || "").includes("🧩"));
       const btn = tr && tr.querySelector(".rn");
       return btn ? { disabled: btn.disabled, title: btn.title } : null;
     });
-    check("E7 大文件重命名按钮禁用 + 有说明", !!bigRn && bigRn.disabled === true && /大文件/.test(bigRn.title || ""), JSON.stringify(bigRn));
+    check("E7 大文件重命名按钮可用（v9.2 起支持）", !!bigRn && bigRn.disabled === false, JSON.stringify(bigRn));
+    const bigPath = await page.evaluate(() => {
+      const tr = [...document.querySelectorAll("#fileTbody tr")].find((t) => (t.textContent || "").includes("🧩"));
+      return tr ? tr.getAttribute("data-path") : null;
+    });
+    if (bigPath) {
+      await page.click(`#fileTbody tr[data-path="${bigPath}"] .rn`);
+      const modal = await page.evaluate(() => ({
+        open: document.getElementById("renameModal").classList.contains("show"),
+        name: (document.getElementById("renameInput") || {}).value || "",
+      }));
+      check("E7b 大文件可打开重命名模态并预填原名", modal.open && !!modal.name, JSON.stringify(modal));
+      // 直接收起，不触发提交（避免影响 E8 的行数基线）
+      await page.evaluate(() => document.getElementById("renameModal").classList.remove("show"));
+    } else {
+      check("E7b 大文件可打开重命名模态并预填原名", false, "未找到大文件行");
+    }
 
     // E8 乐观删除回滚：DELETE 500 → 行即时移除后恢复 + 错误提示
     ghDrive.failDelete = true;
