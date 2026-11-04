@@ -236,6 +236,15 @@ window.UploadService = (function () {
         clearAbort();
         reject(PAUSE_SENTINEL); // 暂停/取消：由上层按 status 分流
       };
+      // v11.0 最后一微米闸门：throwIfPaused() 到 send() 之间若发生取消/暂停
+      // （高频重渲染会占用事件循环，放大这个窗口），HTTP 请求一旦发出，
+      // 服务端写 manifest 就不可撤销——被取消的文件会混入云盘列表（S5d）。
+      // 在真正发送前再判一次状态，正常路径零影响。
+      if (task && (task.status === STATE.CANCELED || task.status === STATE.PAUSED)) {
+        clearAbort();
+        reject(PAUSE_SENTINEL);
+        return;
+      }
       xhr.send(payload === undefined ? undefined : JSON.stringify(payload));
     });
   }
@@ -570,6 +579,9 @@ window.UploadService = (function () {
 
   /** 原子收尾：一次 Trees/Commits/refs 提交所有分片 + manifest */
   function finishAtomic(task, parts, total) {
+    // 原子提交用 fetch，不经过 xhrUpload、也不受 task._abort 控制，
+    // 因此必须在发出请求前再判一次取消/暂停（与 xhrUpload 的最后闸门对称）。
+    throwIfPaused(task);
     return fetch("/api/drive/upload/finish-atomic", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-drive-pin": hooks.getPin() },
