@@ -1660,7 +1660,7 @@
      * 纯表现层开关：只切 body class，不增删正文节点，因此 TOC 高亮、
      * 阅读进度、评论、上一篇/下一篇等既有逻辑零感知，退出即完整还原。
      * 开关状态与字号持久化，跨文章保持一致的阅读偏好。 */
-    (function initZenMode() {
+    function initZenMode() {
       const KEY = "post_zen_on", SIZE_KEY = "post_zen_size";
       const MIN = 15, MAX = 26, STEP = 2;
       const fab = document.getElementById("zenFab");
@@ -1698,7 +1698,14 @@
         if (e.key === "-") setSize(size - STEP);
       });
       try { if (localStorage.getItem(KEY) === "1") apply(true); } catch (e) { /* 隐私模式 */ }
-    })();
+    }
+    // 沉浸模式的按钮位于本脚本之后的 DOM 中，必须等 DOM 就绪再绑定，
+    // 否则 getElementById 拿到 null（脚本执行早于按钮解析）。
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initZenMode, { once: true });
+    } else {
+      initZenMode();
+    }
   </script>
 
   <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
