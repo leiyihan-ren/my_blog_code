@@ -38,7 +38,9 @@
 // v3.5.0：P0 止血——drive.html 的 fmtBytes 兜底修复 + _worker.js 凭据硬编码清除。
 //         必须 +1 的原因是：老客户端的静态缓存里可能仍是旧版 /utils/blog-utils.js
 //         （无 fmtBytes）与旧 drive.html，不换缓存名它们不会被重新拉取。
-const CACHE_VERSION = "v3.5.0";
+// v11.0：Range 并行下载的 SW 旁路 + 新增 services/rangeDownloader.js 预缓存，
+//        旧 SW 必须被替换（它的通用 Range 分支会把并发子块放大成 N 次全量拉取）。
+const CACHE_VERSION = "v11.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -67,6 +69,7 @@ const PRECACHE_URLS = [
   "/vendor/jszip.min.js",
   "/services/request.js",
   "/services/uploadService.js",
+  "/services/rangeDownloader.js",
   "/components/music-player.js",
   "/components/game-core.js",
   "/components/games/breakout.js",
@@ -173,6 +176,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.origin !== self.location.origin) return; // 只接管同源；外链由浏览器直连
+
+  // v11.0 战役一：云盘 Range 并行下载带专用标记头，直接透传给 Worker。
+  // 原因：通用 Range 分支（下面）对每个子块都会独立「拉完整版 + 缓存」，
+  // 没有并发去重，N 个 1MB 子块同时到达会各拉一次完整文件，反而把上游打爆。
+  // Worker 侧 rangeInflight 有去重 + Cache API 完整对象缓存，才是正确归口。
+  // 音频/视频拖动的 Range 请求不带此头，继续走原有离线切片逻辑，零影响。
+  if (req.headers.get("x-drive-range") === "1") {
+    event.respondWith(fetch(req));
+    return;
+  }
 
   // Range 分片请求：优先按缓存完整版切片（保证音频离线可播），
   // 未命中则拉取完整版入库后再切片；彻底失败才透传网络

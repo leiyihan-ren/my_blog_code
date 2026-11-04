@@ -643,7 +643,21 @@ window.UploadService = (function () {
           var pad = String(idx).padStart(5, "0");
           var url = base + pad;
           var attempt = 0;
+          var rangeEngine = (typeof window !== "undefined" && window.RangeDownloader) || null;
           function fire() {
+            // v11.0 战役一：Range 并行引擎（内部自带能力探测 / 子块重试 /
+            //   全量回退）。服务端返回 200 时它自动退化为普通请求，
+            //   老环境与测试 mock 的字节行为与改造前完全一致。
+            //   RangeDownloader 未加载（旧缓存页面 / 其它宿主）→ 走原路径。
+            if (rangeEngine) {
+              return rangeEngine.fetchBlob(url, hooks.getPin()).catch(function () {
+                // 引擎已整体回退过一次全量仍失败，再走原有退避重试
+                attempt += 1;
+                if (attempt > DL_PART_RETRY) throw new Error("分片 " + (idx + 1) + " 拉取失败");
+                var wait = Math.pow(2, attempt - 1) * 500;
+                return new Promise(function (res) { setTimeout(res, wait); }).then(fire);
+              });
+            }
             // v8.3：同 downloadFile——拉片走 Worker 代理须带口令，否则 401
             return fetch(url, { headers: { "x-drive-pin": hooks.getPin() } }).then(function (r) {
               if (r.ok) return r.blob();
@@ -718,11 +732,16 @@ window.UploadService = (function () {
     // v8.3 修复「点击下载报错」：/api/github/raw/ 走 Worker 的 GitHub 代理，
     //   该路径要求 x-drive-pin。fetch 与 <img src> 不同——后者由浏览器自动带上
     //   同源凭据，前者不会，缺头即被 Worker 挡回 401，前端表现为「下载失败」。
-    return fetch(url, { headers: { "x-drive-pin": hooks.getPin() } })
-      .then(function (r) {
-        if (!r.ok) throw new Error("下载失败（HTTP " + r.status + "）");
-        return r.blob();
-      })
+    // v11.0 战役一：小文件同样走 Range 并行引擎（首块即探测 + 全量回退），
+    //   未加载引擎或未启用 Range 的环境自动退化为下面这条等价的普通请求。
+    var loader = (typeof window !== "undefined" && window.RangeDownloader)
+      ? window.RangeDownloader.fetchBlob(url, hooks.getPin())
+      : fetch(url, { headers: { "x-drive-pin": hooks.getPin() } })
+        .then(function (r) {
+          if (!r.ok) throw new Error("下载失败（HTTP " + r.status + "）");
+          return r.blob();
+        });
+    return loader
       .then(function (blob) {
         hooks.saveBlob(blob, (f && f.name) || "download");
         hooks.toast("已下载 " + ((f && f.name) || "download"), "ok");

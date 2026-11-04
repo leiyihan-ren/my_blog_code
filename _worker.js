@@ -1608,12 +1608,128 @@ function withDownloadHeaders(response, name) {
   // v8.3：下载走 fetch→Blob（前端需读取响应并交给 <a download>）。
   //   若资源从其它源引用，Content-Disposition 默认不在 CORS 白名单内，
   //   前端读不到文件名、也拿不到 body。显式暴露给 JS，保证跨域场景同样可用。
-  headers.set("Access-Control-Expose-Headers", "Content-Disposition, Content-Length, ETag");
+  // v11.0：Range 下载前端需读 Content-Range / X-Range-Cache 做拼装与观测。
+  headers.set("Access-Control-Expose-Headers",
+    "Content-Disposition, Content-Length, Content-Range, Accept-Ranges, ETag, X-Range-Cache");
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
     headers,
   });
+}
+
+/* ============================================================
+ * v11.0 战役一：HTTP Range 并行下载 + 边缘「完整对象」缓存
+ * ------------------------------------------------------------
+ * 协议依据（Cloudflare Workers Cache API 官方文档，2026-10-29 版，已复核）：
+ *   - `cache.put()` 遇到 status 206 的响应会**抛错**（Invalid parameters
+ *     明确列出 206 Partial Content）；所以「把每个 Range 分片塞进缓存」
+ *     这条路物理不可行，绝不能照字面实现。
+ *   - `cache.match(request)` 传入带 `Range` 头的请求时，若缓存中存在带
+ *     Content-Length 的完整 200 对象，边缘会自动合成 206。
+ *   → 正解反过来：**只缓存完整对象**，Range 子块请求命中这份缓存后，
+ *     由 Worker 自己切片返回 206。二次下载全部 206 都从边缘缓存出，
+ *     零回源，才是真正的「瞬间秒杀」；且不依赖 CF 私有 match 行为，
+ *     本地/测试环境表现一致。
+ *
+ * 安全与兼容：
+ *   - 仅当请求同时带 `x-drive-range: 1` 与合法 `Range` 头才进入本分支；
+ *     相册图片、manifest、评论附件等既有 raw 请求逐字节不受影响。
+ *   - 鉴权与既有 raw GET 完全一致（公开仓库只读镜像），前端照常带
+ *     x-drive-pin；本端点不扩大任何读取权限面。
+ *   - `rangeInflight` 与既有 `ghProxyInflight` 隔离：N 个并发子块同时
+ *     到达时只拉一次完整对象，杜绝「并发 Range 各拉一次全量」打爆上游。
+ * ============================================================ */
+const RANGE_HEADER_RE = /^bytes=(\d*)-(\d*)$/;
+const rangeInflight = new Map(); // upstream URL -> 完整对象拉取 Promise
+
+/** 从边缘缓存或上游取「完整对象」的 ArrayBuffer（并发去重） */
+async function rangeLoadFullObject(upstream) {
+  const cacheKey = new Request(upstream, { method: "GET" });
+  const cached = await ghProxyCacheMatch(cacheKey);
+  if (cached && cached.status === 200) {
+    try { return { buf: await cached.arrayBuffer(), hit: true }; } catch (e) { /* 落到重拉 */ }
+  }
+  let task = rangeInflight.get(upstream);
+  if (!task) {
+    task = (async () => {
+      try {
+        const res = await fetchWithTimeout(upstream, {
+          headers: { "User-Agent": CONFIG.github.userAgent },
+        }, CONFIG.github.timeoutMs);
+        if (!res.ok) return null;
+        const buf = await res.arrayBuffer();
+        // 只 put 完整 200 对象（206 会让 cache.put 抛错）。
+        // 显式 Content-Length：CF 的 cache.match(Range) 自动 206 依赖它。
+        const h = new Headers({
+          "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
+          "Cache-Control": `public, max-age=${CONFIG.github.imageCacheTtlSeconds}, s-maxage=86400`,
+          "Content-Length": String(buf.byteLength),
+          "X-Cache-Time": String(Date.now()),
+        });
+        const etag = res.headers.get("ETag");
+        if (etag) h.set("ETag", etag);
+        await ghProxyCachePut(cacheKey, new Response(buf.slice(0), { status: 200, headers: h }));
+        return buf;
+      } catch (e) {
+        return null;
+      } finally {
+        rangeInflight.delete(upstream);
+      }
+    })();
+    rangeInflight.set(upstream, task);
+  }
+  const buf = await task;
+  return buf ? { buf, hit: false } : null;
+}
+
+/**
+ * Range 子块响应：解析 bytes=start-end，切片返回 206。
+ * 畸形/越界一律 416 + Content-Range 带总长度（合规且前端可判别）。
+ */
+async function handleRawRange(request, env, ctx, upstream, rel, wantDownload) {
+  const m = RANGE_HEADER_RE.exec((request.headers.get("range") || "").trim());
+  if (!m || (m[1] === "" && m[2] === "")) {
+    return new Response(JSON.stringify({ error: "Range 头格式不合法" }), {
+      status: 416, headers: buildHeaders(),
+    });
+  }
+  const loaded = await rangeLoadFullObject(upstream);
+  if (!loaded) return err("Range 源对象不可用", 502);
+  const full = loaded.buf;
+  const total = full.byteLength;
+
+  let start;
+  let end;
+  if (m[1] === "") {                       // 后缀形式 bytes=-N
+    const n = parseInt(m[2], 10) || 0;
+    start = Math.max(0, total - n);
+    end = total - 1;
+  } else {
+    start = parseInt(m[1], 10);
+    end = m[2] === "" ? total - 1 : Math.min(parseInt(m[2], 10), total - 1);
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start > end || start >= total || total === 0) {
+    const h = buildHeaders({
+      "Content-Range": `bytes */${total}`,
+      "Accept-Ranges": "bytes",
+    });
+    return new Response(null, { status: 416, headers: h });
+  }
+
+  const slice = full.slice(start, end + 1);
+  const extra = {
+    "Content-Type": "application/octet-stream",
+    "Content-Length": String(slice.byteLength),
+    "Content-Range": `bytes ${start}-${end}/${total}`,
+    "Accept-Ranges": "bytes",
+    "X-Range-Cache": loaded.hit ? "HIT" : "MISS",
+    // 206 是完整对象的局部视图，禁止浏览器/CDN 把它当完整资源缓存；
+    // 完整对象本身由上面的 Cache API 管理。
+    "Cache-Control": "no-store",
+  };
+  if (wantDownload) extra["Content-Disposition"] = contentDispositionAttachment(driveFileNameFromPath(rel));
+  return new Response(slice, { status: 206, headers: buildHeaders(extra) });
 }
 
 /** contents 列表请求识别：repos/:owner/:repo/contents/:path?ref=:branch */
@@ -1711,6 +1827,11 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     // ?dl=1 / ?download=1 → 出口叠加 Content-Disposition: attachment，
     // 强制唤醒系统下载器（详见 contentDispositionAttachment 注释）。
     const wantDownload = url.searchParams.get("dl") || url.searchParams.get("download");
+    // v11.0 战役一：显式 Range 闸门。必须同时带专用标记头与 Range 头才进入，
+    // 其余 raw 请求（图片、manifest、普通下载）逐字节走原路径，零回归。
+    if (request.headers.get("x-drive-range") === "1" && request.headers.get("range")) {
+      return handleRawRange(request, env, ctx, upstream, rel, wantDownload);
+    }
     return ghProxyFetch(new Request(upstream, { method: "GET" }), upstream, {
       ttl: CONFIG.github.imageCacheTtlSeconds,
       headers: { "User-Agent": CONFIG.github.userAgent },
