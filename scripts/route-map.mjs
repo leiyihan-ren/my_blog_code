@@ -31,6 +31,9 @@ export const PAGE_FILES = {
   "/mc.html": "pages/mc.html",
   "/post.html": "pages/post.html",
   "/timeline.html": "pages/timeline.html",
+  // v12.0 战役一：全局播放内核（独立窗口 / 隐藏 iframe 共用同一文档）
+  // ⚠️ 必须与 _worker.js 的 PAGE_REWRITES 同步，step10 有一致性断言。
+  "/player.html": "pages/player.html",
 };
 
 /**

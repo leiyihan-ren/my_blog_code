@@ -392,6 +392,19 @@ var bootMusicPlayer = function() {
     .mp-progress-wrap { max-width: none; min-width: 60px; }
     .mp-list-btn { display: flex; }
     .mp-playlist { width: calc(100vw - 24px); right: 12px; }
+
+    /* v12.0 收尾：战役一新增 🌐 全局播放按钮后，窄屏控制条会溢出视口。
+       .mp-btn 全部 flex-shrink:0，.mp-controls 无法自行收缩，因此按「渐进增强」
+       收起两项桌面增强控件（播放模式、音量组），核心控制（上一首/播放/下一首/
+       播放列表/全局播放）全部保留；移动端可用硬件音量键，且独立窗口播放内核在
+       移动浏览器上体验有限，收起这两项不会造成功能缺失。 */
+    .mp-controls { gap: 4px; flex: 0 0 auto; }
+    .mp-mode-btn, .mp-volume { display: none; }
+    .mp-progress-wrap { min-width: 48px; }
+  }
+  @media (max-width: 360px) {
+    /* 极窄屏（320px 级）兜底：进度条让位给歌曲信息与控制条，保证零横向溢出 */
+    .mp-progress-wrap { display: none; }
   }
   @media (min-width: 641px) {
     .mp-list-btn { display: flex; }
