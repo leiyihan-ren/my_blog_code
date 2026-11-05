@@ -95,6 +95,19 @@ var bootMusicPlayer = function() {
     flex: 1;
     min-width: 0;
   }
+  /* v12.0 战役一：当前歌词行（与锁屏 MediaMetadata.title 同步） */
+  .mp-lyric {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--text-mute, #6b7280);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-height: 15px;
+    margin-top: 2px;
+    opacity: .85;
+  }
+  .mp-lyric:empty { display: none; }
   .mp-title {
     font-size: 14px;
     font-weight: 600;
@@ -403,6 +416,7 @@ var bootMusicPlayer = function() {
     <div class="mp-info">
       <div class="mp-title" id="mpTitle">暂无歌曲</div>
       <div class="mp-artist" id="mpArtist">去管理后台添加音乐吧</div>
+      <div class="mp-lyric" id="mpLyric"></div>
     </div>
     <div class="mp-progress-wrap" id="mpProgressWrap">
       <div class="mp-progress" id="mpProgress" role="slider" aria-label="播放进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
@@ -424,6 +438,7 @@ var bootMusicPlayer = function() {
         <input type="range" class="mp-volume-slider" id="mpVolume" min="0" max="100" value="70" aria-label="音量">
       </div>
       <button class="mp-btn mp-list-btn" id="mpListBtn" title="播放列表" aria-label="播放列表">📋</button>
+      <button class="mp-btn mp-global-btn" id="mpGlobal" title="开启全局播放（切页不断播）" aria-label="开启全局播放">🌐</button>
     </div>
   </div>
   <div class="mp-playlist" id="mpPlaylist" role="dialog" aria-label="播放列表">
@@ -444,6 +459,158 @@ var bootMusicPlayer = function() {
   // ===== Logic =====
   const audio = new Audio();
   audio.preload = "metadata";
+
+  /* ---------- v12.0 战役一：锁屏歌词 + 全局播放内核接管 ---------- */
+  let lrcLines = [];
+  let lastLrcLine = "";
+  let globalHost = null;
+
+  /* music-player.js 是 defer 脚本，与 components/lrc.js 的空闲加载存在时序竞争。
+   * 这里保留一份等价的精简实现作兜底：共享模块已就绪则优先复用，否则用内置，
+   * 保证「锁屏歌词」在任何加载顺序下都可用（歌词是增强项，绝不能拖垮播放）。 */
+  var BUILTIN_LRC = (function () {
+    var RE = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+    return {
+      parse: function (text) {
+        var out = [];
+        String(text || "").split(/\r?\n/).forEach(function (line) {
+          var tags = [], m;
+          RE.lastIndex = 0;
+          while ((m = RE.exec(line)) !== null) {
+            tags.push(Number(m[1]) * 60 + Number(m[2]) + (m[3] ? Number("0." + m[3]) : 0));
+          }
+          if (!tags.length) return;
+          var s = line.replace(RE, "").trim();
+          tags.forEach(function (t) { if (isFinite(t) && t >= 0) out.push({ t: t, text: s }); });
+        });
+        out.sort(function (a, b) { return a.t - b.t; });
+        return out;
+      },
+      at: function (lines, time) {
+        if (!lines || !lines.length) return "";
+        var lo = 0, hi = lines.length - 1, ans = -1, t = Number(time) || 0;
+        while (lo <= hi) {
+          var mid = (lo + hi) >> 1;
+          if (lines[mid].t <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+        }
+        return ans < 0 ? "" : (lines[ans].text || (ans > 0 ? lines[ans - 1].text : ""));
+      },
+    };
+  })();
+  function lrcParser() { return window.LrcParser || BUILTIN_LRC; }
+
+  function inRemote() { return !!(globalHost && globalHost.isAlive()); }
+
+  /** 解析当前曲目的 LRC（内联 lrc 字符串优先，其次同源 lrcUrl 异步取） */
+  function setLrc(song) {
+    lastLrcLine = "";
+    lrcLines = [];
+    var el = $("mpLyric");
+    if (el) el.textContent = "";
+    if (!song) return;
+    var P = lrcParser();
+    if (typeof song.lrc === "string" && song.lrc) {
+      lrcLines = P.parse(song.lrc);
+      return;
+    }
+    var u = song.lrcUrl;
+    if (typeof u === "string" && /^\/(?!\/)/.test(u)) {
+      fetch(u).then(function (r) { return r.ok ? r.text() : ""; })
+        .then(function (t) { lrcLines = lrcParser().parse(t); })
+        .catch(function () { /* 歌词是增强项，失败只显示歌名 */ });
+    }
+  }
+
+  function baseMediaTitle() {
+    var s = playlist[currentIdx] || {};
+    return s.artist ? (s.title || "未知歌曲") + " · " + s.artist : (s.title || "我的博客");
+  }
+
+  /** 锁屏逐行歌词：Media Session 无 lyric 字段，把当前行写进 MediaMetadata.title */
+  function applyLrcMetadata() {
+    if (!lrcLines.length) return;
+    var line = lrcParser().at(lrcLines, audio.currentTime);
+    if (line === lastLrcLine) return;
+    lastLrcLine = line;
+    var el = $("mpLyric");
+    if (el) el.textContent = line;
+    if (!("mediaSession" in navigator) || typeof MediaMetadata !== "function") return;
+    var s = playlist[currentIdx] || {};
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: line || baseMediaTitle(),
+        artist: line ? baseMediaTitle() : (s.artist || "我的博客"),
+        album: "我的博客",
+        artwork: s.cover && isHttpUrl(s.cover) && !isDeadSampleUrl(s.cover)
+          ? [{ src: s.cover, sizes: "512x512", type: "image/jpeg" }] : [],
+      });
+    } catch (e) { /* 不支持则忽略 */ }
+  }
+
+  /** 远程模式：主页面播放器变成遥控器，本地 audio 保持暂停，杜绝双声 */
+  function syncGlobalBtn() {
+    var b = $("mpGlobal");
+    if (!b) return;
+    var on = inRemote();
+    b.textContent = on ? "🛰" : "🌐";
+    b.title = on ? "全局播放中：点击结束并回到本页播放" : "开启全局播放（切页不断播）";
+    b.setAttribute("aria-label", b.title);
+  }
+  function hostPlaylist() {
+    return playlist.map(function (s) {
+      return {
+        title: s.title || "未知歌曲", artist: s.artist || "",
+        url: s.url || "", cover: s.cover || "", lrc: s.lrc || "",
+      };
+    });
+  }
+  function syncRemotePosition(st) {
+    if (!st || !("mediaSession" in navigator) ||
+        typeof navigator.mediaSession.setPositionState !== "function") return;
+    if (!(st.duration > 0)) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: st.duration,
+        position: Math.min(Number(st.currentTime) || 0, st.duration),
+        playbackRate: st.playbackRate || 1,
+      });
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function toggleGlobal() {
+    if (inRemote()) {
+      globalHost.close();
+      globalHost = null;
+      syncGlobalBtn();
+      showToast("已结束全局播放");
+      return;
+    }
+    var Host = window.PlayerHost;
+    if (!Host || !Host.supported()) { showToast("当前环境不支持全局播放", "err"); return; }
+    // window.open 必须在用户手势的同步栈内触发，否则被弹窗拦截器挡下；
+    // mount() 的 Promise executor 是同步执行的，此处仍在手势栈内。
+    var p = Host.mount({ mode: "window" });
+    showToast("正在启动全局播放窗口…");
+    Promise.resolve(p).then(async function (h) {
+      globalHost = h;
+      await h.setPlaylist(hostPlaylist());
+      await h.load(currentIdx, !audio.paused, Number(audio.currentTime) || 0);
+      audio.pause(); // 本地让位
+      h.on("trackchange", function (st) {
+        if (st && typeof st.idx === "number") { currentIdx = st.idx; renderPlaylist(); }
+      });
+      h.on("timeupdate", syncRemotePosition);
+      h.on("loadedmetadata", syncRemotePosition);
+      h.on("pagehide", function () { globalHost = null; syncGlobalBtn(); });
+      h.on("autoplay-blocked", function () { showToast("请在全局播放窗口点一下播放（浏览器策略）"); });
+      syncGlobalBtn();
+      showToast("全局播放已开启：切换页面不会中断音频");
+    }).catch(function (e) {
+      globalHost = null;
+      syncGlobalBtn();
+      showToast("全局播放启动失败：" + ((e && e.message) || "未知错误"), "err");
+    });
+  }
 
   /* ---------- v9.2 跨页续播 ----------
    * 本站是纯静态多页（MPA）：整份文档在跳转时卸载，<audio> 元素随之销毁，
@@ -485,13 +652,21 @@ var bootMusicPlayer = function() {
   audio.addEventListener("play", mpSaveResume);
   audio.addEventListener("pause", mpSaveResume);
   audio.addEventListener("ended", mpSaveResume);
+  /* v12.0 真实缺陷修复：旧逻辑在 pagehide 无条件写 mp_resume_v1。
+   * 冷启动页面从未播放（autoplay=false 时 audio.src 为空），一次普通跳转也会
+   * 落一条 {playing:false,t:0} 的续播状态，导致下一页误判为「切页接力」而
+   * 立即启动播放器，直接抵消 v7.0「首屏关键路径零播放器成本」的优化。 */
+  function hasPlayableSession() { return !!audio.src; }
   // pagehide 比 beforeunload 可靠（移动端 / BFCache 场景都会触发），同步落盘
   window.addEventListener("pagehide", () => {
+    if (!hasPlayableSession()) return;
     mpSaveResume();
     // 切页瞬间再推一次最精确的进度，把新页面续播的 gap 压到最小
     mpChannelPost({ type: "progress", state: mpSnapshot() });
   });
-  document.addEventListener("visibilitychange", () => { if (document.hidden) mpSaveResume(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && hasPlayableSession()) mpSaveResume();
+  });
 
   /* ---------- v11.0 战役三：跨页/跨标签播放仲裁（BroadcastChannel） ----------
    * 物理边界（诚实标注）：本站是纯 MPA，整页导航会卸载文档并销毁 <audio>，
@@ -596,8 +771,10 @@ var bootMusicPlayer = function() {
 
   // ---- UI 同步 ----
   /** 同步播放/暂停按钮、封面态与系统媒体中心（锁屏/通知栏）状态 */
-  function syncPlayUI() {
-    const playing = !audio.paused && !audio.ended;
+  function syncPlayUI(forcePlaying) {
+    // v12.0：远程模式下本地 audio 恒为暂停，由全局窗口状态覆盖按钮文案
+    const playing = typeof forcePlaying === "boolean"
+      ? forcePlaying : (!audio.paused && !audio.ended);
     const playBtn = $("mpPlay");
     if (playBtn) {
       playBtn.textContent = playing ? "⏸" : "▶";
@@ -664,6 +841,13 @@ var bootMusicPlayer = function() {
    */
   function loadSong(idx, autoplay) {
     if (!playlist.length) return;
+    if (inRemote()) {
+      // 远程模式：播放列表点击 → 让全局窗口切歌，本地 audio 保持暂停
+      currentIdx = ((idx % playlist.length) + playlist.length) % playlist.length;
+      globalHost.load(currentIdx, !!autoplay, 0).catch(function () {});
+      renderPlaylist();
+      return;
+    }
     // 手动/自动切歌：取消尚未触发的"失败后自动切换"，避免连跳两首
     if (pendingSwitch) { clearTimeout(pendingSwitch); pendingSwitch = null; }
     const myToken = ++loadToken;
@@ -752,6 +936,10 @@ var bootMusicPlayer = function() {
     }
 
     renderPlaylist();
+    // v12.0：切歌时重置歌词轴；updateMediaSession 先写歌名，随后 timeupdate
+    // 的 applyLrcMetadata() 会把当前歌词行写进锁屏标题
+    setLrc(song);
+    lastLrcLine = "";
     updateMediaSession(song);
 
     if (!autoplay) syncPlayUI(); // 音频未加载：仅刷新 UI，等用户点击播放
@@ -761,6 +949,13 @@ var bootMusicPlayer = function() {
   function togglePlay() {
     if (!playlist.length) {
       showToast("播放列表为空，请先到后台添加音乐");
+      return;
+    }
+    if (inRemote()) {
+      globalHost.getState().then(function (s) {
+        return s && s.paused ? globalHost.play() : globalHost.pause();
+      }).then(function (s) { if (s) { syncPlayUI(!s.paused); syncRemotePosition(s); } })
+        .catch(function () { showToast("全局播放窗口无响应", "err"); });
       return;
     }
     if (audio.paused) {
@@ -835,6 +1030,7 @@ var bootMusicPlayer = function() {
   }
 
   function nextSong() {
+    if (inRemote()) { globalHost.next().catch(function () {}); return; }
     const idx = pickNextIndex();
     if (idx < 0) { // 顺序播放到末尾：停止
       audio.pause();
@@ -846,6 +1042,7 @@ var bootMusicPlayer = function() {
   }
 
   function prevSong() {
+    if (inRemote()) { globalHost.prev().catch(function () {}); return; }
     const idx = pickPrevIndex();
     if (idx >= 0) loadSong(idx, true);
   }
@@ -858,10 +1055,34 @@ var bootMusicPlayer = function() {
    * 遇到不支持的 seekto 会连 play/pause 一起丢掉）。
    */
   function msAction(name, fn) {
-    try { navigator.mediaSession.setActionHandler(name, fn); } catch (e) { /* 该动作不支持 */ }
+    try {
+      navigator.mediaSession.setActionHandler(name, function (d) {
+        if (!inRemote()) return fn(d);
+        // v12.0 远程模式：锁屏/耳机按键必须控制全局窗口，而不是已暂停的本地 audio
+        var H = globalHost;
+        switch (name) {
+          case "play": return H.play().catch(function () {});
+          case "pause": return H.pause();
+          case "stop": return H.pause().then(function () { return H.seek(0); });
+          case "previoustrack": return H.prev();
+          case "nexttrack": return H.next();
+          case "seekbackward":
+            return H.getState().then(function (s) {
+              return H.seek((Number(s.currentTime) || 0) - ((d && d.seekOffset) || 10));
+            }).catch(function () {});
+          case "seekforward":
+            return H.getState().then(function (s) {
+              return H.seek((Number(s.currentTime) || 0) + ((d && d.seekOffset) || 10));
+            }).catch(function () {});
+          case "seekto": return (d && typeof d.seekTime === "number") ? H.seek(d.seekTime) : null;
+          default: return null;
+        }
+      });
+    } catch (e) { /* 该动作不支持 */ }
   }
   /** 锁屏进度条：duration/position/playbackRate 三件套，拖动进度由 seekto 回写 */
   function syncMediaPosition() {
+    if (inRemote()) return; // 远程模式由 syncRemotePosition(st) 接管
     if (!("mediaSession" in navigator) || typeof navigator.mediaSession.setPositionState !== "function") return;
     const dur = isFinite(audio.duration) ? audio.duration : 0;
     if (dur <= 0) return;
@@ -1000,6 +1221,8 @@ var bootMusicPlayer = function() {
     syncProgressUI();
     // v11.0：锁屏进度条跟随（已有 250ms 节流，不额外增加调用频率）
     syncMediaPosition();
+    // v12.0：锁屏逐行歌词（同一节流窗口，不增加调用频率）
+    applyLrcMetadata();
   });
 
   audio.addEventListener("progress", syncBufferUI);
@@ -1040,6 +1263,9 @@ var bootMusicPlayer = function() {
   $("mpNext").addEventListener("click", nextSong);
   $("mpMode").addEventListener("click", cycleMode);
   $("mpMute").addEventListener("click", toggleMute);
+  // v12.0 战役一：全局播放（独立窗口切页不断播 / 隐藏 iframe 解耦）
+  $("mpGlobal").addEventListener("click", toggleGlobal);
+  syncGlobalBtn();
 
   // 进度条：点击 + 拖动（pointer events，兼容触摸）
   const progressEl = $("mpProgress");
@@ -1231,8 +1457,27 @@ var bootMusicPlayer = function() {
 })();
 };
 
-/* v7.0：空闲启动——首屏关键路径零播放器成本 */
-if (typeof requestIdleCallback === "function") {
+/* v7.0 基线：冷启动走空闲，首屏关键路径零播放器成本。
+ * v12.0 战役一「接力零感知化」：旧逻辑一律 requestIdleCallback(timeout 1200)，
+ * 意味着 MPA 切页后最多要等 1.2s 才创建 <audio>、载入曲目并 seek 回断点，
+ * 静默间隙肉眼可感。若本地存在 10 分钟内的续播状态，说明这次是「切页接力」
+ * 而不是冷启动，改为 DOMContentLoaded 立即启动，把间隙压缩到首帧；
+ * 冷启动行为逐字节不变。具体是否真的续播仍由 loadMusic() 的既有判定决定。 */
+function hasRecentResume() {
+  try {
+    var raw = localStorage.getItem("mp_resume_v1");
+    if (!raw) return false;
+    var r = JSON.parse(raw);
+    return !!r && typeof r === "object" && Date.now() - (Number(r.at) || 0) < 10 * 60 * 1000;
+  } catch (e) { return false; }
+}
+if (hasRecentResume()) {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootMusicPlayer, { once: true });
+  } else {
+    bootMusicPlayer();
+  }
+} else if (typeof requestIdleCallback === "function") {
   requestIdleCallback(bootMusicPlayer, { timeout: 1200 });
 } else {
   setTimeout(bootMusicPlayer, 0);

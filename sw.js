@@ -44,7 +44,8 @@
 //         + components/global-search.js 动态模块）纳入离线外壳。
 // v11.0.0：v11.0 五个攻坚战役正式封版，统一为三段语义化版本号
 //         （SW 缓存名与产品版本解耦，但保持 vX.Y.Z 格式便于测试与发布核对）。
-const CACHE_VERSION = "v11.0.0";
+// v12.0：全局播放内核 + 后台计算内核（computeWorker / computeClient）纳入离线外壳
+const CACHE_VERSION = "v12.0.1";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -77,8 +78,14 @@ const PRECACHE_URLS = [
   "/services/uploadService.js",
   "/services/rangeDownloader.js",
   "/services/uploadWorker.js",
+  "/services/computeWorker.js",
+  "/services/computeClient.js",
   "/components/music-player.js",
   "/components/global-search.js",
+  "/player.html",
+  "/components/lrc.js",
+  "/components/player-engine.js",
+  "/components/player-host.js",
   "/components/game-core.js",
   "/components/games/breakout.js",
   "/components/games/g2048.js",

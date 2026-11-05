@@ -309,11 +309,22 @@
    * try/catch 后，单点故障只影响该增强项，站点主功能照常可用。
    * 正常路径无异常，行为与改造前逐字节一致。
    */
+  /* v12.0 战役一：预载全局播放内核客户端。
+   * 不放在 requestIdleCallback 里是刻意的——window.open 必须在用户点击的
+   * 同步栈内触发，若等用户点「🌐」时才异步 import 组件，手势已丢失，
+   * 弹窗会被拦截。脚本仅 ~9KB，同源 async 加载，首屏关键路径零阻塞。 */
+  function initPlayerHostDeps() {
+    if (window.PlayerHost) return;
+    loadScript("/components/player-host.js").catch(function () {
+      /* 全局播放是增强项；加载失败时本地播放器行为完全不变 */
+    });
+  }
+
   function boot() {
     const steps = [
       initTheme, initMobileMenu, initScrollFx, initSeoUrls, initPwa,
       initPrefetch, initPageEnter, initOfflineBanner, initErrorBoundary,
-      initGlobalSearch,
+      initPlayerHostDeps, initGlobalSearch,
     ];
     steps.forEach(function (fn) {
       try { fn(); } catch (e) {

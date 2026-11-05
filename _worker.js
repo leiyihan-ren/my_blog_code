@@ -515,13 +515,23 @@ const CSP_POLICY =
   "connect-src 'self' https://api.mcsrvstat.us https://static.cloudflareinsights.com https://cloudflareinsights.com; " +
   // worker-src 必须放行 'self'：否则浏览器会以 CSP 为由拒绝注册 sw.js（PWA 直接失效）。
   // sw.js 为同源静态文件，不引入任何外部脚本，放行同源是安全的。
-  "frame-src 'none'; object-src 'none'; base-uri 'none'; " +
+  // v12.0 战役一：frame-src 由 'none' 收紧为「仅同源」。目的不是放开外部，
+  // 而是允许本页嵌入同源 /player.html 播放内核；任何第三方 URL 依旧一律拒绝。
+  // 注意 frame-src 只管「本页能嵌谁」，「谁能嵌本页」仍由 frame-ancestors 管。
+  "frame-src 'self'; object-src 'none'; base-uri 'none'; " +
   "form-action 'self'; worker-src 'self'; " +
   // frame-ancestors 'none'：禁止任何站点以 iframe 嵌入本站（防点击劫持），
   // 与 X-Frame-Options: DENY 形成新旧双保险（CSP 头途经才生效，静态直连走 XFO）。
   // manifest-src 'self'：PWA manifest 仅限同源。
   // upgrade-insecure-requests：http 子资源自动升级 https（本地 localhost 豁免，生产全站 https）。
   "frame-ancestors 'none'; manifest-src 'self'; upgrade-insecure-requests";
+
+/**
+ * v12.0：仅 /player.html 放宽「被同源祖先嵌入」，其余 11 个页面维持 'none'。
+ * 这样 iframe 播放内核可用，同时防点击劫持强度对全站主体零变化：
+ * 'self' 依然拒绝一切外部站点嵌入，配合 X-Frame-Options: SAMEORIGIN 双保险。
+ */
+const CSP_POLICY_PLAYER = CSP_POLICY.replace("frame-ancestors 'none'", "frame-ancestors 'self'");
 
 /** 业务异常：抛出后由入口统一转成错误响应 */
 class HttpError extends Error {
@@ -633,6 +643,8 @@ const PAGE_REWRITES = {
   "/mc.html": "/pages/mc.html",
   "/post.html": "/pages/post.html",
   "/timeline.html": "/pages/timeline.html",
+  // v12.0 战役一：全局播放内核（独立窗口 / 隐藏 iframe 共用同一文档）
+  "/player.html": "/pages/player.html",
 };
 
 /** 每请求生成 CSP nonce（16 字节密码学随机 → Base64） */
@@ -647,8 +659,11 @@ function makeCspNonce() {
 /** 为静态资源响应附加安全响应头 */
 function addStaticSecurityHeaders(response, pathname) {
   const headers = new Headers(response.headers);
+  // v12.0：播放内核页需要被同源父页面以 iframe 嵌入；其余页面一律 DENY。
+  const isPlayerPage = pathname === "/player.html" || pathname === "/pages/player.html";
+  const policy = isPlayerPage ? CSP_POLICY_PLAYER : CSP_POLICY;
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Frame-Options", "DENY");
+  headers.set("X-Frame-Options", isPlayerPage ? "SAMEORIGIN" : "DENY");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
   // v9.1 安全加固：静态资源同样补传输层与跨域策略头（与 API 出口一致）
@@ -674,7 +689,7 @@ function addStaticSecurityHeaders(response, pathname) {
       cspNonce = makeCspNonce();
       headers.set(
         "Content-Security-Policy",
-        CSP_POLICY +
+        policy +
           `; script-src-elem 'self' 'nonce-${cspNonce}' https://static.cloudflareinsights.com` +
           "; script-src-attr 'unsafe-inline'"
       );
@@ -682,7 +697,7 @@ function addStaticSecurityHeaders(response, pathname) {
       // 留着上游的 Content-Length 会导致客户端提前截断响应。
       headers.delete("Content-Length");
     } else {
-      headers.set("Content-Security-Policy", CSP_POLICY);
+      headers.set("Content-Security-Policy", policy);
     }
   }
   // v8.1 性能攻坚（实测取证）：
@@ -715,7 +730,7 @@ function addStaticSecurityHeaders(response, pathname) {
   } catch (e) {
     // 改写失败 → 退回宽松 CSP，保证页面脚本照常执行，绝不因安全加固宕机
     const h2 = new Headers(headers);
-    h2.set("Content-Security-Policy", CSP_POLICY);
+    h2.set("Content-Security-Policy", policy);
     return new Response(fallback ? fallback.body : null, {
       status: response.status,
       statusText: response.statusText,
