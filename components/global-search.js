@@ -67,6 +67,21 @@ async function writeSnapshot(db, snap) {
   });
 }
 
+/* ---------- v12.0 战役三：网盘索引的权限边界 ---------- */
+/**
+ * 云盘 PIN 由 drive.html 存进 sessionStorage：同一标签页跨页导航保留，
+ * 但关闭标签即消失。用它作为「是否允许索引/展示私有文件名」的唯一闸门。
+ */
+function drivePin() {
+  try { return sessionStorage.getItem("drive_pin") || ""; } catch (e) { return ""; }
+}
+function fmtSizeShort(n) {
+  n = Number(n) || 0;
+  if (n < 1024) return n + " B";
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+  return (n / 1024 / 1024).toFixed(1) + " MB";
+}
+
 /* ---------- 数据源 ---------- */
 const SOURCES = [
   { key: "posts", url: "/api/posts", type: "文章", fields: (x) => ({
@@ -88,6 +103,19 @@ const SOURCES = [
     title: x.title || x.event || "记录", body: x.content || x.desc || "",
     url: "/timeline.html", date: x.date || "",
   }) },
+  // v12.0：网盘列表。仅在已通过口令的会话中拉取；标记 private 后，
+  // 无 PIN 的会话即使命中旧 IndexedDB 快照也不会展示这些私有文件名。
+  { key: "drive", url: "/api/drive/list?path=drive", type: "网盘",
+    private: true,
+    enabled: () => drivePin() !== "",
+    headers: () => ({ "x-drive-pin": drivePin() }),
+    fields: (x) => ({
+      title: x.name || "网盘文件",
+      body: [String(x.path || "").replace(/^drive\//, ""),
+        x.storage === "chunked" ? "大文件分片" : "",
+        fmtSizeShort(x.size)].filter(Boolean).join(" · "),
+      url: "/drive.html", date: x.latestAt || "",
+    }) },
 ];
 
 /** 去掉 Markdown 标记，让索引只留可读文本；同时截断防超大正文 */
@@ -112,6 +140,8 @@ function normalizeList(raw) {
   if (raw && Array.isArray(raw.data)) return raw.data;
   if (raw && Array.isArray(raw.items)) return raw.items;
   if (raw && Array.isArray(raw.posts)) return raw.posts;
+  // v12.0：/api/drive/list 的条目在 files 字段（普通文件 + 大文件清单合并）
+  if (raw && Array.isArray(raw.files)) return raw.files;
   return [];
 }
 
@@ -121,7 +151,11 @@ async function fetchDocs() {
   let id = 0;
   await Promise.all(SOURCES.map(async (src) => {
     try {
-      const res = await fetch(src.url, { headers: { Accept: "application/json" } });
+      // v12.0：私有数据源带权限闸门，未授权会话连请求都不发（不产生 401 噪音）
+      if (src.enabled && !src.enabled()) return;
+      const headers = { Accept: "application/json" };
+      if (src.headers) Object.assign(headers, src.headers());
+      const res = await fetch(src.url, { headers: headers });
       if (!res.ok) return;
       const data = await res.json();
       normalizeList(data).slice(0, MAX_DOCS).forEach((item) => {
@@ -140,6 +174,7 @@ async function fetchDocs() {
           // 各数据源的 fields() 都已给出明确 url；缺省时保持空串（不可跳转）。
           url: typeof f.url === "string" ? f.url : "",
           date: String(f.date || ""),
+          private: !!src.private,
         });
       });
     } catch (e) { /* 单源失败静默跳过 */ }
@@ -191,12 +226,26 @@ function setDocs(docs) {
 
 /** 执行搜索：返回按相关度排序的结果（最多 8 条） */
 export function search(query) {
-  const q = String(query || "").trim();
+  let q = String(query || "").trim();
+  // v12.0：type:网盘 / type:文章 精准筛选，可与关键词组合，也可单独浏览该类型
+  let typeFilter = "";
+  const tm = /^type[:：]\s*(\S+)\s*/.exec(q);
+  if (tm) { typeFilter = tm[1]; q = q.slice(tm[0].length).trim(); }
+  if (!q && typeFilter) {
+    return [...docsById.values()].filter((d) => d.type === typeFilter).slice(0, 8)
+      .map((d) => ({ title: d.title, body: d.body, type: d.type, url: d.url, date: d.date, score: 0 }));
+  }
   if (!q || !mini) return [];
   try {
-    const hits = mini.search(q, { prefix: true, fuzzy: 0.2, combineWith: "AND" });
+    const opts = { prefix: true, fuzzy: 0.2 };
+    const hits = mini.search(q, Object.assign({ combineWith: "AND" }, opts));
     // AND 对中文/拼音混合输入过严，无结果时退回 OR 保证召回
-    const list = hits.length ? hits : mini.search(q, { prefix: true, fuzzy: 0.2, combineWith: "OR" });
+    let list = hits.length ? hits : mini.search(q, Object.assign({ combineWith: "OR" }, opts));
+    // 二次模糊兜底：较长查询拼写偏差大时提高容错再试一次，仍按相关度取前 8 条
+    if (!list.length && q.length >= 3) {
+      list = mini.search(q, { prefix: true, fuzzy: 0.35, combineWith: "OR" });
+    }
+    if (typeFilter) list = list.filter((h) => h.type === typeFilter);
     return list.slice(0, 8).map((h) => ({
       title: h.title, body: h.body, type: h.type, url: h.url, date: h.date, score: h.score,
     }));
@@ -385,6 +434,16 @@ function buildPanel() {
     open: open, close: close, search: search,
     isOpen: () => !!(document.getElementById("cxSearchOverlay") || {}).classList?.contains("open"),
     docCount: () => docsById.size,
+    // v12.0：私有条目可观测、可清除（退出云盘口令后调用即可抹掉快照里的文件名）
+    privateCount: () => [...docsById.values()].filter((d) => d.private).length,
+    clearPrivate: async () => {
+      const db = await openDb();
+      const snap = await readSnapshot(db);
+      if (!snap || !Array.isArray(snap.docs)) return 0;
+      const n = snap.docs.filter((d) => d.private).length;
+      await writeSnapshot(db, { docs: snap.docs.filter((d) => !d.private), at: Date.now() });
+      return n;
+    },
   };
 }
 
@@ -394,7 +453,11 @@ async function boot() {
   const db = await openDb();
   const snap = await readSnapshot(db);
   if (snap && Array.isArray(snap.docs) && snap.docs.length && window.MiniSearch && window.PinyinGB2312) {
-    setDocs(snap.docs); // 命中快照：秒开，无需等网络
+    // 命中快照：秒开，无需等网络。v12.0：私有（网盘）文档只在仍有 PIN 的
+    // 会话中可见，避免上一个已登录会话留下的 IndexedDB 快照泄漏文件名。
+    const pinOk = drivePin() !== "";
+    const visible = snap.docs.filter((d) => !d.private || pinOk);
+    if (visible.length) setDocs(visible);
   }
   try {
     const docs = await fetchDocs();
