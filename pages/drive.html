@@ -172,6 +172,7 @@
   <script src="/utils/blog-utils.js"></script>
   <script src="/services/rangeDownloader.js"></script>
   <script src="/services/uploadService.js"></script>
+  <script src="/services/computeClient.js"></script>
   <script>
     /* ============ 云盘前端逻辑（v7.0 渲染层：上传/下载引擎在 services/uploadService.js） ============ */
     (function () {
@@ -1101,16 +1102,53 @@
         return p || f.name;
       }
 
-      $("btnBatchZip").onclick = function () {
-        var paths = [];
-        for (var k in selected) { if (selected.hasOwnProperty(k)) paths.push(k); }
-        if (!paths.length) { toast("请先勾选文件", "err"); return; }
-        var files = paths.map(function (p) {
-          return lastFiles.filter(function (f) { return f.path === p; })[0];
-        }).filter(Boolean);
-        var btn = this;
-        window.UI.btnLoading(btn, true, "⏳ 准备中…");
-        ensureJSZip().then(function (JSZip) {
+      /** 统一的落盘收尾（Worker 路径与兼容路径共用，行为逐字节一致） */
+      function finishZip(blob, count, btn, sumsCount) {
+        window.UI.btnLoading(btn, false);
+        var name = (curDir ? curDir.split("/").pop() : "云盘全部") + "-" + count + "个文件.zip";
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+        toast("已打包 " + count + " 个文件（" + fmtBytes(blob.size) +
+          (sumsCount ? "，含 SHA256SUMS 校验清单" : "") + "）", "ok");
+      }
+
+      /* v12.0 战役二：SHA-256 校验 + DEFLATE 压缩全部移入 Web Worker。
+       * 主线程只保留「串行抓 Blob」这一异步 IO（fetchFileBlob 对 chunked 大文件
+       * 会临时劫持 UploadService 的 saveBlob hook，必须串行，不能并发），
+       * 以及一行按钮文案更新；同步 CPU 长任务不再占用 rAF，滚动保持流畅。
+       * Blob 以 structured clone 传入 Worker，底层字节引用式共享，零拷贝零 Base64。 */
+      function batchZipWorker(files, btn) {
+        var entries = [];
+        var chain = Promise.resolve();
+        var done = 0;
+        files.forEach(function (f) {
+          chain = chain.then(function () {
+            return fetchFileBlob(f).then(function (r) {
+              entries.push({ name: zipPathOf(f), blob: r.blob });
+              done++;
+              btn.textContent = "⏳ 已收集 " + done + "/" + files.length;
+            });
+          });
+        });
+        return chain.then(function () {
+          btn.textContent = "⏳ 后台校验并压缩…";
+          return window.ComputeWorker.zip(entries, function (p) {
+            if (p.phase === "zip") btn.textContent = "⏳ 后台压缩 " + Math.round(p.percent) + "%";
+            else btn.textContent = "⏳ 后台校验 " + p.done + "/" + p.total;
+          });
+        }).then(function (res) {
+          var blob = new Blob([res.buffer], { type: "application/zip" });
+          finishZip(blob, files.length, btn, res.sums && res.sums.length);
+        });
+      }
+
+      /** v8.0 稳定基线：主线程 JSZip 打包。Worker 不可用/异常时自动回退，零功能损失 */
+      function batchZipLegacy(files, btn) {
+        return ensureJSZip().then(function (JSZip) {
           var zip = new JSZip();
           var done = 0;
           var chain = Promise.resolve();
@@ -1128,17 +1166,27 @@
             return zip.generateAsync({ type: "blob", compression: "DEFLATE" }, function (meta) {
               btn.textContent = "⏳ 压缩 " + Math.round(meta.percent) + "%";
             });
-          }).then(function (blob) {
-            window.UI.btnLoading(btn, false);
-            var name = (curDir ? curDir.split("/").pop() : "云盘全部") + "-" + files.length + "个文件.zip";
-            var a = document.createElement("a");
-            a.href = URL.createObjectURL(blob);
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-            toast("已打包 " + files.length + " 个文件（" + fmtBytes(blob.size) + "）", "ok");
           });
+        }).then(function (blob) { finishZip(blob, files.length, btn, 0); });
+      }
+
+      $("btnBatchZip").onclick = function () {
+        var paths = [];
+        for (var k in selected) { if (selected.hasOwnProperty(k)) paths.push(k); }
+        if (!paths.length) { toast("请先勾选文件", "err"); return; }
+        var files = paths.map(function (p) {
+          return lastFiles.filter(function (f) { return f.path === p; })[0];
+        }).filter(Boolean);
+        var btn = this;
+        window.UI.btnLoading(btn, true, "⏳ 准备中…");
+        var usedWorker = !!(window.ComputeWorker && window.ComputeWorker.supported());
+        var task = usedWorker ? batchZipWorker(files, btn) : batchZipLegacy(files, btn);
+        Promise.resolve(task).catch(function (e) {
+          if (!usedWorker) throw e;
+          // 后台内核异常 → 重建并回退到 v8.0 稳定路径，用户无感
+          try { window.ComputeWorker.reset(); } catch (ignore) {}
+          btn.textContent = "⏳ 兼容模式打包…";
+          return batchZipLegacy(files, btn);
         }).catch(function (e) {
           window.UI.btnLoading(btn, false);
           toast(e.message || "打包失败", "err");
