@@ -38,6 +38,52 @@ window.BlogApi = (function () {
    * 双倍回源直接翻倍首屏时间——去重是零成本收益。 */
   const inflight = new Map();
 
+  /* =========================================================
+   * v12.0 战役四：指数退避重试（2s → 4s → 8s）+ 断网感知
+   * ---------------------------------------------------------
+   * 旧实现是 retryDelay*(attempt+1) 的线性退避（默认 600/1200ms），且所有
+   * 重试共享同一个 AbortController——第一轮耗尽 3s 超时后，后续 fetch 会被
+   * 同一个已 abort 的 signal 立刻打断，重试形同虚设。现在：
+   *   - 退避基数 2000ms，按 2^attempt 指数增长并封顶 8000ms → 2/4/8s
+   *   - ±20% 抖动，避免多标签页同时重试造成惊群
+   *   - 每次尝试独立 AbortController / 独立超时
+   *   - navigator.onLine === false 时不发无谓请求；online 事件可提前唤醒重试
+   *   - 只对网络错误 / 超时 / 5xx / 429 重试；4xx（除 429）立即失败
+   *   - 断网且已有本地兜底缓存 → 立即返回缓存，不苦等 14s（体验优先）
+   * =======================================================*/
+  const RETRY_BASE_MS = 2000;
+  const RETRY_CAP_MS = 8000;
+  const DEFAULT_RETRY_GET = 3;
+
+  function isOffline() {
+    try { return typeof navigator !== "undefined" && navigator.onLine === false; }
+    catch (e) { return false; }
+  }
+  function retryDelayFor(attempt, base, jitter) {
+    const raw = Math.min(RETRY_CAP_MS, base * Math.pow(2, attempt));
+    if (!jitter) return raw;
+    return Math.round(raw * (0.8 + Math.random() * 0.4));
+  }
+  /** 等待退避；网络恢复（online 事件）时提前结束等待，立刻重试 */
+  function waitRetry(ms) {
+    return new Promise(function (resolve) {
+      var done = false, timer = null;
+      function finish() {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        if (typeof window !== "undefined" && window.removeEventListener) {
+          window.removeEventListener("online", finish);
+        }
+        resolve();
+      }
+      timer = setTimeout(finish, ms);
+      if (typeof window !== "undefined" && window.addEventListener) {
+        window.addEventListener("online", finish, { once: true });
+      }
+    });
+  }
+
   /** 写入本地兜底缓存（失败静默：隐私模式/配额满不应影响主流程） */
   function writeLocalCache(key, data) {
     try {
@@ -76,7 +122,10 @@ window.BlogApi = (function () {
    * @param {string} [opts.method="GET"]
    * @param {object} [opts.body] 自动 JSON 序列化并设 Content-Type
    * @param {number} [opts.timeout] 毫秒；默认读 3000 / 写 12000（v8.1 分层）
-   * @param {number} [opts.retry=0] 额外重试次数（GET 才建议开启）
+   * @param {number} [opts.retry] 额外重试次数；GET 默认 3（2/4/8s），写请求默认 0
+   * @param {number} [opts.retryDelay=2000] 退避基数（毫秒），按 2^attempt 增长并封顶 8s
+   * @param {boolean} [opts.retryJitter=true] ±20% 抖动（测试可关掉以获得确定性时序）
+   * @param {function} [opts.onRetry] (attempt, delayMs, err) => void 每次重试前回调
    * @param {function} [opts.onLoading] (boolean) => void
    * @param {string} [opts.cacheKey] 传则启用本地兜底缓存（成功写入/失败读取）
    * @param {number} [opts.cacheTtl=600000] 兜底缓存有效期（毫秒）
@@ -88,8 +137,11 @@ window.BlogApi = (function () {
     const options = opts || {};
     const method = options.method || "GET";
     const isRead = method === "GET";
-    const retry = Math.max(0, options.retry || 0);
-    const retryDelay = options.retryDelay || 600;
+    const retry = options.retry !== undefined
+      ? Math.max(0, options.retry)
+      : (isRead ? DEFAULT_RETRY_GET : 0);
+    const retryBase = options.retryDelay || RETRY_BASE_MS;
+    const jitter = options.retryJitter !== false;
     const onLoading = options.onLoading;
     const timeout =
       options.timeout || (isRead ? DEFAULT_TIMEOUT_GET : DEFAULT_TIMEOUT_WRITE);
@@ -116,14 +168,30 @@ window.BlogApi = (function () {
       headers["Content-Type"] = "application/json";
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
     if (onLoading) onLoading(true);
 
     try {
+      // 断网且已有兜底缓存：秒开返回，不必苦等 2/4/8s 的重试窗口
+      if (options.cacheKey && isOffline()) {
+        const cachedNow = readLocalCache(options.cacheKey, options.cacheTtl);
+        if (cachedNow !== null && cachedNow !== undefined) {
+          if (typeof options.onFallback === "function") options.onFallback(cachedNow, null);
+          return cachedNow;
+        }
+      }
       let lastErr = null;
       for (let attempt = 0; attempt <= retry; attempt++) {
+        // 每次尝试独立超时：旧实现共享一个 controller，第一次 abort 后
+        // 后续重试的 fetch 会被同一个已 abort 的 signal 立即打断。
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeout);
         try {
+          // 明确离线时不发无谓请求，直接进入退避（online 事件可提前唤醒）
+          if (isOffline()) {
+            const off = new Error("网络已断开，等待连接恢复");
+            off.name = "OfflineError";
+            throw off;
+          }
           const res = await fetch(url, { method, headers, body, signal: controller.signal });
           const ct = res.headers.get("content-type") || "";
           const data = ct.includes("json") ? await res.json().catch(() => ({})) : await res.text();
@@ -138,9 +206,17 @@ window.BlogApi = (function () {
           return data;
         } catch (e) {
           lastErr = normalizeError(e, url);
-          // 4xx 是客户端错误（参数/权限/限流），重试无意义，直接抛出
-          if (lastErr.status >= 400 && lastErr.status < 500) throw lastErr;
-          if (attempt < retry) await sleep(retryDelay * (attempt + 1));
+          // 4xx（除 429 限流）是客户端错误，重试无意义，直接抛出
+          if (lastErr.status >= 400 && lastErr.status < 500 && lastErr.status !== 429) throw lastErr;
+          if (attempt < retry) {
+            const delay = retryDelayFor(attempt, retryBase, jitter);
+            if (typeof options.onRetry === "function") {
+              try { options.onRetry(attempt + 1, delay, lastErr); } catch (_) {}
+            }
+            await waitRetry(delay);
+          }
+        } finally {
+          clearTimeout(timer);
         }
       }
       // 全部尝试失败：有本地缓存就降级返回（页面据此提示「离线数据」，永不白屏）
@@ -153,7 +229,6 @@ window.BlogApi = (function () {
       }
       throw lastErr;
     } finally {
-      clearTimeout(timer);
       if (onLoading) onLoading(false);
     }
     } /* doRequest 结束 */

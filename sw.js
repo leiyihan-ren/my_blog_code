@@ -44,8 +44,8 @@
 //         + components/global-search.js 动态模块）纳入离线外壳。
 // v11.0.0：v11.0 五个攻坚战役正式封版，统一为三段语义化版本号
 //         （SW 缓存名与产品版本解耦，但保持 vX.Y.Z 格式便于测试与发布核对）。
-// v12.0：全局播放内核 + 后台计算内核（computeWorker / computeClient）纳入离线外壳
-const CACHE_VERSION = "v12.0.1";
+// v12.0：全局播放内核 + 后台计算内核纳入离线外壳；弱网回退增强
+const CACHE_VERSION = "v12.0.2";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -66,6 +66,7 @@ const PRECACHE_URLS = [
   "/post.html",
   "/admin.html",
   "/drive.html",
+  "/mc.html",
   "/styles/common.css",
   "/styles/drive.css",
   "/utils/common.js",
@@ -267,7 +268,12 @@ self.addEventListener("fetch", (event) => {
           return fresh;
         } catch (e) {
           const cache = await caches.open(RUNTIME_CACHE);
-          const hit = (await cache.match(req)) || (await cache.match(OFFLINE_URL));
+          // v12.0 弱网增强：查询串不同的同一页面（如 /post.html?id=a 与 ?id=b）
+          // 也回退到任一已缓存版本，最后才落到 OFFLINE_URL。在线路径完全不变，
+          // network-first 语义与 step16 I2 断言保持逐字节一致。
+          const hit = (await cache.match(req)) ||
+                      (await cache.match(req, { ignoreSearch: true })) ||
+                      (await cache.match(OFFLINE_URL));
           if (hit) return hit;
           return new Response(
             "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
@@ -302,7 +308,11 @@ self.addEventListener("fetch", (event) => {
           }
           return fresh;
         } catch (e) {
-          const hit = await caches.open(RUNTIME_CACHE).then((c) => c.match(req));
+          const cache = await caches.open(RUNTIME_CACHE);
+          // v12.0：分页/limit/筛选参数不同的同一端点也回退到任一已缓存响应，
+          // 避免「明明访问过却白屏」。只在网络失败时生效，在线仍拿最新数据。
+          const hit = (await cache.match(req)) ||
+                      (await cache.match(req, { ignoreSearch: true }));
           if (hit) return hit;
           return new Response(JSON.stringify({ error: "离线且无缓存" }), {
             status: 503,

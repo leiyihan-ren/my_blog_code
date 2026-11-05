@@ -1,5 +1,5 @@
 // ============================================================
-// 全链路测试总runner：顺序执行 25 个测试套件，汇总通过/失败
+// 全链路测试总runner：顺序执行 29 个测试套件，汇总通过/失败
 // 任一失败 → 进程退出码 1（CI 直接判红）
 // 用法：node tests/run-all.mjs
 // 环境变量：CHROMIUM_PATH 指定 Chromium 可执行文件路径
@@ -37,6 +37,10 @@ const SUITES = [
   { name: "v11.0 Range 并行下载端到端", file: "step19-v11-range.mjs" },
   { name: "v11.0 Git Data API 原子上传端到端", file: "step20-v11-atomic-upload.mjs" },
   { name: "v11.0 全站本地搜索端到端", file: "step21-v11-global-search.mjs" },
+  { name: "v12.0 全局播放内核端到端", file: "step22-v12-player.mjs" },
+  { name: "v12.0 Worker 哈希与 ZIP 打包", file: "step23-v12-compute.mjs" },
+  { name: "v12.0 网盘本地搜索索引", file: "step24-v12-search-drive.mjs" },
+  { name: "v12.0 指数退避与弱网缓存", file: "step25-v12-resilience.mjs" },
 ];
 
 function runSuite(file) {
