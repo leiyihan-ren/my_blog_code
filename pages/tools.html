@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#070b12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="极客工具箱">
+<meta name="description" content="极客工具箱：JSON 格式化、Base64 编解码、时间戳转换、高强度密码生成、MD5/SHA 哈希、网页状态码探测与 IP 归属地查询。前端计算毫秒级响应，后端探测经 Cloudflare Worker 代理。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="我的博客">
+<meta property="og:title" content="极客工具箱 - 我的博客">
+<meta property="og:description" content="7 个硬核开发常用工具：5 个纯浏览器本地计算 + 2 个 Cloudflare Worker 代理增强。">
+<meta property="og:url" content="https://leiyihan.dpdns.org/tools.html">
+<meta property="og:image" content="https://leiyihan.dpdns.org/og-image.png">
+<meta name="twitter:card" content="summary">
+<link rel="canonical" href="https://leiyihan.dpdns.org/tools.html">
+<title>极客工具箱 - 我的博客</title>
+<link rel="stylesheet" href="/styles/common.css">
+<link rel="stylesheet" href="/styles/toolbox.css">
+<style>
+  /* 终端风页面容器：与 common.css 的导航 / 页脚基建共存，此处只覆盖配色令牌 */
+  body.tb-body { background: #070b12; color: #cbd5e1; }
+  body.tb-body .navbar { border-bottom: 1px solid #1b2a3d; background: rgba(7, 11, 18, .92); }
+  body.tb-body .logo, body.tb-body .nav-links a { color: #cbd5e1; }
+  body.tb-body .nav-links a.active, body.tb-body .nav-links a:hover { color: #39ff14; }
+  body.tb-body .theme-btn, body.tb-body .nav-toggle { color: #cbd5e1; }
+  body.tb-body .mobile-menu { background: #0b1220; border-top: 1px solid #1b2a3d; }
+  body.tb-body .mobile-menu a { color: #cbd5e1; border-bottom-color: #1b2a3d; }
+  body.tb-body .mobile-menu a.active { color: #39ff14; }
+</style>
+</head>
+<body class="tb-body">
+<script src="/components/ui.js"></script>
+<script src="/utils/common.js"></script>
+<script src="/utils/blog-utils.js"></script>
+<script src="/services/request.js"></script>
+<main>
+<nav class="navbar">
+  <div class="nav-inner">
+    <a href="/index.html" class="logo" id="nav-logo">我的博客</a>
+    <div class="nav-right">
+      <ul class="nav-links">
+        <li><a href="/index.html">首页</a></li>
+        <li><a href="/blog.html">博客</a></li>
+        <li><a href="/album.html">相册</a></li>
+        <li><a href="/timeline.html">时间线</a></li>
+        <li><a href="/guestbook.html">留言</a></li>
+        <li><a href="/games.html">游戏</a></li>
+        <li><a href="/links.html">友链</a></li>
+        <li><a href="/drive.html">云盘</a></li>
+        <li><a href="/mc.html">MC</a></li>
+        <li><a href="/tools.html" class="active">工具箱</a></li>
+      </ul>
+      <button class="theme-btn" title="切换主题" aria-label="切换主题">🌙</button>
+      <button class="nav-toggle" id="navToggle" aria-label="菜单"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="/index.html">首页</a>
+  <a href="/blog.html">博客</a>
+  <a href="/album.html">相册</a>
+  <a href="/timeline.html">时间线</a>
+  <a href="/guestbook.html">留言</a>
+  <a href="/games.html">游戏</a>
+  <a href="/links.html">友链</a>
+  <a href="/drive.html">云盘</a>
+  <a href="/mc.html">MC 指挥中心</a>
+  <a href="/tools.html" class="active">工具箱</a>
+</div>
+
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 tb-shell">
+
+  <!-- ============ HERO ============ -->
+  <header class="tb-hero">
+    <div class="tb-hero-bar">
+      <span class="tb-dots"><i></i><i></i><i></i></span>
+      <span class="tb-hero-path">root@toolbox:~/v13.0</span>
+      <span class="tb-hero-live"><i></i> SYSTEM ONLINE</span>
+    </div>
+    <div class="tb-hero-body">
+      <pre class="tb-ascii" aria-hidden="true">┌──────────────────────────────────────────────┐
+│  $ toolbox --init --modules 7 --gpu off      │
+│  [ OK ] 5 local engines ready                │
+│  [ OK ] 2 worker proxies armed               │
+└──────────────────────────────────────────────┘</pre>
+      <h1 class="tb-title">&gt; 极客工具箱<span class="tb-cursor">_</span></h1>
+      <p class="tb-sub">7 个开发常用工具 · 前 5 个<strong>纯浏览器计算，零网络请求</strong> · 后 2 个经 Cloudflare Worker 代理 · 全部边输入边出结果</p>
+      <div class="tb-hero-meta flex flex-wrap gap-2 sm:gap-3">
+        <span class="tb-chip">v13.0</span>
+        <span class="tb-chip">TAILWIND CSS</span>
+        <span class="tb-chip">PWA READY</span>
+        <span class="tb-chip">STRICT CSP</span>
+      </div>
+      <div class="tb-toolbar flex flex-wrap gap-2 mt-4">
+        <button id="tb-expand-all" class="tb-btn" type="button">⊞ 展开全部</button>
+        <button id="tb-collapse-all" class="tb-btn" type="button">⊟ 折叠全部</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ FRONTEND ============ -->
+  <section class="tb-section">
+    <div class="tb-section-head flex flex-wrap items-center justify-between gap-2">
+      <span class="tb-comment">// 01 — FRONTEND · 纯浏览器计算</span>
+      <span class="tb-section-meta">5 MODULES · 0 NETWORK REQUEST · DEBOUNCE 160ms</span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+
+      <!-- 01 JSON -->
+      <article class="tb-card md:col-span-2" data-tool="json">
+        <button class="tb-card-head" aria-expanded="true" type="button">
+          <span class="tb-card-dots"><i></i><i></i><i></i></span>
+          <span class="tb-card-idx">01</span>
+          <span class="tb-card-title">JSON 格式化与美化</span>
+          <span class="tb-tag tb-tag-local">LOCAL</span>
+          <span class="tb-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="tb-field min-w-0">
+              <label for="json-input">INPUT <span class="tb-dim">// 粘贴乱码 JSON，自动格式化</span></label>
+              <textarea id="json-input" class="tb-textarea" rows="7" spellcheck="false" placeholder='{"hello":"world"}'></textarea>
+            </div>
+            <div class="tb-field min-w-0">
+              <label>OUTPUT <span class="tb-dim">// 语法高亮</span></label>
+              <pre id="json-output" class="tb-output tb-output-code"></pre>
+            </div>
+          </div>
+          <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+            <button id="json-btn-format" class="tb-btn tb-btn-primary" type="button">⌘ 格式化</button>
+            <button id="json-btn-minify" class="tb-btn" type="button">压缩 Minify</button>
+            <button id="json-btn-clear" class="tb-btn" type="button">清空</button>
+            <button class="tb-btn" data-copy="json-output" type="button">复制结果</button>
+          </div>
+          <div id="json-status" class="tb-status tb-status-ok"></div>
+        </div></div></div>
+      </article>
+
+      <!-- 02 Base64 -->
+      <article class="tb-card" data-tool="base64">
+        <button class="tb-card-head" aria-expanded="true" type="button">
+          <span class="tb-card-dots"><i></i><i></i><i></i></span>
+          <span class="tb-card-idx">02</span>
+          <span class="tb-card-title">Base64 编解码</span>
+          <span class="tb-tag tb-tag-local">LOCAL</span>
+          <span class="tb-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+          <div class="tb-field">
+            <label for="b64-mode">MODE</label>
+            <select id="b64-mode" class="tb-select">
+              <option value="encode">文本 → Base64（编码）</option>
+              <option value="decode">Base64 → 文本（解码）</option>
+            </select>
+          </div>
+          <div class="tb-field">
+            <label for="b64-input">INPUT <span class="tb-dim">// UTF-8 安全</span></label>
+            <textarea id="b64-input" class="tb-textarea" rows="3" spellcheck="false" placeholder="输入文本或 Base64 串"></textarea>
+          </div>
+          <div class="tb-field">
+            <label for="b64-output">OUTPUT</label>
+            <textarea id="b64-output" class="tb-textarea tb-textarea-out" rows="3" readonly spellcheck="false"></textarea>
+          </div>
+          <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+            <button id="b64-btn-swap" class="tb-btn" type="button">⇄ 交换并反转</button>
+            <button id="b64-btn-clear" class="tb-btn" type="button">清空</button>
+            <button class="tb-btn tb-btn-primary" data-copy="b64-output" type="button">一键复制</button>
+          </div>
+          <div id="b64-status" class="tb-status tb-status-ok"></div>
+        </div></div></div>
+      </article>
+
+      <!-- 03 时间戳 -->
+      <article class="tb-card" data-tool="timestamp">
+        <button class="tb-card-head" aria-expanded="true" type="button">
+          <span class="tb-card-dots"><i></i><i></i><i></i></span>
+          <span class="tb-card-idx">03</span>
+          <span class="tb-card-title">时间戳转换器</span>
+          <span class="tb-tag tb-tag-local">LOCAL</span>
+          <span class="tb-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+          <div class="tb-now-grid grid grid-cols-2 gap-3">
+            <div class="tb-now-cell"><span class="tb-dim">NOW · 秒 (s)</span><code id="ts-now-s">—</code></div>
+            <div class="tb-now-cell"><span class="tb-dim">NOW · 毫秒 (ms)</span><code id="ts-now-ms">—</code></div>
+          </div>
+          <div class="tb-field">
+            <label for="ts-mode">DIRECTION <span class="tb-dim">// 也支持自动识别</span></label>
+            <select id="ts-mode" class="tb-select">
+              <option value="ts2date">时间戳 → 日期时间</option>
+              <option value="date2ts">日期时间 → 时间戳</option>
+            </select>
+          </div>
+          <div class="tb-field">
+            <label for="ts-input">INPUT</label>
+            <input id="ts-input" class="tb-input" type="text" spellcheck="false" placeholder="例如 1730889600 或 1730889600000">
+          </div>
+          <div class="tb-field">
+            <label>OUTPUT</label>
+            <pre id="ts-output" class="tb-output"></pre>
+          </div>
+          <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+            <button id="ts-btn-now" class="tb-btn" type="button">⏱ 填入当前</button>
+            <button class="tb-btn tb-btn-primary" data-copy="ts-output" type="button">复制结果</button>
+          </div>
+          <div id="ts-status" class="tb-status tb-status-ok"></div>
+        </div></div></div>
+      </article>
+
+      <!-- 04 密码 -->
+      <article class="tb-card" data-tool="password">
+        <button class="tb-card-head" aria-expanded="true" type="button">
+          <span class="tb-card-dots"><i></i><i></i><i></i></span>
+          <span class="tb-card-idx">04</span>
+          <span class="tb-card-title">极客密码生成器</span>
+          <span class="tb-tag tb-tag-local">LOCAL</span>
+          <span class="tb-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+          <div class="tb-field">
+            <label for="pw-length">LENGTH <span class="tb-dim">// 8 – 64 位</span></label>
+            <div class="flex items-center gap-3">
+              <input id="pw-length" class="tb-range flex-1" type="range" min="8" max="64" value="20">
+              <input id="pw-length-num" class="tb-input tb-input-sm shrink-0" type="number" min="8" max="64" value="20" aria-label="密码长度">
+            </div>
+          </div>
+          <div class="tb-check-grid grid grid-cols-2 gap-2">
+            <label class="tb-check"><input type="checkbox" id="pw-upper" checked><span>A-Z 大写</span></label>
+            <label class="tb-check"><input type="checkbox" id="pw-lower" checked><span>a-z 小写</span></label>
+            <label class="tb-check"><input type="checkbox" id="pw-digit" checked><span>0-9 数字</span></label>
+            <label class="tb-check"><input type="checkbox" id="pw-symbol" checked><span>!@# 特殊符号</span></label>
+          </div>
+          <div class="tb-field">
+            <label for="pw-output">GENERATED <span class="tb-dim">// crypto.getRandomValues 无偏采样</span></label>
+            <input id="pw-output" class="tb-input tb-pw-output" type="text" readonly spellcheck="false">
+          </div>
+          <div class="tb-strength"><div id="pw-strength-bar" class="tb-bar-fill"></div></div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span id="pw-strength-text" class="tb-strength-text">强度：—</span>
+            <span id="pw-entropy" class="tb-dim">—</span>
+          </div>
+          <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+            <button id="pw-btn-gen" class="tb-btn tb-btn-primary" type="button">⟳ 重新生成</button>
+            <button class="tb-btn" data-copy="pw-output" type="button">一键复制</button>
+          </div>
+        </div></div></div>
+      </article>
+
+      <!-- 05 哈希 -->
+      <article class="tb-card" data-tool="hash">
+        <button class="tb-card-head" aria-expanded="true" type="button">
+          <span class="tb-card-dots"><i></i><i></i><i></i></span>
+          <span class="tb-card-idx">05</span>
+          <span class="tb-card-title">文本哈希计算</span>
+          <span class="tb-tag tb-tag-local">LOCAL</span>
+          <span class="tb-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+          <div class="tb-field">
+            <label for="hash-input">INPUT <span class="tb-dim">// Web Crypto API</span></label>
+            <textarea id="hash-input" class="tb-textarea" rows="3" spellcheck="false" placeholder="输入任意文本"></textarea>
+          </div>
+          <div class="tb-hash-list">
+            <div class="tb-hash-row"><span class="tb-hash-label">MD5</span><code id="hash-md5">—</code><button class="tb-mini" data-copy="hash-md5" type="button">复制</button></div>
+            <div class="tb-hash-row"><span class="tb-hash-label">SHA-1</span><code id="hash-sha1">—</code><button class="tb-mini" data-copy="hash-sha1" type="button">复制</button></div>
+            <div class="tb-hash-row"><span class="tb-hash-label">SHA-256</span><code id="hash-sha256">—</code><button class="tb-mini" data-copy="hash-sha256" type="button">复制</button></div>
+            <div class="tb-hash-row"><span class="tb-hash-label">SHA-512</span><code id="hash-sha512">—</code><button class="tb-mini" data-copy="hash-sha512" type="button">复制</button></div>
+          </div>
+          <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+            <button id="hash-btn-clear" class="tb-btn" type="button">清空</button>
+          </div>
+          <div id="hash-status" class="tb-status tb-status-ok"></div>
+          <div class="tb-note">ℹ Web Crypto API 不提供 MD5，此处 MD5 由纯 JS（RFC 1321）在浏览器内实现，同样零网络请求；MD5 已不抗碰撞，仅用于校验与兼容，请勿用于密码存储或签名。</div>
+        </div></div></div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ============ BACKEND ============ -->
+  <section class="tb-section">
+    <div class="tb-section-head flex flex-wrap items-center justify-between gap-2">
+      <span class="tb-comment">// 02 — BACKEND · Cloudflare Worker 代理</span>
+      <span class="tb-section-meta">2 MODULES · BlogApi 超时熔断 + 并发去重</span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+
+      <!-- 06 Probe -->
+      <article class="tb-card" data-tool="probe">
+        <button class="tb-card-head" aria-expanded="true" type="button">
+          <span class="tb-card-dots"><i></i><i></i><i></i></span>
+          <span class="tb-card-idx">06</span>
+          <span class="tb-card-title">网页状态码探测器</span>
+          <span class="tb-tag tb-tag-remote">WORKER</span>
+          <span class="tb-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+          <div class="tb-field">
+            <label for="probe-url">TARGET URL</label>
+            <input id="probe-url" class="tb-input" type="text" spellcheck="false" placeholder="https://www.baidu.com">
+          </div>
+          <div class="tb-preset-row flex flex-wrap gap-2">
+            <button class="tb-mini" data-probe-preset="https://www.baidu.com" type="button">baidu.com</button>
+            <button class="tb-mini" data-probe-preset="https://www.cloudflare.com" type="button">cloudflare.com</button>
+            <button class="tb-mini" data-probe-preset="https://developer.mozilla.org" type="button">MDN</button>
+          </div>
+          <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+            <button id="probe-btn" class="tb-btn tb-btn-primary" type="button">发起探测 →</button>
+          </div>
+          <div class="tb-probe-result">
+            <div id="probe-status" class="tb-code-badge tb-dim"><span id="probe-status-text">—</span></div>
+            <div class="tb-probe-detail min-w-0">
+              <div id="probe-status-desc" class="tb-probe-desc">READY</div>
+              <div class="tb-probe-stats flex flex-wrap gap-x-4 gap-y-1">
+                <span>耗时 <b id="probe-latency">—</b></span>
+                <span>方法 <b id="probe-method">—</b></span>
+              </div>
+              <div id="probe-target" class="tb-probe-url">—</div>
+            </div>
+          </div>
+          <div class="tb-field">
+            <label>RESPONSE HEADERS <span class="tb-dim">// 白名单，绝不含 Set-Cookie</span></label>
+            <div class="tb-table-wrap"><table class="tb-table"><tbody id="probe-headers"></tbody></table></div>
+          </div>
+          <div id="probe-note" class="tb-note"></div>
+          <div class="tb-note">🔒 Worker 侧 SSRF 防护：仅 http/https、禁凭据与非标端口、拒绝回环/私网/保留域/本站域名，3xx 不跟随，8s 超时熔断。状态码与耗时取自 Worker 出口视角。</div>
+        </div></div></div>
+      </article>
+
+      <!-- 07 IP Info -->
+      <article class="tb-card" data-tool="ipinfo">
+        <button class="tb-card-head" aria-expanded="true" type="button">
+          <span class="tb-card-dots"><i></i><i></i><i></i></span>
+          <span class="tb-card-idx">07</span>
+          <span class="tb-card-title">IP 归属地与网络信息</span>
+          <span class="tb-tag tb-tag-remote">WORKER</span>
+          <span class="tb-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+          <div class="tb-ip-hero">
+            <span class="tb-dim">YOUR PUBLIC IP</span>
+            <code id="ip-query">查询中…</code>
+            <div id="ip-location" class="tb-ip-loc">—</div>
+          </div>
+          <div class="tb-kv-grid grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="tb-kv"><span>大洲</span><b id="ip-continent">—</b></div>
+            <div class="tb-kv"><span>ISP 运营商</span><b id="ip-isp">—</b></div>
+            <div class="tb-kv"><span>组织</span><b id="ip-org">—</b></div>
+            <div class="tb-kv"><span>ASN</span><b id="ip-asn">—</b></div>
+            <div class="tb-kv"><span>时区</span><b id="ip-timezone">—</b></div>
+            <div class="tb-kv"><span>数据来源</span><b id="ip-source">—</b></div>
+            <div class="tb-kv"><span>响应耗时</span><b id="ip-elapsed">—</b></div>
+          </div>
+          <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+            <button id="ip-refresh" class="tb-btn tb-btn-primary" type="button">↻ 重新查询</button>
+          </div>
+          <div id="ip-note" class="tb-note"></div>
+          <div class="tb-note">🔒 页面加载自动查询。访客 IP 由 Cloudflare 的 CF-Connecting-IP 头提供，Worker 代为查询公开 IP 库并只回传归属字段（不回传经纬度）；响应 no-store，避免跨访客串号。</div>
+        </div></div></div>
+      </article>
+
+    </div>
+  </section>
+
+  <footer class="tb-footer flex flex-wrap items-center justify-between gap-3">
+    <p>© 2026 Lei Yihan · Toolbox v13.0 · 前端计算全程本地完成，不上传任何输入内容</p>
+    <button class="tb-backtop" onclick="scrollToTop()" type="button" aria-label="返回顶部">↑ TOP</button>
+  </footer>
+</div>
+</main>
+<script src="/components/toolbox.js" defer></script>
+</body>
+</html>

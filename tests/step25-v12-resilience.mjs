@@ -290,7 +290,9 @@ try {
     /url\.pathname\.startsWith\("\/api\/"\)[\s\S]{0,600}?const fresh = await fetch\(req\)/.test(swSrc2));
   check("G8 OFFLINE_URL 仍为 /index.html（step16 I5 不变）", /const OFFLINE_URL = "\/index\.html"/.test(swSrc2));
   check("G9 预缓存补齐 mc.html 与 player.html", /"\/mc\.html"/.test(swSrc2) && /"\/player\.html"/.test(swSrc2));
-  check("G10 SW 版本号为三段语义化 v12", /const CACHE_VERSION = "v12\.\d+\.\d+"/.test(swSrc2));
+  // v13.0：SW 缓存版本与产品大版本解耦（见 sw.js 头部注释），
+  // 断言意图是「三段语义化版本号」，不绑定 v12/v13 具体大版本，避免每次发版误报。
+  check("G10 SW 版本号为三段语义化（vX.Y.Z）", /const CACHE_VERSION = "v\d+\.\d+\.\d+"/.test(swSrc2));
 
   check("Z 全程零 JS 错误", jsErrors.length === 0, jsErrors.join(" | ") || "无");
 } finally {

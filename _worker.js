@@ -645,6 +645,8 @@ const PAGE_REWRITES = {
   "/timeline.html": "/pages/timeline.html",
   // v12.0 战役一：全局播放内核（独立窗口 / 隐藏 iframe 共用同一文档）
   "/player.html": "/pages/player.html",
+  // v13.0 极客工具箱
+  "/tools.html": "/pages/tools.html",
 };
 
 /** 每请求生成 CSP nonce（16 字节密码学随机 → Base64） */
@@ -4744,6 +4746,277 @@ function failNoRoute(pathname) {
 }
 
 // ============================================================
+// 12.9 v13.0 极客工具箱：后端增强接口
+// ------------------------------------------------------------
+// 两个端点在 dispatchApi 最前层拦截（与 /api/github、/api/drive 同层）：
+//   GET /api/toolbox/probe?url=...   HEAD 状态探测（Worker 代理）
+//   GET /api/toolbox/ipinfo          访客公网 IP / 归属地 / ISP
+// 设计红线：
+//   1) 前端绝不直连第三方（CSP connect-src 也不放行），一律同源 /api 代理；
+//   2) probe 等价于「任意 URL 只读探测器」，必须做 SSRF 防护：协议 / 凭据 /
+//      端口 / 回环 / 私网 / 保留域 / 本站域名全量拒绝，redirect:"manual" 阻断
+//      3xx 跳内网，8s 超时熔断，只取响应头不下载正文；
+//   3) ipinfo 响应 no-store：URL 相同但访客不同，任何缓存都会串号；
+//   4) 上游响应只挑白名单头回传，绝不透传 Set-Cookie。
+// ============================================================
+
+const TOOLBOX_PROBE_TIMEOUT = 8000;
+const TOOLBOX_UPSTREAM_TIMEOUT = 3500;
+const TOOLBOX_IP_CACHE_TTL = 5 * 60 * 1000;
+const toolboxIpCache = new Map(); // key -> { ts, data }
+
+function toolboxJson(data, status, extra) {
+  return new Response(JSON.stringify(data), {
+    status: status || 200,
+    headers: buildHeaders(Object.assign({ "Cache-Control": "no-store" }, extra || {})),
+  });
+}
+
+function toolboxError(message, status, code) {
+  return toolboxJson(
+    { error: message, code: code || "TOOLBOX_ERROR", status: "error" },
+    status || 400
+  );
+}
+
+/** 私网 / 保留 IPv4 判定（入参为已规范化的 4 段数组） */
+function isPrivateIPv4(p) {
+  const a = p[0], b = p[1];
+  if (a === 0 || a === 10 || a === 127) return true;                    // 0/8, 10/8, 127/8
+  if (a === 100 && b >= 64 && b <= 127) return true;                     // 100.64/10 CGNAT
+  if (a === 169 && b === 254) return true;                               // 链路本地 / 云元数据
+  if (a === 172 && b >= 16 && b <= 31) return true;                      // 172.16/12
+  if (a === 192 && b === 168) return true;                               // 192.168/16
+  if (a === 192 && b === 0) return true;                                 // 192.0.0/24 + TEST-NET-1
+  if (a === 198 && (b === 18 || b === 19 || b === 51)) return true;      // 基准测试 + TEST-NET-2
+  if (a === 203 && b === 0) return true;                                 // TEST-NET-3
+  if (a >= 224) return true;                                             // 组播 / 保留 / 广播
+  return false;
+}
+
+function parseIPv4(host) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return null;
+  const p = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+  return p.every((n) => n >= 0 && n <= 255) ? p : null;
+}
+
+function isForbiddenHost(host, selfHost) {
+  if (!host) return true;
+  if (host === "localhost" || host === selfHost) return true;
+  const badSuffix = [".localhost", ".local", ".internal", ".home.arpa", ".arpa", ".test", ".invalid", ".onion"];
+  for (const s of badSuffix) {
+    if (host === s.slice(1) || host.endsWith(s)) return true;
+  }
+  if (host === "metadata.google.internal" || host === "instance-data" || host.endsWith(".ec2.internal")) return true;
+  // 本站自身：防止探测自己造成递归回源
+  const selfHosts = ["leiyihan.dpdns.org", "leiyihan.pages.dev"];
+  for (const s of selfHosts) if (host === s || host.endsWith("." + s)) return true;
+  const v4 = parseIPv4(host);
+  if (v4) return isPrivateIPv4(v4);
+  // IPv6：URL.hostname 形如 [::1]，方括号在调用前已剥离
+  const h = host.toLowerCase();
+  if (h === "::" || h === "::1" || h.startsWith("::ffff:")) return true;
+  if (/^f[cd]/.test(h) || /^fe[89ab]/.test(h) || /^ff/.test(h)) return true;
+  return false;
+}
+
+/** URL 白名单校验，返回规范化后的绝对 URL；不合法直接抛 Error */
+function assertPublicUrl(raw, selfHost) {
+  if (!raw || raw.length > 2048) throw new Error("URL 不能为空且不得超过 2048 字符");
+  let u;
+  try { u = new URL(raw); } catch (e) { throw new Error("URL 格式不合法"); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("仅支持 http / https 协议");
+  if (u.username || u.password) throw new Error("URL 不得包含用户名或密码");
+  // WHATWG URL 会把 2130706433 / 0177.0.0.1 等十进制、八进制写法规范化为 127.0.0.1，
+  // 因此用规范化后的 hostname 判定即可覆盖 IP 混淆绕过。
+  const host = u.hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (!host) throw new Error("URL 缺少主机名");
+  if (u.port && u.port !== "80" && u.port !== "443") throw new Error("仅允许默认端口 80 / 443");
+  if (isForbiddenHost(host, selfHost)) throw new Error("目标地址禁止探测（回环 / 内网 / 保留域 / 本站）");
+  return u.toString();
+}
+
+function classifyProbeError(e) {
+  const name = (e && e.name) || "";
+  if (name === "AbortError") {
+    return { code: "TIMEOUT", message: "上游 " + TOOLBOX_PROBE_TIMEOUT / 1000 + "s 未响应，已超时熔断" };
+  }
+  const msg = String((e && e.message) || e);
+  if (/ENOTFOUND|NXDOMAIN|getaddrinfo|no such host/i.test(msg)) return { code: "DNS_ERROR", message: "域名解析失败" };
+  if (/ECONNREFUSED|connection refused/i.test(msg)) return { code: "REFUSED", message: "目标主机拒绝连接" };
+  if (/certificate|SSL|TLS|handshake/i.test(msg)) return { code: "TLS_ERROR", message: "TLS / 证书校验失败" };
+  return { code: "NETWORK_ERROR", message: "网络不可达：" + msg.slice(0, 120) };
+}
+
+const PROBE_HEADER_KEYS = [
+  "server", "content-type", "location", "cache-control", "x-powered-by",
+  "via", "cf-ray", "cf-cache-status", "age", "content-length", "date",
+];
+/** 只回传白名单响应头，长度截断；绝不透传 Set-Cookie */
+function pickProbeHeaders(h) {
+  const out = {};
+  for (const k of PROBE_HEADER_KEYS) {
+    const v = h.get(k);
+    if (v) out[k] = v.length > 200 ? v.slice(0, 200) : v;
+  }
+  return out;
+}
+
+async function toolboxProbe(url) {
+  let target;
+  try {
+    target = assertPublicUrl(url.searchParams.get("url") || "", url.hostname.toLowerCase());
+  } catch (e) {
+    return toolboxError(e.message, 400, "INVALID_URL");
+  }
+
+  const started = Date.now();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TOOLBOX_PROBE_TIMEOUT);
+  const baseHeaders = {
+    "User-Agent": "Mozilla/5.0 (compatible; ToolboxProbe/1.0)",
+    "Accept": "*/*",
+  };
+  let method = "HEAD";
+  try {
+    let resp = await fetch(target, { method, redirect: "manual", signal: ctrl.signal, headers: baseHeaders });
+    // 部分站点明确不支持 HEAD：降级 Range GET（只取 1 字节，立即取消 body，不下载正文）
+    if (resp.status === 405 || resp.status === 501) {
+      try { if (resp.body) await resp.body.cancel(); } catch (e) { /* 忽略 */ }
+      resp = await fetch(target, {
+        method: "GET", redirect: "manual", signal: ctrl.signal,
+        headers: Object.assign({}, baseHeaders, { Range: "bytes=0-0" }),
+      });
+      method = "GET+Range";
+    }
+    const elapsed = Date.now() - started;
+    try { if (resp.body) await resp.body.cancel(); } catch (e) { /* 忽略 */ }
+    return toolboxJson({
+      status: "ok", code: "OK", url: target, method,
+      httpStatus: resp.status,
+      statusText: (resp.statusText || "").slice(0, 80),
+      healthy: resp.status >= 200 && resp.status < 400,
+      elapsed, headers: pickProbeHeaders(resp.headers),
+      checkedAt: new Date().toISOString(),
+      note: "状态码与耗时取自 Cloudflare Worker 出口视角（HEAD，不下载正文）",
+    });
+  } catch (e) {
+    const c = classifyProbeError(e);
+    // 探测行为本身已完成，业务失败用 200 + status:error 返回，
+    // 便于前端保留错误分类、耗时等诊断信息，而不是被 BlogApi 直接抛成异常。
+    return toolboxJson({
+      status: "error", code: c.code, error: c.message,
+      url: target, method, httpStatus: 0,
+      elapsed: Date.now() - started, headers: {},
+      checkedAt: new Date().toISOString(),
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 访客 IP：生产由 Cloudflare 注入 CF-Connecting-IP；本地无该头则退化为出口视角 */
+function getVisitorIP(request) {
+  const cf = request.headers.get("CF-Connecting-IP");
+  if (cf) return { ip: cf.trim(), scope: "visitor", source: "CF-Connecting-IP" };
+  const real = request.headers.get("X-Real-IP");
+  if (real) return { ip: real.trim(), scope: "visitor", source: "X-Real-IP" };
+  const xff = (request.headers.get("X-Forwarded-For") || "").split(",")[0].trim();
+  if (xff) return { ip: xff, scope: "visitor", source: "X-Forwarded-For" };
+  return { ip: "", scope: "egress", source: "none" };
+}
+
+async function fetchUpstreamJson(target, timeoutMs) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const resp = await fetch(target, {
+      signal: ctrl.signal,
+      headers: { "User-Agent": "ToolboxIpInfo/1.0", "Accept": "application/json" },
+    });
+    if (!resp.ok) throw new Error("上游返回 " + resp.status);
+    return await resp.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizeIpInfo(provider, d, scope, source) {
+  const base = {
+    status: "ok", scope, source, provider, query: "", country: "", region: "",
+    city: "", isp: "", org: "", asn: "", timezone: "", continent: "",
+  };
+  if (provider === "ipwho.is") {
+    const c = (d && d.connection) || {};
+    return Object.assign(base, {
+      query: d.ip || "", country: d.country || "", region: d.region || "", city: d.city || "",
+      isp: c.isp || "", org: c.org || "", asn: c.asn ? "AS" + c.asn : "",
+      timezone: (d.timezone && d.timezone.id) || "", continent: d.continent || "",
+    });
+  }
+  return Object.assign(base, {
+    query: d.query || "", country: d.country || "", region: d.regionName || "", city: d.city || "",
+    isp: d.isp || "", org: d.org || "", asn: d.as || "", timezone: d.timezone || "",
+    continent: d.continent || "",
+  });
+}
+
+async function toolboxIpInfo(request) {
+  const started = Date.now();
+  const v = getVisitorIP(request);
+  const key = v.scope + ":" + (v.ip || "egress");
+  const hit = toolboxIpCache.get(key);
+  if (hit && Date.now() - hit.ts < TOOLBOX_IP_CACHE_TTL) {
+    return toolboxJson(Object.assign({}, hit.data, { cached: true, elapsed: 0 }));
+  }
+
+  const ipPart = v.ip ? encodeURIComponent(v.ip) : "";
+  const candidates = v.ip
+    ? [
+        { provider: "ipwho.is", url: "https://ipwho.is/" + ipPart },
+        { provider: "ip-api.com", url: "http://ip-api.com/json/" + ipPart + "?lang=zh-CN&fields=status,message,continent,country,regionName,city,isp,org,as,query,timezone" },
+      ]
+    : [
+        { provider: "ipwho.is", url: "https://ipwho.is/" },
+        { provider: "ip-api.com", url: "http://ip-api.com/json/?lang=zh-CN&fields=status,message,continent,country,regionName,city,isp,org,as,query,timezone" },
+      ];
+
+  const attempts = [];
+  for (const c of candidates) {
+    try {
+      const d = await fetchUpstreamJson(c.url, TOOLBOX_UPSTREAM_TIMEOUT);
+      if (d && (d.success === false || d.status === "fail")) {
+        throw new Error(d.message || "上游查询失败");
+      }
+      const data = normalizeIpInfo(c.provider, d, v.scope, v.source);
+      data.message = v.scope === "egress"
+        ? "当前环境未注入 CF-Connecting-IP，以下为 Worker 出口网络信息（非访客 IP）"
+        : "";
+      data.elapsed = Date.now() - started;
+      data.cached = false;
+      if (toolboxIpCache.size > 500) toolboxIpCache.clear();
+      toolboxIpCache.set(key, { ts: Date.now(), data });
+      return toolboxJson(data);
+    } catch (e) {
+      attempts.push(c.provider + ": " + String((e && e.message) || e).slice(0, 80));
+    }
+  }
+  return toolboxJson({
+    status: "unavailable", code: "UPSTREAM_UNAVAILABLE", error: "IP 信息上游暂不可用",
+    scope: v.scope, source: v.source, query: v.ip || "",
+    elapsed: Date.now() - started, attempts,
+  });
+}
+
+async function handleToolbox(request, env, ctx, url) {
+  if (request.method !== "GET") return toolboxError("仅支持 GET", 405, "METHOD_NOT_ALLOWED");
+  if (url.pathname === "/api/toolbox/probe") return toolboxProbe(url);
+  if (url.pathname === "/api/toolbox/ipinfo") return toolboxIpInfo(request);
+  return toolboxError("未知的工具箱接口", 404, "NOT_FOUND");
+}
+
+// ============================================================
 // 13. Entry —— Worker 入口
 // ============================================================
 async function dispatchApi(request, env, ctx, url) {
@@ -4766,6 +5039,12 @@ async function dispatchApi(request, env, ctx, url) {
   // 云盘代理（文件管理器）：PIN 保护 + GitHub Contents 读写，同样不依赖 KV
   if (url.pathname.startsWith("/api/drive/")) {
     return handleDrive(request, env, ctx, url);
+  }
+
+  // v13.0 极客工具箱：后端增强接口（不依赖 KV / 不走 ROUTES 表），
+  // 与 github/drive 同层拦截，复用统一错误头、限流与 X-Response-Time。
+  if (url.pathname.startsWith("/api/toolbox/")) {
+    return handleToolbox(request, env, ctx, url);
   }
 
   // 仅支持 GET / POST，其余方法一律 405（与原实现保持一致）

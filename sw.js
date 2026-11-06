@@ -45,7 +45,8 @@
 // v11.0.0：v11.0 五个攻坚战役正式封版，统一为三段语义化版本号
 //         （SW 缓存名与产品版本解耦，但保持 vX.Y.Z 格式便于测试与发布核对）。
 // v12.0：全局播放内核 + 后台计算内核纳入离线外壳；弱网回退增强
-const CACHE_VERSION = "v12.0.2";
+// v13.0：极客工具箱上线，新增 tools.html / toolbox.css / toolbox.js 入离线外壳
+const CACHE_VERSION = "v13.0.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -69,6 +70,7 @@ const PRECACHE_URLS = [
   "/mc.html",
   "/styles/common.css",
   "/styles/drive.css",
+  "/styles/toolbox.css",
   "/utils/common.js",
   "/utils/blog-utils.js",
   "/components/ui.js",
@@ -84,6 +86,8 @@ const PRECACHE_URLS = [
   "/components/music-player.js",
   "/components/global-search.js",
   "/player.html",
+  "/tools.html",
+  "/components/toolbox.js",
   "/components/lrc.js",
   "/components/player-engine.js",
   "/components/player-host.js",
@@ -240,6 +244,16 @@ self.addEventListener("fetch", (event) => {
   // stale-while-revalidate 会先返回旧缓存，导致「删了还在、传了不显示」。
   // 写方法（POST/PUT/DELETE）本就在 146 行被放行，不受影响。
   if (url.pathname.startsWith("/api/drive/")) {
+    event.respondWith(fetch(req));
+    return;
+  }
+
+  // v13.0 极客工具箱：探测 / IP 查询属实时动作，Worker 侧已显式 no-store
+  // （IP 信息按访客区分，任何缓存都可能串号）。这里必须直传网络：
+  //  1) 不写入 RUNTIME_CACHE，尊重 Worker 的 no-store 意图；
+  //  2) 不落入下方 /api/* 的 ignoreSearch 回退 —— 否则断网时
+  //     /api/toolbox/probe?url=A 会命中 url=B 的旧探测结果，返回完全错误的状态码。
+  if (url.pathname.startsWith("/api/toolbox/")) {
     event.respondWith(fetch(req));
     return;
   }

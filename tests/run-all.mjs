@@ -41,6 +41,7 @@ const SUITES = [
   { name: "v12.0 Worker 哈希与 ZIP 打包", file: "step23-v12-compute.mjs" },
   { name: "v12.0 网盘本地搜索索引", file: "step24-v12-search-drive.mjs" },
   { name: "v12.0 指数退避与弱网缓存", file: "step25-v12-resilience.mjs" },
+  { name: "v13.0 极客工具箱端到端", file: "step26-v13-toolbox.mjs" },
 ];
 
 function runSuite(file) {
