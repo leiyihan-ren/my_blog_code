@@ -171,6 +171,7 @@
   <button class="back-top" onclick="scrollToTop()" id="backTop" aria-label="返回顶部" title="回到顶部">↑</button>
 
   <script src="/utils/blog-utils.js"></script>
+  <script src="/services/request.js"></script>
   <script src="/services/rangeDownloader.js"></script>
   <script src="/services/uploadService.js"></script>
   <script src="/services/computeClient.js"></script>
@@ -266,7 +267,7 @@
         opts = opts || {};
         var headers = { "x-drive-pin": pin };
         if (opts.body !== undefined) headers["Content-Type"] = "application/json";
-        return fetch(path, {
+        return window.BlogApi.raw(path, {
           method: opts.method || "GET",
           headers: headers,
           body: opts.body === undefined ? undefined : JSON.stringify(opts.body)
@@ -584,7 +585,7 @@
           tip.textContent = "加载中…";
           body.appendChild(tip);
           // v8.3：raw 代理需口令，缺头即 401（文本预览也是此路径）
-          fetch(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (r) {
+          window.BlogApi.raw(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (r) {
             if (!r.ok) throw new Error("HTTP " + r.status);
             return r.text();
           }).then(function (txt) {
@@ -728,7 +729,7 @@
         var dir = f.path.replace(/[^/]*$/, ""); // 保留所在目录
         var newPath = dir + newName;
         // 1) 读回旧文件内容（raw 代理）
-        fetch(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (res) {
+        window.BlogApi.raw(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (res) {
           if (!res.ok) throw new Error("读取原文件失败（HTTP " + res.status + "）");
           return res.arrayBuffer();
         }).then(function (buf) {
@@ -1064,7 +1065,7 @@
       /** 抓取单个文件 Blob：小文件走 downloadUrl 直拉；大文件经引擎重组（临时劫持 saveBlob） */
       function fetchFileBlob(f) {
         if (f.storage !== "chunked") {
-          return fetch(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (r) {
+          return window.BlogApi.raw(f.downloadUrl, { headers: { "x-drive-pin": pin } }).then(function (r) {
             if (!r.ok) throw new Error(f.name + " 下载失败（HTTP " + r.status + "）");
             return r.blob();
           });
@@ -1414,7 +1415,7 @@
       /* v8.2 链路预热：异步触发一次 warmup，让 Worker 提前建立到 GitHub 的
          上游连接（DNS/TCP/TLS）。不 await、不阻塞首屏，失败静默。 */
       try {
-        fetch("/api/drive/warmup", { method: "GET", credentials: "same-origin" }).catch(function () {});
+        window.BlogApi.raw("/api/drive/warmup", { method: "GET", credentials: "same-origin" }).catch(function () {});
       } catch (e) {}
       if (pin) {
         loadList(); // 带旧 PIN 直接加载；失效则 api() 自动弹重验

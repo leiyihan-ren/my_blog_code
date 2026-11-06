@@ -11,18 +11,18 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="极客工具箱">
-<meta name="description" content="极客工具箱：JSON 格式化、Base64 编解码、时间戳转换、高强度密码生成、MD5/SHA 哈希、网页状态码探测与 IP 归属地查询。前端计算毫秒级响应，后端探测经 Cloudflare Worker 代理。">
+<meta name="description" content="极客工具箱：12 个硬核开发工具 —— JSON、Base64、时间戳、密码、哈希、状态码探测、IP 查询，以及正则测试、二维码生成、图片转 Base64、文本 Diff、颜色渐变生成器。纯函数内核 + Web Worker 重计算，秒级响应。">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="我的博客">
 <meta property="og:title" content="极客工具箱 - 我的博客">
-<meta property="og:description" content="7 个硬核开发常用工具：5 个纯浏览器本地计算 + 2 个 Cloudflare Worker 代理增强。">
+<meta property="og:description" content="12 个硬核开发工具：7 个常规工具 + 5 个进阶工具，纯函数内核 + Web Worker 异步重计算 + 严格 CSP。">
 <meta property="og:url" content="https://leiyihan.dpdns.org/tools.html">
 <meta property="og:image" content="https://leiyihan.dpdns.org/og-image.png">
 <meta name="twitter:card" content="summary">
 <link rel="canonical" href="https://leiyihan.dpdns.org/tools.html">
 <title>极客工具箱 - 我的博客</title>
 <link rel="stylesheet" href="/styles/common.css">
-<link rel="stylesheet" href="/styles/toolbox.css?v=13.0.1">
+<link rel="stylesheet" href="/styles/toolbox.css?v=14.0.0">
 <style>
   /* 终端风页面容器：与 common.css 的导航 / 页脚基建共存，此处只覆盖配色令牌 */
   body.tb-body { background: #070b12; color: #cbd5e1; }
@@ -81,21 +81,23 @@
   <header class="tb-hero">
     <div class="tb-hero-bar">
       <span class="tb-dots"><i></i><i></i><i></i></span>
-      <span class="tb-hero-path">root@toolbox:~/v13.0</span>
+      <span class="tb-hero-path">root@toolbox:~/v14.0</span>
       <span class="tb-hero-live"><i></i> SYSTEM ONLINE</span>
     </div>
     <div class="tb-hero-body">
       <pre class="tb-ascii" aria-hidden="true">┌──────────────────────────────────────────────┐
-│  $ toolbox --init --modules 7 --gpu off      │
-│  [ OK ] 5 local engines ready                │
-│  [ OK ] 2 worker proxies armed               │
+│  $ toolbox --init --modules 12 --worker on   │
+│  [ OK ] pure kernel loaded  (33 fns)         │
+│  [ OK ] compute worker armed (regex/diff/img)│
+│  [ OK ] scope registry armed (zero leak)     │
 └──────────────────────────────────────────────┘</pre>
       <h1 class="tb-title">&gt; 极客工具箱<span class="tb-cursor">_</span></h1>
-      <p class="tb-sub">7 个开发常用工具 · 前 5 个<strong>纯浏览器计算，零网络请求</strong> · 后 2 个经 Cloudflare Worker 代理 · 全部边输入边出结果</p>
+      <p class="tb-sub">12 个硬核开发工具 · <strong>纯函数内核 + Web Worker 异步重计算</strong> · 主线程零掉帧 · 全部边输入边出结果</p>
       <div class="tb-hero-meta flex flex-wrap gap-2 sm:gap-3">
-        <span class="tb-chip">v13.0</span>
-        <span class="tb-chip">TAILWIND CSS</span>
-        <span class="tb-chip">PWA READY</span>
+        <span class="tb-chip">v14.0</span>
+        <span class="tb-chip">PURE KERNEL</span>
+        <span class="tb-chip">WEB WORKER</span>
+        <span class="tb-chip">ZERO LEAK</span>
         <span class="tb-chip">STRICT CSP</span>
       </div>
       <div class="tb-toolbar flex flex-wrap gap-2 mt-4">
@@ -105,7 +107,21 @@
     </div>
   </header>
 
-  <!-- ============ FRONTEND ============ -->
+  <!-- ============ TAB 分类导航 ============ -->
+  <nav class="tb-tabs" role="tablist" aria-label="工具分类">
+    <button id="tb-tab-basic" class="tb-tab is-active" role="tab" type="button"
+            aria-selected="true" aria-controls="tb-panel-basic" tabindex="0">
+      <span class="tb-tab-idx">A</span><span class="tb-tab-name">常规工具</span><span class="tb-tab-count">07</span>
+    </button>
+    <button id="tb-tab-advanced" class="tb-tab" role="tab" type="button"
+            aria-selected="false" aria-controls="tb-panel-advanced" tabindex="-1">
+      <span class="tb-tab-idx">B</span><span class="tb-tab-name">进阶工具</span><span class="tb-tab-count">05</span>
+    </button>
+    <span class="tb-tab-meta">12 TOOLS · PURE / WORKER / SCOPE</span>
+  </nav>
+
+  <!-- ============ TAB A：常规工具（默认激活，7 张卡） ============ -->
+  <div id="tb-panel-basic" class="tb-panel" role="tabpanel" aria-labelledby="tb-tab-basic">
   <section class="tb-section">
     <div class="tb-section-head flex flex-wrap items-center justify-between gap-2">
       <span class="tb-comment">// 01 — FRONTEND · 纯浏览器计算</span>
@@ -370,13 +386,255 @@
 
     </div>
   </section>
+  </div><!-- /#tb-panel-basic -->
+
+  <!-- ============ TAB B：进阶工具（inert template，首次激活才挂载） ============ -->
+  <div id="tb-panel-advanced" class="tb-panel" role="tabpanel" aria-labelledby="tb-tab-advanced" hidden>
+  <template id="tb-advanced-tpl">
+    <section class="tb-section">
+      <div class="tb-section-head flex flex-wrap items-center justify-between gap-2">
+        <span class="tb-comment">// 03 — ADVANCED · 纯函数内核 + Web Worker</span>
+        <span class="tb-section-meta">5 MODULES · SCOPE 生命周期托管 · 超时熔断</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
+
+        <!-- 08 正则表达式测试器 -->
+        <article class="tb-card md:col-span-2" data-tool="regex">
+          <button class="tb-card-head" aria-expanded="true" type="button">
+            <span class="tb-card-dots"><i></i><i></i><i></i></span>
+            <span class="tb-card-idx">08</span>
+            <span class="tb-card-title">正则表达式测试器</span>
+            <span class="tb-tag tb-tag-worker">WORKER</span>
+            <span class="tb-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+            <div class="tb-rx-pattern-row">
+              <div class="tb-field tb-rx-pattern-field min-w-0">
+                <label for="regex-pattern">PATTERN <span class="tb-dim">// 支持捕获组高亮</span></label>
+                <input id="regex-pattern" class="tb-input tb-mono" type="text" spellcheck="false" value="(\w+)@(\w+\.\w+)" placeholder="(\w+)@(\w+\.\w+)">
+              </div>
+              <div class="tb-field tb-rx-flags-field">
+                <label>FLAGS</label>
+                <div class="tb-rx-flags">
+                  <label class="tb-check"><input type="checkbox" id="regex-flag-g" checked><span>g</span></label>
+                  <label class="tb-check"><input type="checkbox" id="regex-flag-i"><span>i</span></label>
+                  <label class="tb-check"><input type="checkbox" id="regex-flag-m"><span>m</span></label>
+                  <label class="tb-check"><input type="checkbox" id="regex-flag-s"><span>s</span></label>
+                  <label class="tb-check"><input type="checkbox" id="regex-flag-u"><span>u</span></label>
+                </div>
+              </div>
+            </div>
+            <div class="tb-field">
+              <label for="regex-input">TEST STRING</label>
+              <textarea id="regex-input" class="tb-textarea tb-mono" rows="3" spellcheck="false" placeholder="输入待匹配的文本">联系 alice@example.com 或 bob@test.org 获取邀请码。</textarea>
+            </div>
+            <div class="tb-field">
+              <label>HIGHLIGHT <span class="tb-dim">// <span id="regex-count">—</span> 处匹配</span></label>
+              <pre id="regex-output" class="tb-output tb-output-code tb-rx-output"></pre>
+            </div>
+            <div class="tb-rx-cols">
+              <div>
+                <div class="tb-rx-subhead">MATCHES</div>
+                <div id="regex-match-list" class="tb-rx-list"></div>
+              </div>
+              <div>
+                <div class="tb-rx-subhead">CAPTURE GROUPS (#1)</div>
+                <div id="regex-groups" class="tb-rx-list"></div>
+              </div>
+            </div>
+            <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+              <button id="regex-btn-clear" class="tb-btn" type="button">清空测试文本</button>
+            </div>
+            <div id="regex-status" class="tb-status tb-status-ok"></div>
+            <div class="tb-note">🔒 非法正则在纯函数层局部隔离，绝不抛到页面；灾难性回溯由 Worker + 超时熔断兜底，主线程永不卡死。</div>
+          </div></div></div>
+        </article>
+
+        <!-- 09 二维码生成器 -->
+        <article class="tb-card" data-tool="qrcode">
+          <button class="tb-card-head" aria-expanded="true" type="button">
+            <span class="tb-card-dots"><i></i><i></i><i></i></span>
+            <span class="tb-card-idx">09</span>
+            <span class="tb-card-title">二维码生成器</span>
+            <span class="tb-tag tb-tag-local">LOCAL</span>
+            <span class="tb-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+            <div class="tb-field">
+              <label for="qr-text">CONTENT <span class="tb-dim">// URL / 文本 / 名片</span></label>
+              <textarea id="qr-text" class="tb-textarea" rows="3" spellcheck="false" placeholder="输入要编码的内容">https://leiyihan.dpdns.org/tools.html</textarea>
+            </div>
+            <div class="tb-field">
+              <label for="qr-ecc">纠错等级 ECC</label>
+              <select id="qr-ecc" class="tb-select">
+                <option value="L">L · 7% 纠错</option>
+                <option value="M" selected>M · 15% 纠错（默认）</option>
+                <option value="Q">Q · 25% 纠错</option>
+                <option value="H">H · 30% 纠错</option>
+              </select>
+            </div>
+            <div class="tb-qr-stage">
+              <canvas id="qr-canvas" class="tb-qr-canvas" aria-label="生成的二维码" role="img"></canvas>
+            </div>
+            <div id="qr-meta" class="tb-dim tb-qr-meta">—</div>
+            <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+              <button id="qr-download" class="tb-btn tb-btn-primary" type="button">⤓ 下载 PNG</button>
+            </div>
+            <div id="qr-status" class="tb-status tb-status-ok"></div>
+            <div class="tb-note">🔒 二维码引擎为 MIT 许可的本地 vendor 库，零第三方运行时请求；矩阵生成在纯函数层，Canvas 仅负责绘制。</div>
+          </div></div></div>
+        </article>
+
+        <!-- 10 图片转 Base64 -->
+        <article class="tb-card" data-tool="image">
+          <button class="tb-card-head" aria-expanded="true" type="button">
+            <span class="tb-card-dots"><i></i><i></i><i></i></span>
+            <span class="tb-card-idx">10</span>
+            <span class="tb-card-title">图片转 Base64</span>
+            <span class="tb-tag tb-tag-worker">WORKER</span>
+            <span class="tb-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+            <div id="img-drop" class="tb-drop" tabindex="0" role="button" aria-label="选择或拖入图片">
+              <span class="tb-drop-icon" aria-hidden="true">⇪</span>
+              <span class="tb-drop-main">点击选择，或把图片拖到这里</span>
+              <span class="tb-drop-sub">PNG / JPEG / WebP · 最大 20 MB</span>
+              <input id="img-file" class="tb-drop-input" type="file" accept="image/*" aria-label="图片文件">
+            </div>
+            <div class="tb-img-meta"><span id="img-name" class="tb-dim">未选择文件</span><span id="img-dims" class="tb-chip">—</span></div>
+            <div class="tb-field">
+              <label for="img-max-edge">最长边 <span class="tb-dim">// 等比压缩</span> <span id="img-max-edge-num" class="tb-num">1280</span> px</label>
+              <input id="img-max-edge" class="tb-range" type="range" min="16" max="4096" value="1280">
+            </div>
+            <div class="tb-field">
+              <label for="img-quality">JPEG / WebP 质量 <span id="img-quality-num" class="tb-num">85</span>%</label>
+              <input id="img-quality" class="tb-range" type="range" min="10" max="100" value="85">
+            </div>
+            <div class="tb-field">
+              <label for="img-output">DATA URL</label>
+              <textarea id="img-output" class="tb-textarea tb-textarea-out tb-mono" rows="3" readonly spellcheck="false" placeholder="data:image/...;base64,..."></textarea>
+            </div>
+            <div class="tb-img-preview-wrap"><img id="img-preview" class="tb-img-preview" alt="压缩结果预览" hidden></div>
+            <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+              <button id="img-btn-clear" class="tb-btn" type="button">清空</button>
+              <button class="tb-btn tb-btn-primary" data-copy="img-output" type="button">一键复制</button>
+            </div>
+            <div id="img-status" class="tb-status tb-status-ok"></div>
+            <div class="tb-note">🔒 解码与等比压缩在 Web Worker（createImageBitmap + OffscreenCanvas）完成；不支持时自动降级到主线程异步路径，主线程零阻塞。</div>
+          </div></div></div>
+        </article>
+
+        <!-- 11 文本差异对比 -->
+        <article class="tb-card md:col-span-2" data-tool="diff">
+          <button class="tb-card-head" aria-expanded="true" type="button">
+            <span class="tb-card-dots"><i></i><i></i><i></i></span>
+            <span class="tb-card-idx">11</span>
+            <span class="tb-card-title">文本差异对比</span>
+            <span class="tb-tag tb-tag-worker">WORKER</span>
+            <span class="tb-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="tb-field min-w-0">
+                <label for="diff-a">ORIGINAL <span class="tb-dim">// 旧文本</span></label>
+                <textarea id="diff-a" class="tb-textarea tb-mono" rows="5" spellcheck="false" placeholder="旧文本">const a = 1;
+const b = 2;
+console.log(a + b);</textarea>
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="diff-b">MODIFIED <span class="tb-dim">// 新文本</span></label>
+                <textarea id="diff-b" class="tb-textarea tb-mono" rows="5" spellcheck="false" placeholder="新文本">const a = 1;
+const b = 3;
+console.log(a * b);
+// v14.0</textarea>
+              </div>
+            </div>
+            <div class="tb-diff-bar"><span id="diff-stats" class="tb-dim">—</span></div>
+            <div class="tb-field">
+              <label>DIFF <span class="tb-dim">// 行级 LCS · 新增绿 / 删除红</span></label>
+              <div id="diff-output" class="tb-output tb-diff-output"></div>
+            </div>
+            <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+              <button id="diff-btn-swap" class="tb-btn" type="button">⇄ 交换两侧</button>
+              <button id="diff-btn-clear" class="tb-btn" type="button">清空</button>
+            </div>
+            <div id="diff-status" class="tb-status tb-status-ok"></div>
+            <div class="tb-note">🔒 行级 LCS 动态规划在 Worker 内运行；超出行数 / 格子上限时自动降级为整块对比，杜绝大文本 OOM。</div>
+          </div></div></div>
+        </article>
+
+        <!-- 12 颜色与渐变生成器 -->
+        <article class="tb-card md:col-span-2" data-tool="gradient">
+          <button class="tb-card-head" aria-expanded="true" type="button">
+            <span class="tb-card-dots"><i></i><i></i><i></i></span>
+            <span class="tb-card-idx">12</span>
+            <span class="tb-card-title">颜色与渐变生成器</span>
+            <span class="tb-tag tb-tag-local">LOCAL</span>
+            <span class="tb-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+            <div id="grad-preview" class="tb-grad-preview" role="img" aria-label="渐变预览"></div>
+            <div class="tb-grad-controls">
+              <div class="tb-field min-w-0">
+                <label for="grad-c1">起始色</label>
+                <input id="grad-c1" class="tb-color" type="color" value="#39ff14">
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="grad-c2">结束色</label>
+                <input id="grad-c2" class="tb-color" type="color" value="#0ea5e9">
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="grad-type">类型</label>
+                <select id="grad-type" class="tb-select">
+                  <option value="linear" selected>线性 linear</option>
+                  <option value="radial">径向 radial</option>
+                </select>
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="grad-angle">角度 <span id="grad-angle-num" class="tb-num">135</span>°</label>
+                <input id="grad-angle" class="tb-range" type="range" min="0" max="360" value="135">
+              </div>
+            </div>
+            <div class="tb-kv-grid grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="tb-kv"><span>HEX</span><b id="grad-hex">—</b></div>
+              <div class="tb-kv"><span>RGB</span><b id="grad-rgb">—</b></div>
+              <div class="tb-kv"><span>HSL（起始色）</span><b id="grad-hsl">—</b></div>
+              <div class="tb-kv"><span>WCAG 对比度</span><b id="grad-contrast">—</b></div>
+            </div>
+            <div class="tb-field">
+              <label>调色板 <span class="tb-dim">// 两色线性插值</span></label>
+              <div id="grad-palette" class="tb-palette"></div>
+            </div>
+            <div class="tb-field">
+              <label for="grad-css">CSS</label>
+              <textarea id="grad-css" class="tb-textarea tb-textarea-out tb-mono" rows="2" readonly spellcheck="false"></textarea>
+            </div>
+            <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+              <button id="grad-random" class="tb-btn" type="button">⚄ 随机双色</button>
+              <button id="grad-swap" class="tb-btn" type="button">⇄ 交换颜色</button>
+              <button class="tb-btn tb-btn-primary" data-copy="grad-css" type="button">复制 CSS</button>
+            </div>
+            <div id="grad-status" class="tb-status tb-status-ok"></div>
+            <div class="tb-note">🔒 HEX / RGB / HSL 换算、WCAG 相对亮度与对比度、调色板插值全部在纯函数层完成；预览仅做 CSS 赋值。</div>
+          </div></div></div>
+        </article>
+
+      </div>
+    </section>
+  </template>
+  </div><!-- /#tb-panel-advanced -->
 
   <footer class="tb-footer flex flex-wrap items-center justify-between gap-3">
-    <p>© 2026 Lei Yihan · Toolbox v13.0 · 前端计算全程本地完成，不上传任何输入内容</p>
+    <p>© 2026 Lei Yihan · Toolbox v14.0 · 12 工具 · 纯函数内核 + Web Worker · 前端计算全程本地完成</p>
     <button class="tb-backtop" onclick="scrollToTop()" type="button" aria-label="返回顶部">↑ TOP</button>
   </footer>
 </div>
 </main>
-<script src="/components/toolbox.js?v=13.0.1" defer></script>
+<script src="/utils/toolbox-constants.js?v=14.0.0" defer></script>
+<script src="/utils/toolbox-pure.js?v=14.0.0" defer></script>
+<script src="/utils/toolbox-scope.js?v=14.0.0" defer></script>
+<script src="/services/toolboxCompute.js?v=14.0.0" defer></script>
+<script src="/vendor/qrcode.js?v=14.0.0" defer></script>
+<script src="/components/toolbox.js?v=14.0.0" defer></script>
 </body>
 </html>

@@ -155,7 +155,11 @@ async function fetchDocs() {
       if (src.enabled && !src.enabled()) return;
       const headers = { Accept: "application/json" };
       if (src.headers) Object.assign(headers, src.headers());
-      const res = await fetch(src.url, { headers: headers });
+      // v14.0：全站请求 100% 收敛到 BlogApi 唯一出口（raw 为协议级透明
+      // 直传，语义与原生 fetch 等价）。common.js 按需动态 import 本模块，
+      // 所有加载 common.js 的页面均先加载 services/request.js，故
+      // BlogApi.raw 必然可用；不再保留裸 fetch 降级。
+      const res = await window.BlogApi.raw(src.url, { headers: headers });
       if (!res.ok) return;
       const data = await res.json();
       normalizeList(data).slice(0, MAX_DOCS).forEach((item) => {

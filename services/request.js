@@ -241,6 +241,21 @@ window.BlogApi = (function () {
     post: (url, body, opts) => request(url, Object.assign({}, opts, { method: "POST", body })),
     put: (url, body, opts) => request(url, Object.assign({}, opts, { method: "PUT", body })),
     del: (url, opts) => request(url, Object.assign({}, opts, { method: "DELETE" })),
+    /**
+     * 协议级透明直传通道（v14.0 全站请求层净化）。
+     * 服务于 get/post/put/del 的 JSON 语义无法覆盖的链路：HTTP Range
+     * 并发下载、二进制流上传、FormData、Blob/文本响应、自定义鉴权头
+     * （x-drive-pin / Authorization）、多镜像图片加载等。
+     *
+     * 本方法**严格等价于原生 fetch**：原样透传 input / init，不改写方法、
+     * 头、体，也不解析响应；仅把「全站网络请求」收敛到 BlogApi 这一唯一
+     * 出口，便于统一观测与后续治理。绝不改变任何既有链路的行为，
+     * 这是「重构不能让云盘 / API 代理失效」红线的落地保障。
+     * @param {RequestInfo|URL} input 请求目标（字符串 / URL / Request）
+     * @param {RequestInit} [init] 请求选项，原样透传
+     * @returns {Promise<Response>} 原始 Response
+     */
+    raw: (input, init) => fetch(input, init),
   };
 
   /* =========================================================

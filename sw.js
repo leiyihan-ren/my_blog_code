@@ -47,7 +47,9 @@
 // v12.0：全局播放内核 + 后台计算内核纳入离线外壳；弱网回退增强
 // v13.0：极客工具箱上线，新增 tools.html / toolbox.css / toolbox.js 入离线外壳
 // v13.0.1：工具箱资源加 cache-bust 查询串，绕开边缘缓存的旧 404，清单随之更新
-const CACHE_VERSION = "v13.0.1";
+// v14.0：极客进阶开发台 —— 纯函数内核 / 生命周期 Scope / Compute 客户端 /
+//        同源 classic Worker / 本地 QR 引擎纳入离线外壳，12 工具全部可离线运行
+const CACHE_VERSION = "v14.0.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -71,9 +73,15 @@ const PRECACHE_URLS = [
   "/mc.html",
   "/styles/common.css",
   "/styles/drive.css",
-  "/styles/toolbox.css?v=13.0.1",
+  "/styles/toolbox.css?v=14.0.0",
   "/utils/common.js",
   "/utils/blog-utils.js",
+  "/utils/toolbox-constants.js?v=14.0.0",
+  "/utils/toolbox-pure.js?v=14.0.0",
+  "/utils/toolbox-scope.js?v=14.0.0",
+  "/utils/toolbox-worker.js?v=14.0.0",
+  "/services/toolboxCompute.js?v=14.0.0",
+  "/vendor/qrcode.js?v=14.0.0",
   "/components/ui.js",
   "/vendor/jszip.min.js",
   "/vendor/minisearch.js",
@@ -88,7 +96,7 @@ const PRECACHE_URLS = [
   "/components/global-search.js",
   "/player.html",
   "/tools.html",
-  "/components/toolbox.js?v=13.0.1",
+  "/components/toolbox.js?v=14.0.0",
   "/components/lrc.js",
   "/components/player-engine.js",
   "/components/player-host.js",

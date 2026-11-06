@@ -963,7 +963,7 @@
 
       setBtnLoading(btn, true, "登录中...");
       try {
-        const res = await fetch("/api/login", {
+        const res = await window.BlogApi.raw("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password: pwd })
@@ -1006,7 +1006,7 @@
     async function checkLogin() {
       if (!token) return false;
       try {
-        const res = await fetch("/api/login", {
+        const res = await window.BlogApi.raw("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password: token })
@@ -1114,7 +1114,7 @@
     async function loadSite() {
       const saveBtn = document.getElementById("btn-save-site");
       try {
-        const res = await fetch("/api/site");
+        const res = await window.BlogApi.raw("/api/site");
         if (res.ok && (res.headers.get("content-type") || "").includes("json")) {
           const s = await res.json();
           if (!s || typeof s !== "object") throw new Error("bad payload");
@@ -1185,7 +1185,7 @@
 
     async function refreshGithubCache() {
       try {
-        const res = await fetch("/api/refresh-github", {
+        const res = await window.BlogApi.raw("/api/refresh-github", {
           method: "POST",
           headers: { "Authorization": `Bearer ${token}` }
         });
@@ -1210,7 +1210,7 @@
       const body = document.getElementById("gh-status-body");
       if (!body) return;
       try {
-        const res = await fetch("/api/github-status", {
+        const res = await window.BlogApi.raw("/api/github-status", {
           headers: { "Authorization": `Bearer ${token}` }
         });
         const st = await res.json();
@@ -1275,7 +1275,7 @@
       };
 
       try {
-        const res = await fetch("/api/site", {
+        const res = await window.BlogApi.raw("/api/site", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify(data)
@@ -1308,7 +1308,7 @@
         // public, max-age=120，浏览器 HTTP 缓存 120 秒内直接返回旧列表——
         // 发布/删除成功后界面不刷新，表现为「文章发了不显示、删了还在」。
         // 带 Authorization 后 worker 对该响应显式 no-store，双重保证实时性。
-        const res = await fetch("/api/posts?withSource=1", {
+        const res = await window.BlogApi.raw("/api/posts?withSource=1", {
           headers: { "Authorization": `Bearer ${token}` },
           cache: "no-store",
         });
@@ -1388,7 +1388,7 @@
 
     async function editPost(id) {
       try {
-        const res = await fetch(`/api/post/${id}`);
+        const res = await window.BlogApi.raw(`/api/post/${id}`);
         if (!res.ok) { showAlert("admin-alert", "文章加载失败", "error"); return; }
         const post = await res.json();
         if (!post || !post.id) { showAlert("admin-alert", "文章不存在", "error"); return; }
@@ -1416,7 +1416,7 @@
       isPublishing = true;
       setBtnLoading(btn, true, "正在发布…");
       try {
-        const res = await fetch("/api/posts", {
+        const res = await window.BlogApi.raw("/api/posts", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ id: editingPostId, title, content, date, desc })
@@ -1451,7 +1451,7 @@
       deletingPostIds.add(id);
       setBtnLoading(btn, true, "删除中…");
       try {
-        const res = await fetch(`/api/post/delete/${id}`, {
+        const res = await window.BlogApi.raw(`/api/post/delete/${id}`, {
           method: "POST",
           headers: { "Authorization": `Bearer ${token}` }
         });
@@ -1478,7 +1478,7 @@
 
     async function loadTimeline() {
       try {
-        const res = await fetch("/api/timeline?withSource=1");
+        const res = await window.BlogApi.raw("/api/timeline?withSource=1");
         if (res.headers.get("content-type")?.includes("json")) {
           const data = await res.json();
           const items = Array.isArray(data) ? data : (data.timeline || []);
@@ -1543,7 +1543,7 @@
 
     async function editTimeline(id) {
       try {
-        const res = await fetch("/api/timeline");
+        const res = await window.BlogApi.raw("/api/timeline");
         const items = await res.json();
         const item = items.find(t => t.id === id);
         if (item) openTimelineModal(item);
@@ -1561,7 +1561,7 @@
       }
 
       try {
-        const res = await fetch("/api/timeline", {
+        const res = await window.BlogApi.raw("/api/timeline", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
           body: JSON.stringify({ id: editingTimelineId, title, date, desc })
@@ -1582,7 +1582,7 @@
     async function deleteTimeline(id) {
       if (!(await confirmDialog({ title: "🗑️ 删除记录", message: "确定要删除这条记录吗？", confirmText: "删除", danger: true }))) return;
       try {
-        const res = await fetch(`/api/timeline/delete/${id}`, {
+        const res = await window.BlogApi.raw(`/api/timeline/delete/${id}`, {
           method: "POST",
           headers: { "Authorization": `Bearer ${token}` }
         });
@@ -1601,7 +1601,7 @@
     // ========== 留言管理 ==========
     async function loadMessages() {
       try {
-        const res = await fetch("/api/messages");
+        const res = await window.BlogApi.raw("/api/messages");
         if (res.headers.get("content-type")?.includes("json")) {
           const msgs = await res.json();
           renderMessages(msgs);
@@ -1641,7 +1641,7 @@
     async function deleteMsg(id) {
       if (!(await confirmDialog({ title: "🗑️ 删除留言", message: "确定要删除这条留言吗？", confirmText: "删除", danger: true }))) return;
       try {
-        const res = await fetch(`/api/message/delete/${id}`, {
+        const res = await window.BlogApi.raw(`/api/message/delete/${id}`, {
           method: "POST",
           headers: { "Authorization": `Bearer ${token}` }
         });
@@ -1661,7 +1661,7 @@
     async function loadComments() {
       try {
         // 先获取所有文章
-        const postsRes = await fetch("/api/posts");
+        const postsRes = await window.BlogApi.raw("/api/posts");
         if (!postsRes.headers.get("content-type")?.includes("json")) {
           renderComments([]);
           return;
@@ -1674,7 +1674,7 @@
 
         // 并行获取每篇文章的评论
         const commentPromises = posts.map(post =>
-          fetch(`/api/comments/${post.id}`)
+          window.BlogApi.raw(`/api/comments/${post.id}`)
             .then(res => {
               if (res.headers.get("content-type")?.includes("json")) {
                 return res.json().then(comments => ({ post, comments }));
@@ -1744,7 +1744,7 @@
     async function deleteComment(postId, commentId) {
       if (!(await confirmDialog({ title: "🗑️ 删除评论", message: "确定要删除这条评论吗？", confirmText: "删除", danger: true }))) return;
       try {
-        const res = await fetch(`/api/comment/delete/${postId}/${commentId}`, {
+        const res = await window.BlogApi.raw(`/api/comment/delete/${postId}/${commentId}`, {
           method: "POST",
           headers: { "Authorization": `Bearer ${token}` }
         });
@@ -1765,7 +1765,7 @@
 
     async function loadMusic() {
       try {
-        const res = await fetch("/api/music?withSource=1");
+        const res = await window.BlogApi.raw("/api/music?withSource=1");
         if (res.headers.get("content-type")?.includes("json")) {
           const data = await res.json();
           const music = Array.isArray(data) ? data : (data.music || []);
@@ -1842,7 +1842,7 @@
       if (editingMusicId) data.id = editingMusicId;
 
       try {
-        const res = await fetch("/api/music", {
+        const res = await window.BlogApi.raw("/api/music", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
           body: JSON.stringify(data)
@@ -1860,7 +1860,7 @@
 
     async function editMusic(id) {
       try {
-        const res = await fetch("/api/music");
+        const res = await window.BlogApi.raw("/api/music");
         if (res.headers.get("content-type")?.includes("json")) {
           const list = await res.json();
           const song = list.find(m => m.id === id);
@@ -1872,7 +1872,7 @@
     async function deleteMusic(id) {
       if (!(await confirmDialog({ title: "🗑️ 删除歌曲", message: "确定要删除这首歌曲吗？", confirmText: "删除", danger: true }))) return;
       try {
-        const res = await fetch(`/api/music/delete/${id}`, {
+        const res = await window.BlogApi.raw(`/api/music/delete/${id}`, {
           method: "POST",
           headers: { "Authorization": "Bearer " + token }
         });
@@ -1893,7 +1893,7 @@
 
     async function loadLinks() {
       try {
-        const res = await fetch("/api/links");
+        const res = await window.BlogApi.raw("/api/links");
         if (!res.headers.get("content-type")?.includes("json")) return;
         renderLinks(await res.json());
       } catch(e) {}
@@ -1958,7 +1958,7 @@
       if (icon && !/^https?:\/\//i.test(icon)) { showAlert("admin-alert", "头像链接必须是 http/https 开头", "warning"); return; }
 
       try {
-        const res = await fetch("/api/links", {
+        const res = await window.BlogApi.raw("/api/links", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
           body: JSON.stringify({ id: editingLinkId, name, url, desc, icon, order: isNaN(order) ? 0 : order })
@@ -1979,7 +1979,7 @@
     async function deleteLink(id) {
       if (!(await confirmDialog({ title: "🗑️ 删除友链", message: "确定要删除这个友链吗？", confirmText: "删除", danger: true }))) return;
       try {
-        const res = await fetch(`/api/link/delete/${id}`, {
+        const res = await window.BlogApi.raw(`/api/link/delete/${id}`, {
           method: "POST",
           headers: { "Authorization": "Bearer " + token }
         });
@@ -2007,7 +2007,7 @@
     async function loadGames() {
       let data = {};
       try {
-        const res = await fetch("/api/game/scores");
+        const res = await window.BlogApi.raw("/api/game/scores");
         if (res.headers.get("content-type")?.includes("json")) data = await res.json();
       } catch(e) {}
       renderGames(data);
@@ -2043,7 +2043,7 @@
         confirmText: "全部清空", danger: true,
       }))) return;
       try {
-        const res = await fetch(`/api/game/scores/${gameId}`, {
+        const res = await window.BlogApi.raw(`/api/game/scores/${gameId}`, {
           method: "POST",
           headers: { "Authorization": "Bearer " + token }
         });
@@ -2064,7 +2064,7 @@
       const status = document.getElementById("backup-status");
       status.textContent = "正在生成备份文件...";
       try {
-        const res = await fetch("/api/backup/export", {
+        const res = await window.BlogApi.raw("/api/backup/export", {
           headers: { "Authorization": "Bearer " + token }
         });
         if (!res.ok) {
@@ -2121,7 +2121,7 @@
           return;
         }
         status.textContent = "正在导入...";
-        const res = await fetch("/api/backup/import", {
+        const res = await window.BlogApi.raw("/api/backup/import", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
           body: JSON.stringify(payload)

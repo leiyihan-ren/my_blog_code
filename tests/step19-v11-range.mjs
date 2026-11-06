@@ -120,7 +120,7 @@ const B_SHA = sha256(B_FULL);
 const TOTAL = B_FULL.length;
 const MIME = { ".js": "text/javascript", ".html": "text/html" };
 const TEST_HTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>range e2e</title></head>
-<body><script src="/services/rangeDownloader.js"></script></body></html>`;
+<body><script src="/utils/blog-utils.js"></script><script src="/services/request.js"></script><script src="/services/rangeDownloader.js"></script></body></html>`;
 
 let mode = "range";            // range | cached | plain | flaky
 let hits = [];                 // 每个 Range 请求记录
@@ -135,6 +135,12 @@ const server = http.createServer(async (req, res) => {
   if (p === "/sw.js") { res.writeHead(404); return res.end("no sw"); }
   if (p === "/services/rangeDownloader.js") {
     const f = path.join(ROOT, "services", "rangeDownloader.js");
+    res.writeHead(200, { "Content-Type": "text/javascript" }); return res.end(fs.readFileSync(f));
+  }
+  // v14.0：rangeDownloader.js 走 BlogApi.raw 统一出口，fixture 需同步提供
+  // blog-utils.js（request.js 顶层解构 BlogUtils）与 request.js，顺序同生产页
+  if (p === "/services/request.js" || p === "/utils/blog-utils.js") {
+    const f = path.join(ROOT, p.replace(/^\//, ""));
     res.writeHead(200, { "Content-Type": "text/javascript" }); return res.end(fs.readFileSync(f));
   }
   if (p.startsWith("/file-") && p.endsWith(".bin")) {

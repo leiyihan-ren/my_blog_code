@@ -528,7 +528,7 @@ var bootMusicPlayer = function() {
     }
     var u = song.lrcUrl;
     if (typeof u === "string" && /^\/(?!\/)/.test(u)) {
-      fetch(u).then(function (r) { return r.ok ? r.text() : ""; })
+      window.BlogApi.raw(u).then(function (r) { return r.ok ? r.text() : ""; })
         .then(function (t) { lrcLines = lrcParser().parse(t); })
         .catch(function () { /* 歌词是增强项，失败只显示歌名 */ });
     }
@@ -895,7 +895,7 @@ var bootMusicPlayer = function() {
       };
       if (sameOrigin) {
         if (currentObjectUrl) { URL.revokeObjectURL(currentObjectUrl); currentObjectUrl = null; }
-        fetch(song.url)
+        window.BlogApi.raw(song.url)
           .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.blob(); })
           .then((blob) => {
             if (myToken !== loadToken) return;
@@ -1394,7 +1394,7 @@ var bootMusicPlayer = function() {
   /** 拉取歌单（/api/music）并做 URL 三重校验，过滤坏链 */
   async function loadMusic() {
     try {
-      const res = await fetch("/api/music");
+      const res = await window.BlogApi.raw("/api/music");
       if (!res.ok) {
         $("mpArtist").textContent = "音乐列表加载失败";
         renderPlaylist();
