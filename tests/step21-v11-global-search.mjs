@@ -32,6 +32,8 @@ const DATA = {
 };
 const TEST_HTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
 <title>search e2e</title></head><body>
+<script src="/utils/blog-utils.js"></script>
+<script src="/services/request.js"></script>
 <script src="/utils/common.js"></script>
 </body></html>`;
 

@@ -65,7 +65,7 @@ window.RangeDownloader = (function () {
 
   /** 普通全量下载：与 v8.3 起的 fetch→Blob 路径逐字节一致（零额外头） */
   function plainFetch(url, pin) {
-    return fetch(url, { headers: { "x-drive-pin": pin || "" } }).then(function (r) {
+    return window.BlogApi.raw(url, { headers: { "x-drive-pin": pin || "" } }).then(function (r) {
       if (!r.ok) {
         var e = new Error("下载失败（HTTP " + r.status + "）");
         e.status = r.status;
@@ -111,7 +111,7 @@ window.RangeDownloader = (function () {
     var attempt = 0;
     function fire() {
       return withSlot(function () {
-        return fetch(url, { headers: rangeHeaders(pin, "bytes=" + start + "-" + end) });
+        return window.BlogApi.raw(url, { headers: rangeHeaders(pin, "bytes=" + start + "-" + end) });
       }).then(function (r) {
         if (r.status !== 206) {
           var e = new Error("Range 子块 " + (idx + 1) + " 返回 HTTP " + r.status);
@@ -143,7 +143,7 @@ window.RangeDownloader = (function () {
 
     // 首块即探测：一次请求兼顾「探测 Range 能力」与「取第 0 块」
     return withSlot(function () {
-      return fetch(url, { headers: rangeHeaders(pin, "bytes=0-" + (BLOCK - 1)) });
+      return window.BlogApi.raw(url, { headers: rangeHeaders(pin, "bytes=0-" + (BLOCK - 1)) });
     }).then(function (r) {
       if (r.status !== 206) {
         // 上游忽略 Range（老 Worker / 测试 mock / CDN 不支持）：

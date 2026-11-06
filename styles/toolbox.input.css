@@ -23,6 +23,12 @@ body.tb-body {
   --tb-dim: #64748b;
   --tb-amber: #fbbf24;
   --tb-red: #ff5c57;
+  --tb-input-bg: #070d16;
+  --tb-input-border: #2a3d57;
+  --tb-input-text: #d7e3f4;
+  --tb-dot: #334a66;
+  --tb-radius: 12px;
+  --tb-radius-sm: 6px;
   --ease: cubic-bezier(.4, 0, .2, 1);
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", "Courier New", monospace;
@@ -98,7 +104,7 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 
 /* ---------- HERO ---------- */
 .tb-hero {
-  border: 1px solid var(--tb-border); border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--tb-border); border-radius: var(--tb-radius); overflow: hidden;
   background: rgba(9, 16, 27, .88); box-shadow: 0 16px 50px rgba(0, 0, 0, .45);
   position: relative;
 }
@@ -168,7 +174,7 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 }
 .tb-card-head:hover { background: #142138; }
 .tb-card-head:focus-visible { outline: 2px solid var(--tb-green); outline-offset: -2px; }
-.tb-card-dots i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #334a66; margin-right: 3px; }
+.tb-card-dots i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--tb-dot); margin-right: 3px; }
 .tb-card-idx { color: var(--tb-cyan); font-size: 11px; letter-spacing: .08em; }
 .tb-card-title {
   flex: 1; font-weight: 600; letter-spacing: .02em; min-width: 0;
@@ -201,8 +207,8 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 }
 .tb-dim { color: var(--tb-dim); }
 .tb-textarea, .tb-input, .tb-select {
-  width: 100%; background: #070d16; border: 1px solid var(--tb-border-2);
-  border-radius: 6px; color: #d7e3f4; font-family: inherit; font-size: 12.5px;
+  width: 100%; background: var(--tb-input-bg); border: 1px solid var(--tb-border-2);
+  border-radius: var(--tb-radius-sm); color: var(--tb-input-text); font-family: inherit; font-size: 12.5px;
   line-height: 1.65; padding: 9px 11px; outline: none;
   transition: border-color .2s var(--ease), box-shadow .2s var(--ease);
 }
@@ -212,11 +218,11 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 .tb-textarea { resize: vertical; min-height: 64px; }
 .tb-textarea-out { background: #0a1420; color: var(--tb-green-soft); }
 .tb-select { appearance: auto; cursor: pointer; }
-.tb-select option { background: var(--tb-panel-2); color: #d7e3f4; }
+.tb-select option { background: var(--tb-panel-2); color: var(--tb-input-text); }
 .tb-input-sm { width: 76px; text-align: center; }
 .tb-range { accent-color: var(--tb-green); height: 5px; cursor: pointer; background: transparent; }
 .tb-output {
-  background: #070d16; border: 1px solid var(--tb-border-2); border-radius: 6px;
+  background: var(--tb-input-bg); border: 1px solid var(--tb-border-2); border-radius: var(--tb-radius-sm);
   padding: 11px 12px; font-size: 12px; line-height: 1.7; color: var(--tb-blue);
   overflow: auto; max-height: 260px; white-space: pre-wrap; word-break: break-word;
   min-height: 76px; margin: 0;
@@ -224,7 +230,7 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 .tb-output-code { min-height: 150px; max-height: 280px; white-space: pre; }
 .tb-btn-row { gap: 8px; }
 .tb-btn {
-  padding: 7px 13px; border: 1px solid #2a3d57; border-radius: 6px;
+  padding: 7px 13px; border: 1px solid var(--tb-input-border); border-radius: var(--tb-radius-sm);
   background: #101c2e; color: #b9cbe3; font-family: inherit; font-size: 12.5px;
   cursor: pointer; transition: all .18s var(--ease);
 }
@@ -233,7 +239,7 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 .tb-btn-primary { background: rgba(57, 255, 20, .1); border-color: rgba(57, 255, 20, .5); color: #7dff62; }
 .tb-btn-primary:hover { background: rgba(57, 255, 20, .2); }
 .tb-mini {
-  padding: 4px 9px; border: 1px solid #2a3d57; border-radius: 4px;
+  padding: 4px 9px; border: 1px solid var(--tb-input-border); border-radius: 4px;
   background: #101c2e; color: var(--tb-cyan); font-family: inherit;
   font-size: 11px; cursor: pointer; transition: all .18s var(--ease);
 }
@@ -257,8 +263,8 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 
 /* ---------- 03 时间戳 ---------- */
 .tb-now-cell {
-  background: #070d16; border: 1px solid var(--tb-border);
-  border-radius: 6px; padding: 9px 11px; min-width: 0;
+  background: var(--tb-input-bg); border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius-sm); padding: 9px 11px; min-width: 0;
 }
 .tb-now-cell span { display: block; font-size: 10.5px; letter-spacing: .08em; }
 .tb-now-cell code { display: block; margin-top: 4px; color: var(--tb-green); font-size: 14px; word-break: break-all; }
@@ -267,7 +273,7 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 .tb-check-grid { margin-bottom: 12px; }
 .tb-check {
   display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-  background: #070d16; border: 1px solid var(--tb-border); border-radius: 6px;
+  background: var(--tb-input-bg); border: 1px solid var(--tb-border); border-radius: var(--tb-radius-sm);
   font-size: 12px; color: #b9cbe3; cursor: pointer; min-width: 0;
 }
 .tb-check:hover { border-color: var(--tb-border-2); }
@@ -295,10 +301,10 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 .tb-preset-row { margin-top: 8px; }
 .tb-probe-result {
   display: flex; align-items: center; gap: 14px; margin: 14px 0;
-  padding: 13px; background: #070d16; border: 1px solid var(--tb-border-2); border-radius: 8px;
+  padding: 13px; background: var(--tb-input-bg); border: 1px solid var(--tb-border-2); border-radius: 8px;
 }
 .tb-code-badge {
-  flex: 0 0 auto; width: 86px; height: 86px; border-radius: 12px;
+  flex: 0 0 auto; width: 86px; height: 86px; border-radius: var(--tb-radius);
   display: flex; align-items: center; justify-content: center;
   font-size: 26px; font-weight: 700; border: 2px solid currentColor;
   background: rgba(100, 116, 139, .07); letter-spacing: -.02em;
@@ -308,11 +314,11 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 .tb-code-badge.tb-warn { color: var(--tb-amber); background: rgba(251, 191, 36, .08); }
 .tb-code-badge.tb-bad { color: var(--tb-red); background: rgba(255, 92, 87, .08); }
 .tb-code-badge.tb-dim { color: var(--tb-dim); }
-.tb-probe-desc { color: #d7e3f4; font-size: 13px; margin-bottom: 6px; word-break: break-word; }
+.tb-probe-desc { color: var(--tb-input-text); font-size: 13px; margin-bottom: 6px; word-break: break-word; }
 .tb-probe-stats { color: var(--tb-dim); font-size: 11.5px; }
 .tb-probe-stats b { color: var(--tb-cyan); font-weight: 500; }
 .tb-probe-url { color: var(--tb-dim); font-size: 10.5px; margin-top: 6px; word-break: break-all; }
-.tb-table-wrap { max-height: 170px; overflow: auto; border: 1px solid var(--tb-border-2); border-radius: 6px; }
+.tb-table-wrap { max-height: 170px; overflow: auto; border: 1px solid var(--tb-border-2); border-radius: var(--tb-radius-sm); }
 .tb-table { width: 100%; border-collapse: collapse; font-size: 11px; }
 .tb-table td { padding: 6px 10px; border-bottom: 1px solid #16243a; vertical-align: top; }
 .tb-table tr:last-child td { border-bottom: none; }
@@ -328,11 +334,11 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 .tb-ip-hero code { display: block; font-size: 25px; color: var(--tb-green); margin: 6px 0 2px; word-break: break-all; }
 .tb-ip-loc { color: var(--tb-blue); font-size: 13px; }
 .tb-kv {
-  background: #070d16; border: 1px solid var(--tb-border);
-  border-radius: 6px; padding: 9px 11px; min-width: 0;
+  background: var(--tb-input-bg); border: 1px solid var(--tb-border);
+  border-radius: var(--tb-radius-sm); padding: 9px 11px; min-width: 0;
 }
 .tb-kv span { display: block; color: var(--tb-dim); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
-.tb-kv b { display: block; color: #d7e3f4; font-size: 12.5px; font-weight: 500; word-break: break-all; margin-top: 3px; }
+.tb-kv b { display: block; color: var(--tb-input-text); font-size: 12.5px; font-weight: 500; word-break: break-all; margin-top: 3px; }
 
 /* ---------- 页脚 ---------- */
 .tb-footer {
@@ -363,6 +369,156 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
 @media (prefers-reduced-motion: reduce) {
   .tb-cursor, .tb-hero-live i { animation: none; }
   .tb-card-body, .tb-bar-fill, .tb-chevron { transition: none; }
+}
+
+/* ============================================================
+ * v14.0 —— Tab 分类 / 5 个进阶工具 / 生命周期友好布局
+ * 全部沿用 body.tb-body 上的 CSS 变量令牌，零新增魔法色值。
+ * ============================================================ */
+
+/* hidden 属性优先级兜底：Tab 面板显隐必须绝对可靠 */
+[hidden] { display: none !important; }
+
+/* ---------- Tab 导航 ---------- */
+.tb-tabs {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 22px 0 18px; padding: 6px;
+  background: var(--tb-panel); border: 1px solid var(--tb-border);
+  border-radius: 10px;
+}
+.tb-tab {
+  display: inline-flex; align-items: center; gap: 9px;
+  padding: 9px 15px; border: 1px solid transparent; border-radius: 7px;
+  background: transparent; color: var(--tb-text-2); font-family: inherit;
+  font-size: 13px; letter-spacing: .04em; cursor: pointer;
+  transition: all .2s var(--ease); min-width: 0;
+}
+.tb-tab:hover { color: var(--tb-text); background: #142138; }
+.tb-tab:focus-visible { outline: 2px solid var(--tb-green); outline-offset: 1px; }
+.tb-tab.is-active {
+  color: var(--tb-green); background: rgba(57, 255, 20, .09);
+  border-color: rgba(57, 255, 20, .38);
+}
+.tb-tab-idx {
+  display: inline-grid; place-items: center; width: 20px; height: 20px;
+  border-radius: 5px; background: #1b2a3d; color: var(--tb-cyan);
+  font-size: 11px; flex: 0 0 auto;
+}
+.tb-tab.is-active .tb-tab-idx { background: rgba(57, 255, 20, .18); color: var(--tb-green); }
+.tb-tab-name { white-space: nowrap; }
+.tb-tab-count {
+  font-size: 10.5px; color: var(--tb-dim); border-left: 1px solid var(--tb-border-2);
+  padding-left: 9px; letter-spacing: .08em;
+}
+.tb-tab-meta {
+  margin-left: auto; color: var(--tb-dim); font-size: 10px;
+  letter-spacing: .1em; padding-right: 8px;
+}
+.tb-panel { min-width: 0; }
+.tb-tag-worker { color: var(--tb-cyan); background: rgba(34, 211, 238, .08); }
+.tb-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tb-num { color: var(--tb-green); font-size: 11px; }
+.tb-tok-err { color: var(--tb-red); }
+
+/* ---------- 08 正则 ---------- */
+.tb-rx-pattern-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.tb-rx-pattern-field { flex: 1 1 260px; }
+.tb-rx-flags-field { flex: 0 1 auto; }
+.tb-rx-flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb-rx-flags .tb-check { padding: 4px 9px; margin: 0; font-size: 11px; }
+.tb-rx-output { min-height: 84px; max-height: 200px; white-space: pre-wrap; word-break: break-word; }
+.tb-rx-match { background: rgba(57, 255, 20, .16); color: #d6ffc9; border-radius: 2px; }
+.tb-rx-group { border-radius: 2px; padding: 0 1px; font-weight: 600; }
+.tb-rx-group-1 { background: rgba(165, 214, 255, .26); color: #cfe8ff; }
+.tb-rx-group-2 { background: rgba(251, 191, 36, .26); color: #ffe6a8; }
+.tb-rx-group-3 { background: rgba(210, 168, 255, .26); color: #e9d3ff; }
+.tb-rx-group-4 { background: rgba(34, 211, 238, .26); color: #bff3ff; }
+.tb-rx-group-5 { background: rgba(255, 92, 87, .26); color: #ffc4c1; }
+.tb-rx-cols { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 12px; }
+@media (min-width: 768px) { .tb-rx-cols { grid-template-columns: 1fr 1fr; } }
+.tb-rx-subhead { color: var(--tb-dim); font-size: 10px; letter-spacing: .1em; margin-bottom: 6px; }
+.tb-rx-list {
+  background: var(--tb-input-bg); border: 1px solid var(--tb-border); border-radius: var(--tb-radius-sm);
+  padding: 8px 10px; min-height: 44px; max-height: 150px; overflow: auto;
+}
+.tb-rx-item, .tb-rx-grow { display: flex; align-items: baseline; gap: 9px; padding: 2px 0; min-width: 0; }
+.tb-rx-item code, .tb-rx-grow code { color: var(--tb-green-soft); font-size: 11.5px; word-break: break-all; }
+.tb-rx-no { color: var(--tb-dim); font-size: 10.5px; flex: 0 0 auto; }
+
+/* ---------- 09 二维码 ---------- */
+.tb-qr-stage {
+  display: flex; justify-content: center; align-items: center;
+  padding: 14px; background: var(--tb-input-bg); border: 1px solid var(--tb-border-2);
+  border-radius: 8px; margin-bottom: 8px; min-height: 120px;
+}
+.tb-qr-canvas { max-width: 100%; height: auto; image-rendering: pixelated; background: #fff; border-radius: 4px; }
+.tb-qr-meta { text-align: center; font-size: 11px; margin-bottom: 4px; }
+
+/* ---------- 10 图片 → Base64 ---------- */
+.tb-drop {
+  position: relative; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 4px; padding: 20px 12px; cursor: pointer;
+  border: 1.5px dashed var(--tb-border-2); border-radius: 9px;
+  background: rgba(34, 211, 238, .025); text-align: center;
+  transition: all .2s var(--ease); margin-bottom: 12px;
+}
+.tb-drop:hover, .tb-drop.is-drag { border-color: var(--tb-green); background: rgba(57, 255, 20, .06); }
+.tb-drop:focus-visible { outline: 2px solid var(--tb-green); outline-offset: 2px; }
+.tb-drop-icon { font-size: 26px; color: var(--tb-cyan); line-height: 1; }
+.tb-drop-main { color: var(--tb-text); font-size: 12.5px; }
+.tb-drop-sub { color: var(--tb-dim); font-size: 10.5px; }
+.tb-drop-input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.tb-img-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; font-size: 11px; min-width: 0; }
+.tb-img-preview-wrap { margin-top: 10px; text-align: center; }
+.tb-img-preview { max-width: 100%; height: auto; border: 1px solid var(--tb-border-2); border-radius: var(--tb-radius-sm); }
+.tb-color {
+  width: 100%; height: 38px; padding: 2px; background: var(--tb-input-bg);
+  border: 1px solid var(--tb-border-2); border-radius: var(--tb-radius-sm); cursor: pointer;
+}
+.tb-color::-webkit-color-swatch-wrapper { padding: 0; }
+.tb-color::-webkit-color-swatch { border: none; border-radius: 4px; }
+
+/* ---------- 11 Diff ---------- */
+.tb-diff-bar { margin: 10px 0; font-size: 11px; }
+.tb-diff-output { font-family: inherit; font-size: 11.5px; line-height: 1.65; padding: 6px 0; max-height: 300px; white-space: pre; }
+.tb-diff-line { display: flex; min-width: 0; padding: 0 10px; }
+.tb-diff-gutter {
+  flex: 0 0 62px; color: var(--tb-dim); font-size: 10.5px; text-align: right;
+  padding-right: 10px; border-right: 1px solid var(--tb-border); user-select: none;
+}
+.tb-diff-text { padding-left: 10px; white-space: pre; min-width: 0; }
+.tb-diff-add { background: rgba(74, 222, 128, .1); color: #a7f3b0; }
+.tb-diff-del { background: rgba(255, 92, 87, .1); color: #ffb4b0; }
+.tb-diff-eq { color: var(--tb-text-2); }
+
+/* ---------- 12 颜色 / 渐变 ---------- */
+.tb-grad-preview {
+  height: 96px; border-radius: 9px; border: 1px solid var(--tb-border-2);
+  margin-bottom: 14px; transition: background .25s var(--ease);
+}
+.tb-grad-controls { display: grid; grid-template-columns: 1fr; gap: 0 14px; margin-bottom: 12px; }
+@media (min-width: 640px) { .tb-grad-controls { grid-template-columns: 1fr 1fr; } }
+.tb-palette { display: flex; flex-wrap: wrap; gap: 6px; }
+.tb-swatch {
+  display: inline-flex; align-items: flex-end; justify-content: center;
+  width: 58px; height: 40px; border-radius: 5px;
+  border: 1px solid var(--tb-border-2); overflow: hidden; flex: 0 0 auto;
+}
+.tb-swatch code { font-size: 8.5px; color: #fff; background: rgba(0, 0, 0, .55); width: 100%; text-align: center; line-height: 1.5; }
+
+/* ---------- 移动端收敛（375 / 360 / 320px 零横向溢出） ---------- */
+@media (max-width: 640px) {
+  .tb-tabs { gap: 5px; padding: 5px; }
+  .tb-tab { padding: 8px 10px; gap: 6px; font-size: 12px; }
+  .tb-tab-count { padding-left: 6px; }
+  .tb-tab-meta { flex: 1 0 100%; margin: 2px 0 0; padding: 0 4px 2px; text-align: center; }
+  .tb-rx-pattern-row { flex-direction: column; gap: 0; }
+  .tb-rx-flags-field { margin-bottom: 12px; }
+  .tb-diff-gutter { flex-basis: 46px; padding-right: 6px; }
+  .tb-swatch { width: 46px; height: 34px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tb-tab, .tb-drop, .tb-grad-preview { transition: none; }
 }
 
 /* Tailwind utilities 最后注入：响应式布局类优先级最高，且不生成 preflight */

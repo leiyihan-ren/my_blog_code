@@ -478,6 +478,7 @@ body { background: var(--mc-bg, #1b1b1f); margin: 0; }
 <!-- BlogUtils.toast() 需要一个 #toast 容器，缺失时 toast 会静默失效 -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="/services/request.js" defer></script>
 <script src="/utils/blog-utils.js" defer></script>
 <script src="/utils/common.js" defer></script>
 <script defer>
@@ -488,8 +489,8 @@ body { background: var(--mc-bg, #1b1b1f); margin: 0; }
    并在 renderAll() 里把拉取结果回填即可，渲染与交互代码无需改动：
        const data = await BlogApi.get("/api/mc/status");   // ← 真实数据源接入点
        renderAll(data);
-   注意：本页刻意不引入 services/request.js —— 它没有数据请求，
-   不必为用不上的网络层多花一个请求（新建页面不得拖慢既有首屏）。
+   v14.0：全站网络请求统一收敛到 BlogApi 唯一出口。本页 mcsrvstat
+   跨域查询经 BlogApi.raw() 协议级透明直传（语义与原生 fetch 等价）。
    ========================================================================== */
 
 /* ---------- v9.0 真实数据源 ------------------------------------------
@@ -515,7 +516,11 @@ function statusUrl(addr, port) {
  * 任何异常都降级为 offline 视图——面板绝不因接口抖动而白屏。
  */
 function fetchServerStatus() {
-  return fetch(statusUrl(SERVER_ADDR, SERVER_PORT), { cache: "no-store" })
+  // v14.0：此处是唯一的跨域第三方公开 API（api.mcsrvstat.us，
+  // CSP connect-src 显式放行），经 BlogApi.raw() 协议级透明直传，
+  // 保持原生 fetch 的 cache / Response 语义不变；至此全站网络请求
+  // 100% 收敛到 BlogApi 唯一出口，不留任何裸 fetch 例外。
+  return window.BlogApi.raw(statusUrl(SERVER_ADDR, SERVER_PORT), { cache: "no-store" })
     .then(function (r) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       return r.json();

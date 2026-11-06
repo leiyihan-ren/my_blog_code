@@ -1,62 +1,149 @@
 /* ============================================================
- * toolbox.js —— 极客工具箱（v13.0）7 个工具的浏览器端实现
+ * toolbox.js —— 极客工具箱 v14.0 · UI 薄层控制器
  * ------------------------------------------------------------
- * 分层纪律：
- *   · 前 5 个工具是「前端极速版」：纯浏览器计算，绝不发起任何网络请求。
- *     全部边输入边出结果（BlogUtils.debounce 160ms 防抖）。
- *   · 后 2 个工具是「后端增强版」：一律走 window.BlogApi.get()，
- *     复用其超时熔断 / 指数退避 / 并发去重，绝不裸 fetch。
- *   · 所有用户输入渲染前一律 textContent 或 HTML 转义，杜绝 XSS。
- *   · 无内联脚本、无第三方 CDN、无 eval：严格 CSP 下同源外链即可运行。
+ * 架构纪律（模块一）：
+ *   1) 纯函数彻底抽离：所有算法在 utils/toolbox-pure.js；本文件只做
+ *      「读 DOM → 调 ToolboxPure / ToolboxCompute → 写 DOM」，不含任何
+ *      正则解析 / Base64 / MD5 / Diff / 颜色换算的实现。
+ *   2) 重计算异步化：正则 / Diff / 图片压缩经 ToolboxCompute 派发到
+ *      utils/toolbox-worker.js，带超时熔断与主线程自动降级。
+ *   3) 请求层净化：后端工具一律 window.BlogApi.get()，绝不裸 fetch。
+ *   4) 魔法数字清零：防抖 / 超时 / 时钟 / 尺寸 / 熵阈值全部读
+ *      ToolboxConstants，本文件不出现裸阈值字面量。
+ *   5) 内存泄漏治理：所有 addEventListener / setInterval / setTimeout /
+ *      Worker 调用经 ToolboxScope 登记；Tab 切换销毁在途作用域，
+ *      pagehide 销毁根作用域并 terminate Worker。
+ *
+ * Tab 策略（模块二）：
+ *   默认 Tab A【常规工具】= 7 张卡（与 v13.0 完全兼容，step26 零改动）；
+ *   Tab B【进阶工具】的 5 张卡放在 inert <template>，首次激活才克隆挂载，
+ *   因此默认视图的 DOM 卡片数恒为 7。两个 Tab 共用折叠 / 复制事件委托。
+ *
+ * 严格 CSP：无内联脚本、无 eval、无第三方运行时；用户输入一律
+ * textContent 或经 ToolboxPure.escapeHtml 转义后再拼 HTML。
  * ============================================================ */
 (function () {
   "use strict";
 
-  var $ = function (id) { return document.getElementById(id); };
-  var debounce = window.BlogUtils.debounce;
+  var C = window.ToolboxConstants;
+  var P = window.ToolboxPure;
+  var S = window.ToolboxScope;
+  var Compute = window.ToolboxCompute;
   var toast = window.UI.toast;
   var copyText = window.UI.copyText;
-  var DEBOUNCE_MS = 160;
-  var pad2 = function (n) { return String(n).padStart(2, "0"); };
 
+  /** @param {string} id 元素 id @returns {HTMLElement|null} */
+  function $(id) { return document.getElementById(id); }
+  /** 安全写入文本（绝不 innerHTML 用户输入） */
   function text(el, v) { if (el) el.textContent = v == null ? "" : String(v); }
-  function fmtLocal(d) {
-    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " +
-      pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
-  }
-  function fmtUtc(d) {
-    return d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" + pad2(d.getUTCDate()) + " " +
-      pad2(d.getUTCHours()) + ":" + pad2(d.getUTCMinutes()) + ":" + pad2(d.getUTCSeconds()) + " UTC";
+  function noop() {}
+
+  /**
+   * 统一状态行渲染（状态前缀取自常量，杜绝散落字面量）。
+   * @param {string} id 状态元素 id
+   * @param {boolean} ok 是否成功
+   * @param {string} msg 说明
+   * @param {"OK"|"VALID"} [okWord] 成功前缀类型
+   * @returns {void}
+   */
+  function setStatus(id, ok, msg, okWord) {
+    var el = $(id);
+    if (!el) return;
+    el.className = "tb-status " + (ok ? "tb-status-ok" : "tb-status-bad");
+    text(el, (ok ? (okWord === "VALID" ? C.STATUS_VALID : C.STATUS_OK) : C.STATUS_ERROR) + msg);
   }
 
-  /* ---------- 通用：一键复制（事件委托，data-copy 指向目标元素 id） ---------- */
-  document.addEventListener("click", async function (e) {
-    var btn = e.target && e.target.closest ? e.target.closest("[data-copy]") : null;
-    if (!btn) return;
-    var src = $(btn.getAttribute("data-copy"));
-    if (!src) return;
-    var value = ("value" in src) ? src.value : src.textContent;
-    if (!value) { toast("没有可复制的内容", "warn"); return; }
-    var ok = await copyText(value);
-    toast(ok ? "已复制到剪贴板" : "复制失败，请手动选中", ok ? "success" : "error");
-    if (ok && !btn.dataset.copyBusy) {
-      btn.dataset.copyBusy = "1";
-      var old = btn.textContent;
-      btn.textContent = "✓ 已复制";
-      setTimeout(function () { btn.textContent = old; delete btn.dataset.copyBusy; }, 1200);
-    }
-  });
+  /**
+   * 带作用域的防抖：定时器登记进 Scope，dispose 时立即 clearTimeout。
+   * 相比 BlogUtils.debounce，额外保证「工具切走后不再有悬挂回调」。
+   * @param {Object} scope 生命周期作用域
+   * @param {function():void} fn 目标函数
+   * @param {number} ms 防抖时长
+   * @returns {function():void} 防抖包装
+   */
+  function scopedDebounce(scope, fn, ms) {
+    var timer = null;
+    var wrapped = function () {
+      var args = arguments, self = this;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () {
+        timer = null;
+        if (!scope.disposed()) fn.apply(self, args);
+      }, ms);
+    };
+    scope.add(function () { if (timer) { clearTimeout(timer); timer = null; } });
+    return wrapped;
+  }
 
-  /* ---------- 通用：卡片平滑展开 / 折叠 ---------- */
-  function initCards() {
-    document.querySelectorAll(".tb-card-head").forEach(function (head) {
-      head.addEventListener("click", function () {
-        var card = head.closest(".tb-card");
-        if (!card) return;
-        var collapsed = card.classList.toggle("is-collapsed");
-        head.setAttribute("aria-expanded", String(!collapsed));
-      });
+  /** 让回调在作用域销毁后自动失效，防止异步结果写回已卸载的 DOM */
+  function guarded(scope, fn) {
+    return function () {
+      if (scope.disposed()) return undefined;
+      return fn.apply(this, arguments);
+    };
+  }
+
+  /* ============================================================
+   * 全局状态（仅 UI 编排，不含算法）
+   * ============================================================ */
+  var rootScope = S.create("root");
+  var tabScope = null;
+  var lastDisposedScope = null;
+  var activeTab = "basic";
+  var advancedMounted = false;
+  var hashSeq = 0, probeSeq = 0, ipSeq = 0;
+  var imgState = { buffer: null, type: "", name: "" };
+  var lastQr = null;
+
+  /* ---------- Tab A 默认值：仅首屏播种一次，Tab 往返不覆盖用户输入 ----------
+   * Tab B 的默认值直接写在 <template> 的 DOM 属性 / textarea 正文里，
+   * 克隆即带值，无需 JS 播种（template.content 不属于文档树，
+   * getElementById 在克隆前取不到，这是不能用 JS 播种的根本原因）。 */
+  var JSON_SAMPLE = '{"project":"toolbox","version":"14.0","stack":["Cloudflare Workers","PWA","TailwindCSS","Web Worker"],"features":{"frontend":7,"backend":2,"advanced":5,"ssrfGuard":true,"latencyMs":null},"author":{"name":"Lei Yihan","site":"https://leiyihan.dpdns.org"}}';
+
+  function seedDefaults() {
+    if ($("json-input")) $("json-input").value = JSON_SAMPLE;
+    if ($("b64-input")) $("b64-input").value = "极客工具箱 · Toolbox v14.0 🚀";
+    if ($("ts-input")) $("ts-input").value = String(Date.now());
+    if ($("hash-input")) $("hash-input").value = "Hello, Toolbox v14.0 — 极客工具箱";
+    if ($("probe-url")) $("probe-url").value = "https://www.baidu.com";
+    if ($("pw-length") && $("pw-length-num")) $("pw-length-num").value = $("pw-length").value;
+  }
+
+  /* ============================================================
+   * 全局事件委托：一键复制 / 卡片折叠 / Tab（注册一次，永不重复绑定）
+   * ============================================================ */
+  function initGlobalDelegates(scope) {
+    scope.on(document, "click", function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest("[data-copy]") : null;
+      if (!btn) return;
+      var src = $(btn.getAttribute("data-copy"));
+      if (!src) return;
+      var value = ("value" in src) ? src.value : src.textContent;
+      if (!value) { toast("没有可复制的内容", "warn"); return; }
+      Promise.resolve(copyText(value)).then(function (ok) {
+        if (scope.disposed()) return;
+        toast(ok ? "已复制到剪贴板" : "复制失败，请手动选中", ok ? "success" : "error");
+        if (!ok || btn.dataset.copyBusy) return;
+        btn.dataset.copyBusy = "1";
+        var old = btn.textContent;
+        btn.textContent = "✓ 已复制";
+        scope.timeout(function () {
+          btn.textContent = old;
+          delete btn.dataset.copyBusy;
+        }, C.COPY_FEEDBACK_MS);
+      }, noop);
     });
+
+    scope.on(document, "click", function (e) {
+      var head = e.target && e.target.closest ? e.target.closest(".tb-card-head") : null;
+      if (!head) return;
+      var card = head.closest(".tb-card");
+      if (!card) return;
+      var collapsed = card.classList.toggle("is-collapsed");
+      head.setAttribute("aria-expanded", String(!collapsed));
+    });
+
     function setAll(collapsed) {
       document.querySelectorAll(".tb-card").forEach(function (card) {
         card.classList.toggle("is-collapsed", collapsed);
@@ -64,206 +151,121 @@
         if (head) head.setAttribute("aria-expanded", String(!collapsed));
       });
     }
-    var expand = $("tb-expand-all"), collapse = $("tb-collapse-all");
-    if (expand) expand.addEventListener("click", function () { setAll(false); });
-    if (collapse) collapse.addEventListener("click", function () { setAll(true); });
+    scope.on($("tb-expand-all"), "click", function () { setAll(false); });
+    scope.on($("tb-collapse-all"), "click", function () { setAll(true); });
+
+    ["basic", "advanced"].forEach(function (name) {
+      var btn = $("tb-tab-" + name);
+      scope.on(btn, "click", function () { activateTab(name); });
+      scope.on(btn, "keydown", function (e) {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        var next = name === "basic" ? "advanced" : "basic";
+        activateTab(next);
+        var el = $("tb-tab-" + next);
+        if (el) el.focus();
+      });
+    });
   }
 
   /* ============================================================
-   * 工具 1：JSON 格式化 / 压缩 / 语法高亮
+   * 01 JSON 格式化 —— 纯函数层：ToolboxPure.formatJson
    * ============================================================ */
-  var JSON_SAMPLE = '{"project":"toolbox","version":"13.0","stack":["Cloudflare Workers","PWA","TailwindCSS"],"features":{"frontend":5,"backend":2,"ssrfGuard":true,"latencyMs":null},"author":{"name":"Lei Yihan","site":"https://leiyihan.dpdns.org"}}';
-
-  /** 先转义再着色：转义后的正文不含可执行的 <，插入的 span 才安全 */
-  function highlightJson(raw) {
-    var escaped = raw.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    return escaped.replace(
-      /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(?:true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
-      function (m) {
-        var cls = "tb-tok-num";
-        if (m.charAt(0) === '"') cls = /:\s*$/.test(m) ? "tb-tok-key" : "tb-tok-str";
-        else if (m === "true" || m === "false") cls = "tb-tok-bool";
-        else if (m === "null") cls = "tb-tok-null";
-        return '<span class="' + cls + '">' + m + "</span>";
-      }
-    );
-  }
-
-  function setJsonStatus(ok, msg) {
-    var el = $("json-status");
-    if (!el) return;
-    el.className = "tb-status " + (ok ? "tb-status-ok" : "tb-status-bad");
-    text(el, (ok ? "● VALID  " : "● ERROR  ") + msg);
-  }
-
   function runJson(mode) {
     var input = $("json-input"), out = $("json-output");
     if (!input || !out) return;
     var src = input.value.trim();
     if (!src) {
       out.innerHTML = '<span class="tb-dim">// 等待输入 JSON…</span>';
-      setJsonStatus(true, "等待输入");
+      setStatus("json-status", true, "等待输入", "VALID");
       return;
     }
-    var parsed;
-    try {
-      parsed = JSON.parse(src);
-    } catch (e) {
+    var r = P.formatJson(src, mode);
+    if (!r.ok) {
       out.textContent = "";
-      setJsonStatus(false, e.message.replace(/^JSON\.parse:\s*/, "").slice(0, 160));
+      setStatus("json-status", false, r.error);
       return;
     }
-    var json = mode === "minify" ? JSON.stringify(parsed) : JSON.stringify(parsed, null, 2);
-    out.innerHTML = highlightJson(json);
-    var bytes = new TextEncoder().encode(json).length;
-    setJsonStatus(true, (mode === "minify" ? "已压缩" : "已格式化") + " · " +
-      json.length + " 字符 / " + bytes + " 字节 · " +
-      (Array.isArray(parsed) ? "Array(" + parsed.length + ")" : typeof parsed));
+    out.innerHTML = r.html; // r.html 已逐段 HTML 转义，安全
+    setStatus("json-status", true, (mode === "minify" ? "已压缩" : "已格式化") +
+      " · " + r.chars + " 字符 / " + r.bytes + " 字节 · " + r.kind, "VALID");
   }
 
-  function initJson() {
+  function initJson(scope) {
     var input = $("json-input");
     if (!input) return;
-    input.value = JSON_SAMPLE;
-    var auto = debounce(function () { runJson("format"); }, DEBOUNCE_MS);
-    input.addEventListener("input", auto);
-    var f = $("json-btn-format"), m = $("json-btn-minify"), c = $("json-btn-clear");
-    if (f) f.addEventListener("click", function () { runJson("format"); });
-    if (m) m.addEventListener("click", function () { runJson("minify"); });
-    if (c) c.addEventListener("click", function () {
+    var auto = scopedDebounce(scope, function () { runJson("format"); }, C.DEBOUNCE_MS);
+    scope.on(input, "input", auto);
+    scope.on($("json-btn-format"), "click", guarded(scope, function () { runJson("format"); }));
+    scope.on($("json-btn-minify"), "click", guarded(scope, function () { runJson("minify"); }));
+    scope.on($("json-btn-clear"), "click", guarded(scope, function () {
       input.value = ""; runJson("format"); input.focus();
-    });
+    }));
     runJson("format");
   }
 
   /* ============================================================
-   * 工具 2：Base64 编解码（UTF-8 安全，分块避免展开栈溢出）
+   * 02 Base64 —— 纯函数层：ToolboxPure.base64Convert
    * ============================================================ */
-  function utf8ToB64(str) {
-    var bytes = new TextEncoder().encode(str);
-    var CHUNK = 0x8000, bin = "";
-    for (var i = 0; i < bytes.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-    }
-    return btoa(bin);
-  }
-  function b64ToUtf8(b64) {
-    var clean = b64.replace(/\s+/g, "");
-    if (!clean) return "";
-    var bin = atob(clean);
-    var bytes = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  }
-
-  function setB64Status(ok, msg) {
-    var el = $("b64-status");
-    if (!el) return;
-    el.className = "tb-status " + (ok ? "tb-status-ok" : "tb-status-bad");
-    text(el, (ok ? "● OK  " : "● ERROR  ") + msg);
-  }
-
   function runB64() {
     var input = $("b64-input"), out = $("b64-output"), mode = $("b64-mode");
     if (!input || !out || !mode) return;
     var src = input.value;
-    if (!src) { out.value = ""; setB64Status(true, "等待输入"); return; }
-    try {
-      if (mode.value === "encode") {
-        out.value = utf8ToB64(src);
-        setB64Status(true, "UTF-8 → Base64 · " + new TextEncoder().encode(src).length +
-          " 字节 → " + out.value.length + " 字符");
-      } else {
-        out.value = b64ToUtf8(src);
-        setB64Status(true, "Base64 → UTF-8 · " + new TextEncoder().encode(out.value).length + " 字节");
-      }
-    } catch (e) {
+    if (!src) { out.value = ""; setStatus("b64-status", true, "等待输入"); return; }
+    var r = P.base64Convert(src, mode.value);
+    if (!r.ok) {
       out.value = "";
-      setB64Status(false, mode.value === "decode"
+      setStatus("b64-status", false, mode.value === "decode"
         ? "不是合法的 Base64，或解码结果不是有效 UTF-8 文本"
-        : "编码失败：" + String(e && e.message).slice(0, 100));
+        : "编码失败：" + r.error.slice(0, 100));
+      return;
     }
+    out.value = r.value;
+    setStatus("b64-status", true, mode.value === "decode"
+      ? "Base64 → UTF-8 · " + r.outBytes + " 字节"
+      : "UTF-8 → Base64 · " + r.srcBytes + " 字节 → " + r.outBytes + " 字符");
   }
 
-  function initB64() {
-    var input = $("b64-input");
+  function initB64(scope) {
+    var input = $("b64-input"), mode = $("b64-mode");
     if (!input) return;
-    input.value = "极客工具箱 · Toolbox v13.0 🚀";
-    var auto = debounce(runB64, DEBOUNCE_MS);
-    input.addEventListener("input", auto);
-    if ($("b64-mode")) $("b64-mode").addEventListener("change", runB64);
-    if ($("b64-btn-clear")) $("b64-btn-clear").addEventListener("click", function () {
+    var auto = scopedDebounce(scope, runB64, C.DEBOUNCE_MS);
+    scope.on(input, "input", auto);
+    scope.on(mode, "change", guarded(scope, runB64));
+    scope.on($("b64-btn-clear"), "click", guarded(scope, function () {
       input.value = ""; runB64(); input.focus();
-    });
-    if ($("b64-btn-swap")) $("b64-btn-swap").addEventListener("click", function () {
+    }));
+    scope.on($("b64-btn-swap"), "click", guarded(scope, function () {
       var out = $("b64-output");
       if (!out || !out.value) { toast("输出为空，无法交换", "warn"); return; }
       input.value = out.value;
-      var mode = $("b64-mode");
       mode.value = mode.value === "encode" ? "decode" : "encode";
       runB64();
-    });
+    }));
     runB64();
   }
 
   /* ============================================================
-   * 工具 3：时间戳 ⇄ 标准日期时间（双向，自动识别秒 / 毫秒）
+   * 03 时间戳 —— 纯函数层：parseTimestampInput / timestampLines
    * ============================================================ */
-  function relative(d) {
-    var diff = Date.now() - d.getTime();
-    var abs = Math.abs(diff);
-    var unit = abs < 60000 ? Math.round(abs / 1000) + " 秒"
-      : abs < 3600000 ? Math.round(abs / 60000) + " 分钟"
-      : abs < 86400000 ? Math.round(abs / 3600000) + " 小时"
-      : Math.round(abs / 86400000) + " 天";
-    return diff >= 0 ? unit + "前" : unit + "后";
-  }
-
-  function tsFromInput(raw) {
-    if (/^\d+$/.test(raw)) {
-      var n = Number(raw);
-      // 10 位按秒、13 位按毫秒；其余按数量级推断
-      return raw.length <= 10 ? new Date(n * 1000) : new Date(n);
-    }
-    var normalized = raw.trim().replace(" ", "T");
-    var d = new Date(normalized);
-    if (!isNaN(d.getTime())) return d;
-    // 兼容 "2026-11-06 16:08:17" 这类本地时间字符串（Safari 需显式补时区）
-    var m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(raw.trim());
-    if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-    return null;
-  }
-
   function runTs() {
     var input = $("ts-input"), out = $("ts-output");
     if (!input || !out) return;
     var raw = input.value.trim();
-    if (!raw) { text(out, "// 等待输入时间戳或日期时间…"); setTsStatus(true, "等待输入"); return; }
-    var d = tsFromInput(raw);
-    if (!d || isNaN(d.getTime())) {
-      text(out, "");
-      setTsStatus(false, "无法解析，请输入 10/13 位时间戳或 YYYY-MM-DD HH:mm:ss");
+    if (!raw) {
+      text(out, "// 等待输入时间戳或日期时间…");
+      setStatus("ts-status", true, "等待输入");
       return;
     }
-    var ms = d.getTime();
-    var lines = [
-      "本地时间   " + fmtLocal(d),
-      "UTC 时间   " + fmtUtc(d),
-      "ISO 8601   " + d.toISOString(),
-      "时间戳(s)  " + Math.floor(ms / 1000),
-      "时间戳(ms) " + ms,
-      "相对现在   " + relative(d),
-      "星期       " + ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][d.getDay()],
-    ];
-    text(out, lines.join("\n"));
-    setTsStatus(true, "解析成功 · 时区 " + (Intl.DateTimeFormat().resolvedOptions().timeZone || "本地"));
-  }
-
-  function setTsStatus(ok, msg) {
-    var el = $("ts-status");
-    if (!el) return;
-    el.className = "tb-status " + (ok ? "tb-status-ok" : "tb-status-bad");
-    text(el, (ok ? "● OK  " : "● ERROR  ") + msg);
+    var d = P.parseTimestampInput(raw);
+    if (!d || isNaN(d.getTime())) {
+      text(out, "");
+      setStatus("ts-status", false, "无法解析，请输入 10/13 位时间戳或 YYYY-MM-DD HH:mm:ss");
+      return;
+    }
+    text(out, P.timestampLines(d, Date.now()).join("\n"));
+    setStatus("ts-status", true, "解析成功 · 时区 " +
+      (Intl.DateTimeFormat().resolvedOptions().timeZone || "本地"));
   }
 
   function tickNow() {
@@ -272,227 +274,111 @@
     text($("ts-now-ms"), now);
   }
 
-  function initTs() {
-    var input = $("ts-input");
+  function initTs(scope) {
+    var input = $("ts-input"), mode = $("ts-mode");
     if (!input) return;
-    input.value = String(Date.now());
-    var auto = debounce(runTs, DEBOUNCE_MS);
-    input.addEventListener("input", auto);
-    if ($("ts-mode")) $("ts-mode").addEventListener("change", function () {
-      var m = $("ts-mode").value;
+    var auto = scopedDebounce(scope, runTs, C.DEBOUNCE_MS);
+    scope.on(input, "input", auto);
+    scope.on(mode, "change", guarded(scope, function () {
+      var m = mode.value;
       input.placeholder = m === "ts2date" ? "例如 1730889600 或 1730889600000" : "例如 2026-11-06 16:08:17";
-      input.value = m === "ts2date" ? String(Date.now()) : fmtLocal(new Date());
+      input.value = m === "ts2date" ? String(Date.now()) : P.formatLocal(new Date());
       runTs();
-    });
-    if ($("ts-btn-now")) $("ts-btn-now").addEventListener("click", function () {
+    }));
+    scope.on($("ts-btn-now"), "click", guarded(scope, function () {
       input.value = String(Date.now());
-      if ($("ts-mode")) $("ts-mode").value = "ts2date";
+      mode.value = "ts2date";
       runTs();
-    });
+    }));
     runTs();
     tickNow();
-    setInterval(tickNow, 1000);
+    scope.interval(guarded(scope, tickNow), C.CLOCK_TICK_MS);
   }
 
   /* ============================================================
-   * 工具 4：密码生成器（crypto.getRandomValues 无偏采样）
+   * 04 密码生成器 —— 纯函数层：ToolboxPure.generatePassword
    * ============================================================ */
-  var PW_SETS = {
-    upper: "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-    lower: "abcdefghijklmnopqrstuvwxyz",
-    digit: "0123456789",
-    symbol: "!@#$%^&*()-_=+[]{}<>?~",
-  };
-
-  /** [0, max) 无偏随机整数：拒绝采样消除取模偏置 */
-  function secureInt(max) {
-    if (max <= 0) return 0;
-    var limit = Math.floor(4294967296 / max) * max;
-    var buf = new Uint32Array(1), x;
-    do { crypto.getRandomValues(buf); x = buf[0]; } while (x >= limit);
-    return x % max;
+  function readPwOptions() {
+    function checked(k) { var el = $("pw-" + k); return !!(el && el.checked); }
+    return {
+      length: parseInt(($("pw-length") || {}).value, 10),
+      upper: checked("upper"), lower: checked("lower"),
+      digit: checked("digit"), symbol: checked("symbol"),
+    };
   }
-  function securePick(str) { return str.charAt(secureInt(str.length)); }
 
-  function generatePassword() {
-    var len = parseInt(($("pw-length") || {}).value || "16", 10);
-    len = Math.max(8, Math.min(64, isNaN(len) ? 16 : len));
-    var active = [];
-    ["upper", "lower", "digit", "symbol"].forEach(function (k) {
-      var cb = $("pw-" + k);
-      if (cb && cb.checked) active.push(k);
-    });
-    var out = $("pw-output");
-    if (!active.length) {
+  function runPw() {
+    var r = P.generatePassword(readPwOptions());
+    var out = $("pw-output"), bar = $("pw-strength-bar");
+    if (!r.ok) {
       if (out) out.value = "";
-      text($("pw-strength-text"), "请至少勾选一种字符类型");
-      var bar0 = $("pw-strength-bar");
-      if (bar0) bar0.style.width = "0%";
+      text($("pw-strength-text"), r.reason);
+      if (bar) { bar.style.width = "0%"; bar.className = "tb-bar-fill"; }
       text($("pw-entropy"), "—");
       return;
     }
-    var charset = active.map(function (k) { return PW_SETS[k]; }).join("");
-    var chars = active.map(function (k) { return securePick(PW_SETS[k]); }); // 每类至少 1 个
-    for (var i = chars.length; i < len; i++) chars.push(securePick(charset));
-    // Fisher-Yates 洗牌，避免「前 N 位必然是各类首字母」的规律
-    for (var j = chars.length - 1; j > 0; j--) {
-      var k = secureInt(j + 1);
-      var t = chars[j]; chars[j] = chars[k]; chars[k] = t;
-    }
-    var pw = chars.join("");
-    if (out) out.value = pw;
-    var bits = Math.round(len * Math.log2(charset.length));
-    var level = bits < 50 ? ["弱", "tb-bad"] : bits < 80 ? ["中", "tb-warn"]
-      : bits < 120 ? ["强", "tb-ok"] : ["极强", "tb-excellent"];
-    var pct = Math.max(6, Math.min(100, Math.round(bits / 1.6)));
-    var bar = $("pw-strength-bar");
-    if (bar) { bar.style.width = pct + "%"; bar.className = "tb-bar-fill " + level[1]; }
-    text($("pw-strength-text"), "强度：" + level[0]);
-    text($("pw-entropy"), bits + " bits 熵 · " + len + " 位 · 字符集 " + charset.length);
+    if (out) out.value = r.password;
+    if (bar) { bar.style.width = r.pct + "%"; bar.className = "tb-bar-fill " + r.levelClass; }
+    text($("pw-strength-text"), "强度：" + r.level);
+    text($("pw-entropy"), r.bits + " bits 熵 · " + r.length + " 位 · 字符集 " + r.charsetSize);
   }
 
-  function initPw() {
+  function initPw(scope) {
     if (!$("pw-length")) return;
     var range = $("pw-length"), num = $("pw-length-num");
-    num.value = range.value;
-    var auto = debounce(generatePassword, DEBOUNCE_MS);
-    range.addEventListener("input", function () { num.value = range.value; auto(); });
-    num.addEventListener("input", function () {
-      var v = Math.max(8, Math.min(64, parseInt(num.value, 10) || 16));
+    var auto = scopedDebounce(scope, runPw, C.DEBOUNCE_MS);
+    scope.on(range, "input", guarded(scope, function () { num.value = range.value; auto(); }));
+    scope.on(num, "input", guarded(scope, function () {
+      var v = Math.max(C.PW_MIN_LEN, Math.min(C.PW_MAX_LEN, parseInt(num.value, 10) || C.PW_DEFAULT_LEN));
       range.value = v; auto();
-    });
+    }));
     ["upper", "lower", "digit", "symbol"].forEach(function (k) {
-      var cb = $("pw-" + k);
-      if (cb) cb.addEventListener("change", auto);
+      scope.on($("pw-" + k), "change", auto);
     });
-    if ($("pw-btn-gen")) $("pw-btn-gen").addEventListener("click", generatePassword);
-    generatePassword();
+    scope.on($("pw-btn-gen"), "click", guarded(scope, runPw));
+    runPw();
   }
 
   /* ============================================================
-   * 工具 5：文本哈希（Web Crypto + 纯 JS MD5）
-   * ------------------------------------------------------------
-   * 诚实性说明：Web Crypto API 不提供 MD5。SHA-1/256/512 走原生
-   * crypto.subtle；MD5 由本文件内纯 JS 实现（RFC 1321），同样完全在
-   * 浏览器本地计算、绝不请求后端。MD5 已不抗碰撞，仅用于校验/兼容。
+   * 05 文本哈希 —— 纯函数层：ToolboxPure.hashAll
    * ============================================================ */
-  function md5Hex(bytes) {
-    var S = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
-             5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
-             4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
-             6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
-    var K = new Uint32Array(64);
-    for (var i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296);
-
-    var len = bytes.length;
-    var padLen = (len % 64 < 56) ? (56 - len % 64) : (120 - len % 64);
-    var total = len + padLen + 8;
-    var buf = new Uint8Array(total);
-    buf.set(bytes);
-    buf[len] = 0x80;
-    var bitLo = (len * 8) >>> 0;
-    var bitHi = Math.floor(len / 0x20000000);
-    for (var p = 0; p < 4; p++) {
-      buf[total - 8 + p] = (bitLo >>> (8 * p)) & 0xff;
-      buf[total - 4 + p] = (bitHi >>> (8 * p)) & 0xff;
-    }
-    function readLE(off) {
-      return (buf[off] | (buf[off + 1] << 8) | (buf[off + 2] << 16) | (buf[off + 3] << 24)) >>> 0;
-    }
-    function rotl(x, n) { return ((x << n) | (x >>> (32 - n))) >>> 0; }
-
-    var a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
-    var M = new Uint32Array(16);
-    for (var off = 0; off < total; off += 64) {
-      for (var j = 0; j < 16; j++) M[j] = readLE(off + j * 4);
-      var A = a0, B = b0, C = c0, D = d0;
-      for (var q = 0; q < 64; q++) {
-        var F, g;
-        if (q < 16) { F = (B & C) | (~B & D); g = q; }
-        else if (q < 32) { F = (D & B) | (~D & C); g = (5 * q + 1) % 16; }
-        else if (q < 48) { F = B ^ C ^ D; g = (3 * q + 5) % 16; }
-        else { F = C ^ (B | ~D); g = (7 * q) % 16; }
-        var sum = (A + F + K[q] + M[g]) >>> 0;
-        var tmp = D;
-        D = C;
-        C = B;
-        B = (B + rotl(sum, S[q])) >>> 0;
-        A = tmp;
-      }
-      a0 = (a0 + A) >>> 0; b0 = (b0 + B) >>> 0;
-      c0 = (c0 + C) >>> 0; d0 = (d0 + D) >>> 0;
-    }
-    var hex = "";
-    [a0, b0, c0, d0].forEach(function (w) {
-      for (var k = 0; k < 4; k++) hex += pad2(((w >>> (8 * k)) & 0xff).toString(16));
-    });
-    return hex;
-  }
-
-  function toHex(buffer) {
-    return Array.from(new Uint8Array(buffer)).map(function (b) { return pad2(b.toString(16)); }).join("");
-  }
-  async function webDigest(algo, bytes) {
-    var buf = await crypto.subtle.digest(algo, bytes);
-    return toHex(buf);
-  }
-
-  var hashSeq = 0;
-  async function runHash() {
+  function runHash() {
     var input = $("hash-input");
-    if (!input) return;
+    if (!input) return Promise.resolve();
     var seq = ++hashSeq;
-    var bytes = new TextEncoder().encode(input.value);
-    if (!bytes.length) {
-      ["hash-md5", "hash-sha1", "hash-sha256", "hash-sha512"].forEach(function (id) { text($(id), "—"); });
-      setHashStatus(true, "等待输入 · 0 字节");
-      return;
+    var src = input.value;
+    var ids = ["hash-md5", "hash-sha1", "hash-sha256", "hash-sha512"];
+    if (!src) {
+      ids.forEach(function (id) { text($(id), "—"); });
+      setStatus("hash-status", true, "等待输入 · 0 字节");
+      return Promise.resolve();
     }
-    try {
-      var results = await Promise.all([
-        Promise.resolve().then(function () { return md5Hex(bytes); }),
-        webDigest("SHA-1", bytes),
-        webDigest("SHA-256", bytes),
-        webDigest("SHA-512", bytes),
-      ]);
-      if (seq !== hashSeq) return; // 丢弃过期结果，避免快速输入时乱序覆盖
-      ["hash-md5", "hash-sha1", "hash-sha256", "hash-sha512"].forEach(function (id, i) {
-        text($(id), results[i]);
-      });
-      setHashStatus(true, "本地计算完成 · " + bytes.length + " 字节 · 4 种摘要");
-    } catch (e) {
-      if (seq !== hashSeq) return;
-      setHashStatus(false, "计算失败：" + String(e && e.message).slice(0, 100));
-    }
+    return P.hashAll(src).then(function (r) {
+      if (seq !== hashSeq) return; // 快速输入乱序保护
+      if (!r.ok) { setStatus("hash-status", false, "计算失败：" + r.error); return; }
+      C.HASH_ALGOS.forEach(function (algo, i) { text($(ids[i]), r.hashes[algo] || "—"); });
+      setStatus("hash-status", true, "本地计算完成 · " + r.bytes + " 字节 · " + C.HASH_ALGOS.length + " 种摘要");
+    }, noop);
   }
 
-  function setHashStatus(ok, msg) {
-    var el = $("hash-status");
-    if (!el) return;
-    el.className = "tb-status " + (ok ? "tb-status-ok" : "tb-status-bad");
-    text(el, (ok ? "● OK  " : "● ERROR  ") + msg);
-  }
-
-  function initHash() {
+  function initHash(scope) {
     var input = $("hash-input");
     if (!input) return;
-    input.value = "Hello, Toolbox v13.0 — 极客工具箱";
-    input.addEventListener("input", debounce(runHash, DEBOUNCE_MS));
-    if ($("hash-btn-clear")) $("hash-btn-clear").addEventListener("click", function () {
+    scope.on(input, "input", scopedDebounce(scope, function () { runHash(); }, C.DEBOUNCE_MS));
+    scope.on($("hash-btn-clear"), "click", guarded(scope, function () {
       input.value = ""; runHash(); input.focus();
-    });
+    }));
     runHash();
   }
 
   /* ============================================================
-   * 工具 6：网页状态码探测器 —— 统一走 BlogApi（超时熔断 / 防重）
+   * 06 状态码探测 / 07 IP 查询 —— 统一走 BlogApi
    * ============================================================ */
-  var probeSeq = 0;
   function probeClass(code) {
-    if (code >= 200 && code < 300) return "tb-ok";
-    if (code >= 300 && code < 400) return "tb-redirect";
-    if (code >= 400 && code < 500) return "tb-warn";
-    if (code >= 500) return "tb-bad";
+    if (code >= C.HTTP_2XX && code < C.HTTP_3XX) return "tb-ok";
+    if (code >= C.HTTP_3XX && code < C.HTTP_4XX) return "tb-redirect";
+    if (code >= C.HTTP_4XX && code < C.HTTP_5XX) return "tb-warn";
+    if (code >= C.HTTP_5XX) return "tb-bad";
     return "tb-dim";
   }
 
@@ -509,11 +395,9 @@
     var tbody = $("probe-headers");
     if (tbody) {
       tbody.textContent = "";
-      var hs = (d && d.headers) || {};
-      var keys = Object.keys(hs);
+      var hs = (d && d.headers) || {}, keys = Object.keys(hs);
       if (!keys.length) {
-        var tr0 = document.createElement("tr");
-        var td0 = document.createElement("td");
+        var tr0 = document.createElement("tr"), td0 = document.createElement("td");
         td0.colSpan = 2; td0.className = "tb-dim"; td0.textContent = "（无响应头）";
         tr0.appendChild(td0); tbody.appendChild(tr0);
       } else {
@@ -534,46 +418,44 @@
     }
   }
 
-  async function runProbe() {
+  function runProbe() {
     var input = $("probe-url"), btn = $("probe-btn");
-    if (!input || !btn) return;
+    if (!input || !btn) return Promise.resolve();
     var target = input.value.trim();
-    if (!target) { toast("请先输入要探测的 URL", "warn"); input.focus(); return; }
+    if (!target) { toast("请先输入要探测的 URL", "warn"); input.focus(); return Promise.resolve(); }
     if (!/^https?:\/\//i.test(target)) target = "https://" + target;
     var seq = ++probeSeq;
     btn.disabled = true;
     var old = btn.textContent;
     btn.textContent = "探测中…";
     text($("probe-latency"), "…");
-    try {
-      var data = await window.BlogApi.get(
-        "/api/toolbox/probe?url=" + encodeURIComponent(target),
-        { timeout: 12000, retry: 0 }  // 探测讲究实时，关闭重试；12s 超时熔断 + 并发去重由 BlogApi 提供
-      );
+    return window.BlogApi.get("/api/toolbox/probe?url=" + encodeURIComponent(target), {
+      timeout: C.PROBE_TIMEOUT_MS, retry: C.PROBE_RETRY,
+    }).then(function (data) {
       if (seq !== probeSeq) return;
       renderProbe(data);
-    } catch (e) {
+    }, function (e) {
       if (seq !== probeSeq) return;
-      renderProbe({ status: "error", httpStatus: 0, error: (e && e.message) || "请求失败", code: "CLIENT_ERROR", elapsed: 0, headers: {}, url: target });
+      renderProbe({ status: "error", httpStatus: 0, error: (e && e.message) || "请求失败",
+        code: "CLIENT_ERROR", elapsed: 0, headers: {}, url: target });
       toast((e && e.message) || "探测失败", "error");
-    } finally {
+    }).then(function () {
       if (seq === probeSeq) { btn.disabled = false; btn.textContent = old; }
-    }
+    });
   }
 
-  function initProbe() {
+  function initProbe(scope) {
     var input = $("probe-url");
     if (!input) return;
-    input.value = "https://www.baidu.com";
-    if ($("probe-btn")) $("probe-btn").addEventListener("click", runProbe);
-    input.addEventListener("keydown", function (e) {
+    scope.on($("probe-btn"), "click", guarded(scope, function () { runProbe(); }));
+    scope.on(input, "keydown", guarded(scope, function (e) {
       if (e.key === "Enter") { e.preventDefault(); runProbe(); }
-    });
+    }));
     document.querySelectorAll("[data-probe-preset]").forEach(function (b) {
-      b.addEventListener("click", function () {
+      scope.on(b, "click", guarded(scope, function () {
         input.value = b.getAttribute("data-probe-preset");
         runProbe();
-      });
+      }));
     });
     renderProbe({
       status: "idle", httpStatus: 0, statusText: "READY", elapsed: 0,
@@ -581,9 +463,6 @@
     });
   }
 
-  /* ============================================================
-   * 工具 7：IP 归属地 / 网络信息 —— 页面加载即自动查询
-   * ============================================================ */
   function renderIpInfo(d, fallback) {
     if (!d) return;
     var unavailable = d.status === "unavailable";
@@ -595,59 +474,499 @@
     text($("ip-org"), d.org || "—");
     text($("ip-asn"), d.asn || "—");
     text($("ip-timezone"), d.timezone || "—");
-    text($("ip-source"), (d.provider || "—") + " / " + (d.source || "—") +
-      (d.cached ? " / 缓存" : ""));
+    text($("ip-source"), (d.provider || "—") + " / " + (d.source || "—") + (d.cached ? " / 缓存" : ""));
     text($("ip-elapsed"), typeof d.elapsed === "number" ? d.elapsed + " ms" : "—");
     var note = $("ip-note");
     if (!note) return;
     var msg = unavailable
       ? "✕ " + (d.error || "上游暂不可用") + (d.attempts && d.attempts.length ? "：" + d.attempts.join("；") : "")
-      : (fallback ? "⚠ 网络不稳定，展示的是本地缓存数据。" : "") +
-        (d.message || "") +
+      : (fallback ? "⚠ 网络不稳定，展示的是本地缓存数据。" : "") + (d.message || "") +
         (d.scope === "visitor" ? "  · 数据来自访客真实公网 IP" : "  · 出口视角");
     note.className = "tb-note " + (unavailable ? "tb-note-bad" : "");
     text(note, msg || "查询完成");
   }
 
-  var ipSeq = 0;
-  async function loadIpInfo() {
-    var btn = $("ip-refresh");
-    var seq = ++ipSeq;
+  function loadIpInfo() {
+    var btn = $("ip-refresh"), seq = ++ipSeq;
     if (btn) { btn.disabled = true; btn.textContent = "查询中…"; }
-    try {
-      // 统一封装层：12s 超时熔断、1 次指数退避重试、并发去重；
-      // 不设 cacheKey —— 访客 IP 属个人数据，不落 localStorage。
-      var data = await window.BlogApi.get("/api/toolbox/ipinfo", {
-        timeout: 12000, retry: 1,
-      });
+    // 不设 cacheKey：访客 IP 属个人数据，绝不落 localStorage
+    return window.BlogApi.get("/api/toolbox/ipinfo", {
+      timeout: C.IPINFO_TIMEOUT_MS, retry: C.IPINFO_RETRY,
+    }).then(function (data) {
       if (seq !== ipSeq) return;
       renderIpInfo(data, false);
-    } catch (e) {
+    }, function (e) {
       if (seq !== ipSeq) return;
       renderIpInfo({ status: "unavailable", query: "—", error: (e && e.message) || "请求失败" }, false);
-    } finally {
+    }).then(function () {
       if (seq === ipSeq && btn) { btn.disabled = false; btn.textContent = "↻ 重新查询"; }
+    });
+  }
+
+  function initIpInfo(scope) {
+    if (!$("ip-query")) return;
+    scope.on($("ip-refresh"), "click", guarded(scope, function () { loadIpInfo(); }));
+    scope.timeout(guarded(scope, function () { loadIpInfo(); }), C.IPINFO_AUTO_DELAY_MS);
+  }
+
+  /* ============================================================
+   * 08 正则表达式测试器 —— Worker：ToolboxCompute("regex")
+   * ============================================================ */
+  var REGEX_FLAGS = ["g", "i", "m", "s", "u"];
+
+  function readRegex() {
+    var flags = REGEX_FLAGS.filter(function (f) {
+      var el = $("regex-flag-" + f); return !!(el && el.checked);
+    }).join("");
+    return {
+      pattern: ($("regex-pattern") || {}).value || "",
+      flags: flags,
+      text: ($("regex-input") || {}).value || "",
+    };
+  }
+
+  function regexFallback(req) {
+    var r = P.runRegex(req.pattern, req.flags, req.text);
+    return {
+      ok: r.ok, error: r.error || "", matches: r.matches, count: r.count,
+      truncated: r.truncated, hasGroups: r.hasGroups,
+      segments: r.ok ? P.regexSegments(req.text, r.matches) : [],
+    };
+  }
+
+  function renderRegex(res) {
+    var host = $("regex-output"), groups = $("regex-groups"), list = $("regex-match-list");
+    if (!host) return;
+    host.textContent = "";
+    if (groups) groups.textContent = "";
+    if (list) list.textContent = "";
+    if (!res.ok) {
+      var err = document.createElement("span");
+      err.className = "tb-tok-err";
+      err.textContent = "正则非法：" + (res.error || "未知错误");
+      host.appendChild(err);
+      setStatus("regex-status", false, "表达式无法解析（已局部隔离，未影响其他工具）");
+      text($("regex-count"), "—");
+      return;
+    }
+    var src = readRegex().text;
+    (res.segments || []).forEach(function (seg) {
+      var span = document.createElement("span");
+      span.className = seg.kind === "group" ? "tb-rx-group tb-rx-group-" + (seg.groupIndex % 5 + 1)
+        : seg.kind === "match" ? "tb-rx-match" : "";
+      span.textContent = src.slice(seg.start, seg.end);
+      host.appendChild(span);
+    });
+    text($("regex-count"), res.count + (res.truncated ? "（已截断）" : ""));
+    setStatus("regex-status", true,
+      (res.hasGroups ? "捕获组已高亮 · " : "") + res.count + " 处匹配 · " +
+      (res.engine === "worker" ? "Web Worker 计算" : "主线程计算"));
+    if (list) {
+      var shown = (res.matches || []).slice(0, C.REGEX_LIST_LIMIT);
+      shown.forEach(function (mt, i) {
+        var li = document.createElement("div");
+        li.className = "tb-rx-item";
+        var no = document.createElement("span");
+        no.className = "tb-rx-no"; no.textContent = "#" + (i + 1) + " @" + mt.index;
+        var val = document.createElement("code");
+        val.textContent = mt.text;
+        li.appendChild(no); li.appendChild(val);
+        list.appendChild(li);
+      });
+    }
+    if (groups && res.hasGroups) {
+      var first = (res.matches || [])[0];
+      if (first) first.groups.forEach(function (g) {
+        var row = document.createElement("div");
+        row.className = "tb-rx-grow";
+        var k = document.createElement("span"); k.className = "tb-rx-no"; k.textContent = "$" + g.index;
+        var v = document.createElement("code"); v.textContent = g.text || "(未参与匹配)";
+        row.appendChild(k); row.appendChild(v); groups.appendChild(row);
+      });
     }
   }
 
-  function initIpInfo() {
-    if (!$("ip-query")) return;
-    if ($("ip-refresh")) $("ip-refresh").addEventListener("click", loadIpInfo);
-    // 延后一个 tick，确保页面其余模块先完成初始化，不抢占首屏
-    setTimeout(loadIpInfo, 60);
+  function runRegex(scope) {
+    var req = readRegex();
+    return Compute.exec("regex", req, function () { return regexFallback(req); })
+      .then(function (res) { if (!scope.disposed() && !res.cancelled) renderRegex(res); }, noop);
   }
 
-  /* ---------- 启动 ---------- */
-  function boot() {
-    initCards();
-    initJson();
-    initB64();
-    initTs();
-    initPw();
-    initHash();
-    initProbe();
-    initIpInfo();
+  function initRegex(scope) {
+    if (!$("regex-pattern")) return;
+    var auto = scopedDebounce(scope, function () { runRegex(scope); }, C.DEBOUNCE_MS);
+    [ $("regex-pattern"), $("regex-input") ].forEach(function (el) {
+      scope.on(el, "input", auto);
+    });
+    REGEX_FLAGS.forEach(function (f) {
+      scope.on($("regex-flag-" + f), "change", guarded(scope, function () { runRegex(scope); }));
+    });
+    scope.on($("regex-btn-clear"), "click", guarded(scope, function () {
+      var t = $("regex-input"); if (t) t.value = ""; runRegex(scope);
+    }));
+    runRegex(scope);
   }
+
+  /* ============================================================
+   * 09 二维码生成器 —— 纯函数层：ToolboxPure.qrMatrix + vendor/qrcode.js
+   * ============================================================ */
+  function drawQr(canvas, cells, size) {
+    var px = C.QR_MODULE_PX, margin = C.QR_MARGIN_MODULES;
+    var side = (size + margin * 2) * px;
+    canvas.width = side; canvas.height = side;
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = C.QR_BG;
+    ctx.fillRect(0, 0, side, side);
+    ctx.fillStyle = C.QR_FG;
+    for (var r = 0; r < size; r++) {
+      for (var c = 0; c < size; c++) {
+        if (cells[r][c]) ctx.fillRect((c + margin) * px, (r + margin) * px, px, px);
+      }
+    }
+  }
+
+  function runQr() {
+    var input = $("qr-text"), ecc = $("qr-ecc"), canvas = $("qr-canvas");
+    if (!input || !canvas) return;
+    var res = P.qrMatrix(input.value, ecc ? ecc.value : C.QR_DEFAULT_ECC, window.qrcode);
+    lastQr = res.ok ? res : null;
+    if (!res.ok) {
+      var ctx = canvas.getContext("2d");
+      if (ctx) { canvas.width = 1; canvas.height = 1; ctx.clearRect(0, 0, 1, 1); }
+      setStatus("qr-status", false, res.error);
+      text($("qr-meta"), "—");
+      return;
+    }
+    drawQr(canvas, res.cells, res.size);
+    setStatus("qr-status", true, "生成成功 · " + res.size + " × " + res.size + " 模块");
+    text($("qr-meta"), "版本自动选型 · " + res.size + "×" + res.size + " · 纠错 " + (ecc ? ecc.value : C.QR_DEFAULT_ECC));
+  }
+
+  function downloadQr() {
+    var canvas = $("qr-canvas");
+    if (!canvas || !lastQr) { toast("请先生成二维码", "warn"); return; }
+    var a = document.createElement("a");
+    a.href = canvas.toDataURL("image/png");
+    a.download = "toolbox-qrcode.png";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast("二维码已开始下载", "success");
+  }
+
+  function initQr(scope) {
+    if (!$("qr-text")) return;
+    var auto = scopedDebounce(scope, runQr, C.DEBOUNCE_MS);
+    scope.on($("qr-text"), "input", auto);
+    scope.on($("qr-ecc"), "change", guarded(scope, runQr));
+    scope.on($("qr-download"), "click", guarded(scope, downloadQr));
+    runQr();
+  }
+
+  /* ============================================================
+   * 10 图片转 Base64 —— Worker：ToolboxCompute("image") + 主线程降级
+   * ============================================================ */
+  function imageFallback() {
+    // 主线程降级：FileReader（异步、不阻塞）+ <canvas> 等比压缩。
+    // 不用 createObjectURL，避免 blob: URL 外泄与生命周期悬挂。
+    return new Promise(function (resolve, reject) {
+      if (!imgState.buffer) { reject(new Error("尚未选择图片")); return; }
+      var blob = new Blob([imgState.buffer], { type: imgState.type || "image/png" });
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error("文件读取失败")); };
+      reader.onload = function () {
+        var img = new Image();
+        img.onerror = function () { reject(new Error("图片解码失败")); };
+        img.onload = function () {
+          var maxEdge = parseInt(($("img-max-edge") || {}).value, 10) || C.IMG_DEFAULT_MAX_EDGE;
+          var quality = parseInt(($("img-quality") || {}).value, 10) / 100 || C.IMG_DEFAULT_QUALITY;
+          var dim = P.fitDimensions(img.naturalWidth, img.naturalHeight, maxEdge);
+          var canvas = document.createElement("canvas");
+          canvas.width = dim.w; canvas.height = dim.h;
+          var ctx = canvas.getContext("2d");
+          if (!ctx) { reject(new Error("无法创建 2D 上下文")); return; }
+          ctx.drawImage(img, 0, 0, dim.w, dim.h);
+          var mime = imgState.type === "image/png" ? "image/png"
+            : imgState.type === "image/webp" ? "image/webp" : "image/jpeg";
+          var dataUrl = canvas.toDataURL(mime, quality);
+          resolve({
+            dataUrl: dataUrl, base64: dataUrl.split(",")[1], mime: mime,
+            width: dim.w, height: dim.h, bytes: Math.round(dataUrl.split(",")[1].length * 3 / 4),
+            sourceWidth: img.naturalWidth, sourceHeight: img.naturalHeight,
+          });
+        };
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function renderImage(res) {
+    var out = $("img-output"), preview = $("img-preview");
+    if (!out) return;
+    out.value = res.dataUrl;
+    if (preview) { preview.src = res.dataUrl; preview.hidden = false; }
+    setStatus("img-status", true,
+      "原图 " + res.sourceWidth + "×" + res.sourceHeight + " → 压缩 " + res.width + "×" + res.height +
+      " · " + P.formatBytes(res.bytes) + " · " + (res.engine === "worker" ? "Web Worker" : "主线程"));
+    text($("img-dims"), res.width + " × " + res.height);
+  }
+
+  function processImage(scope) {
+    if (!imgState.buffer) return Promise.resolve();
+    var payload = {
+      buffer: imgState.buffer,
+      type: imgState.type,
+      maxEdge: parseInt(($("img-max-edge") || {}).value, 10) || C.IMG_DEFAULT_MAX_EDGE,
+      quality: parseInt(($("img-quality") || {}).value, 10) / 100 || C.IMG_DEFAULT_QUALITY,
+    };
+    setStatus("img-status", true, "处理中…");
+    return Compute.exec("image", payload, imageFallback)
+      .then(function (res) {
+        if (!scope.disposed() && !res.cancelled && res.ok !== false) renderImage(res);
+      }, function (e) {
+        if (!scope.disposed()) setStatus("img-status", false, (e && e.message) || "图片处理失败");
+      });
+  }
+
+  function acceptFile(scope, file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { toast("请选择图片文件", "warn"); return; }
+    if (file.size > C.IMG_MAX_FILE_BYTES) {
+      toast("图片超过 " + P.formatBytes(C.IMG_MAX_FILE_BYTES) + " 上限", "warn");
+      return;
+    }
+    file.arrayBuffer().then(function (buf) {
+      if (scope.disposed()) return;
+      imgState.buffer = buf; imgState.type = file.type; imgState.name = file.name;
+      text($("img-name"), file.name + " · " + P.formatBytes(file.size));
+      processImage(scope);
+    }, function () { if (!scope.disposed()) setStatus("img-status", false, "文件读取失败"); });
+  }
+
+  function initImage(scope) {
+    var drop = $("img-drop"), file = $("img-file");
+    if (!drop || !file) return;
+    scope.on(drop, "click", guarded(scope, function () { file.click(); }));
+    scope.on(drop, "dragover", guarded(scope, function (e) { e.preventDefault(); drop.classList.add("is-drag"); }));
+    scope.on(drop, "dragleave", guarded(scope, function () { drop.classList.remove("is-drag"); }));
+    scope.on(drop, "drop", guarded(scope, function (e) {
+      e.preventDefault(); drop.classList.remove("is-drag");
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      acceptFile(scope, f);
+    }));
+    scope.on(file, "change", guarded(scope, function () { acceptFile(scope, file.files && file.files[0]); }));
+    scope.on($("img-max-edge"), "input", scopedDebounce(scope, function () {
+      var n = $("img-max-edge-num"); if (n) n.value = $("img-max-edge").value;
+      processImage(scope);
+    }, C.DEBOUNCE_MS));
+    scope.on($("img-quality"), "input", scopedDebounce(scope, function () {
+      var n = $("img-quality-num"); if (n) n.value = $("img-quality").value;
+      processImage(scope);
+    }, C.DEBOUNCE_MS));
+    scope.on($("img-btn-clear"), "click", guarded(scope, function () {
+      imgState.buffer = null; imgState.type = ""; imgState.name = "";
+      file.value = "";
+      var out = $("img-output"); if (out) out.value = "";
+      var preview = $("img-preview"); if (preview) { preview.removeAttribute("src"); preview.hidden = true; }
+      text($("img-name"), "未选择文件"); text($("img-dims"), "—");
+      setStatus("img-status", true, "等待上传图片");
+    }));
+    setStatus("img-status", true, "等待上传图片");
+  }
+
+  /* ============================================================
+   * 11 文本差异对比 —— Worker：ToolboxCompute("diff")
+   * ============================================================ */
+  function diffFallback(req) {
+    var d = P.diffLines(req.a, req.b);
+    return { ops: d.ops, stats: d.stats, truncated: d.truncated };
+  }
+
+  function renderDiff(res) {
+    var host = $("diff-output");
+    if (!host) return;
+    host.textContent = "";
+    var prefix = { add: "+", del: "-", eq: " " };
+    (res.ops || []).forEach(function (op) {
+      var line = document.createElement("div");
+      line.className = "tb-diff-line tb-diff-" + op.type;
+      var gutter = document.createElement("span");
+      gutter.className = "tb-diff-gutter";
+      gutter.textContent = (op.aLine || "") + (op.bLine ? "/" + op.bLine : "");
+      var body = document.createElement("span");
+      body.className = "tb-diff-text";
+      body.textContent = prefix[op.type] + " " + op.text;
+      line.appendChild(gutter); line.appendChild(body);
+      host.appendChild(line);
+    });
+    var s = res.stats || { added: 0, removed: 0, equal: 0 };
+    text($("diff-stats"), "+" + s.added + " 新增 / -" + s.removed + " 删除 / " + s.equal + " 未变" +
+      (res.truncated ? " · 超大文本已降级为整块对比" : ""));
+    setStatus("diff-status", true, "对比完成 · " + (res.engine === "worker" ? "Web Worker" : "主线程") + " LCS");
+  }
+
+  function runDiff(scope) {
+    var req = {
+      a: ($("diff-a") || {}).value || "",
+      b: ($("diff-b") || {}).value || "",
+    };
+    return Compute.exec("diff", req, function () { return diffFallback(req); })
+      .then(function (res) { if (!scope.disposed() && !res.cancelled) renderDiff(res); }, noop);
+  }
+
+  function initDiff(scope) {
+    if (!$("diff-a")) return;
+    var auto = scopedDebounce(scope, function () { runDiff(scope); }, C.DEBOUNCE_MS);
+    [ $("diff-a"), $("diff-b") ].forEach(function (el) { scope.on(el, "input", auto); });
+    scope.on($("diff-btn-swap"), "click", guarded(scope, function () {
+      var a = $("diff-a"), b = $("diff-b");
+      var t = a.value; a.value = b.value; b.value = t; runDiff(scope);
+    }));
+    scope.on($("diff-btn-clear"), "click", guarded(scope, function () {
+      $("diff-a").value = ""; $("diff-b").value = ""; runDiff(scope);
+    }));
+    runDiff(scope);
+  }
+
+  /* ============================================================
+   * 12 颜色与渐变生成器 —— 纯函数层：buildGradientCss / palette / contrast
+   * ============================================================ */
+  function runGradient() {
+    var c1 = ($("grad-c1") || {}).value || "#39FF14";
+    var c2 = ($("grad-c2") || {}).value || "#0EA5E9";
+    var angle = parseInt(($("grad-angle") || {}).value, 10);
+    var type = ($("grad-type") || {}).value || "linear";
+    var css = P.buildGradientCss({
+      type: type, angle: angle,
+      stops: [{ color: c1, pos: 0 }, { color: c2, pos: 100 }],
+    });
+    var preview = $("grad-preview");
+    if (preview) preview.style.background = css;
+    var out = $("grad-css");
+    if (out) out.value = "background: " + css + ";";
+    var ratio = P.contrastRatio(c1, c2);
+    var judge = ratio >= C.WCAG_AAA ? "AAA 级" : ratio >= C.WCAG_AA ? "AA 级" : "偏低";
+    text($("grad-contrast"), ratio.toFixed(2) + ":1 · " + judge);
+    text($("grad-hex"), c1.toUpperCase() + " → " + c2.toUpperCase());
+    var rgb1 = P.hexToRgb(c1), rgb2 = P.hexToRgb(c2);
+    text($("grad-rgb"), (rgb1 ? "rgb(" + rgb1.r + "," + rgb1.g + "," + rgb1.b + ")" : "—") +
+      " → " + (rgb2 ? "rgb(" + rgb2.r + "," + rgb2.g + "," + rgb2.b + ")" : "—"));
+    var hsl = rgb1 ? P.rgbToHsl(rgb1.r, rgb1.g, rgb1.b) : null;
+    text($("grad-hsl"), hsl ? "hsl(" + hsl.h + ", " + hsl.s + "%, " + hsl.l + "%)" : "—");
+    var host = $("grad-palette");
+    if (host) {
+      host.textContent = "";
+      P.gradientPalette(c1, c2, C.GRADIENT_PALETTE_SIZE).forEach(function (hex) {
+        var sw = document.createElement("span");
+        sw.className = "tb-swatch";
+        sw.style.background = hex;
+        sw.title = hex;
+        var code = document.createElement("code");
+        code.textContent = hex;
+        sw.appendChild(code);
+        host.appendChild(sw);
+      });
+    }
+    setStatus("grad-status", true, "CSS 已生成 · 可直接复制");
+  }
+
+  function initGradient(scope) {
+    if (!$("grad-c1")) return;
+    ["grad-c1", "grad-c2", "grad-angle", "grad-type"].forEach(function (id) {
+      var el = $(id);
+      scope.on(el, "input", guarded(scope, function () {
+        if (id === "grad-angle") { var n = $("grad-angle-num"); if (n) n.value = el.value; }
+        runGradient();
+      }));
+      scope.on(el, "change", guarded(scope, runGradient));
+    });
+    scope.on($("grad-random"), "click", guarded(scope, function () {
+      $("grad-c1").value = P.randomHex();
+      $("grad-c2").value = P.randomHex();
+      runGradient();
+    }));
+    scope.on($("grad-swap"), "click", guarded(scope, function () {
+      var a = $("grad-c1"), b = $("grad-c2");
+      var t = a.value; a.value = b.value; b.value = t; runGradient();
+    }));
+    runGradient();
+  }
+
+  /* ============================================================
+   * Tab 编排
+   * ============================================================ */
+  function initBasicTools(scope) {
+    initJson(scope); initB64(scope); initTs(scope); initPw(scope);
+    initHash(scope); initProbe(scope); initIpInfo(scope);
+  }
+
+  function initAdvancedTools(scope) {
+    initRegex(scope); initQr(scope); initImage(scope);
+    initDiff(scope); initGradient(scope);
+  }
+
+  function mountAdvanced() {
+    var tpl = $("tb-advanced-tpl"), host = $("tb-panel-advanced");
+    if (!tpl || !host) return;
+    host.appendChild(tpl.content.cloneNode(true));
+  }
+
+  /**
+   * 切换 Tab：销毁旧作用域 → 取消在途计算 → 挂载 / 显隐 → 初始化新作用域。
+   * @param {"basic"|"advanced"} name 目标 Tab
+   * @returns {void}
+   */
+  function activateTab(name) {
+    if (name !== "basic" && name !== "advanced") return;
+    if (tabScope) { lastDisposedScope = tabScope; tabScope.dispose(); tabScope = null; }
+    Compute.cancelAll();
+    var isAdv = name === "advanced";
+    if (isAdv && !advancedMounted) { mountAdvanced(); advancedMounted = true; }
+    var basicPanel = $("tb-panel-basic"), advPanel = $("tb-panel-advanced");
+    if (basicPanel) basicPanel.hidden = isAdv;
+    if (advPanel) advPanel.hidden = !isAdv;
+    [["basic", !isAdv], ["advanced", isAdv]].forEach(function (pair) {
+      var btn = $("tb-tab-" + pair[0]);
+      if (!btn) return;
+      btn.setAttribute("aria-selected", String(pair[1]));
+      btn.classList.toggle("is-active", pair[1]);
+      btn.tabIndex = pair[1] ? 0 : -1;
+    });
+    tabScope = S.create(isAdv ? "tab-advanced" : "tab-basic");
+    if (isAdv) initAdvancedTools(tabScope); else initBasicTools(tabScope);
+    activeTab = name;
+  }
+
+  /* ---------- 启动 / 卸载 ---------- */
+  function boot() {
+    initGlobalDelegates(rootScope);
+    seedDefaults();
+    activateTab("basic");
+    rootScope.on(window, "pagehide", function () {
+      if (tabScope) { tabScope.dispose(); tabScope = null; }
+      Compute.dispose();
+      rootScope.dispose();
+    });
+  }
+
+  /** 调试 / 测试只读接口（不参与业务逻辑） */
+  window.ToolboxDebug = Object.freeze({
+    version: C.VERSION,
+    activeTab: function () { return activeTab; },
+    advancedMounted: function () { return advancedMounted; },
+    tabScopeSize: function () { return tabScope ? tabScope.size() : 0; },
+    tabScopeDisposed: function () { return !tabScope || tabScope.disposed(); },
+    lastDisposedScopeDisposed: function () { return !lastDisposedScope || lastDisposedScope.disposed(); },
+    lastDisposedScopeSize: function () { return lastDisposedScope ? lastDisposedScope.size() : -1; },
+    rootScopeSize: function () { return rootScope.size(); },
+    compute: function () { return Compute.state(); },
+    pure: function () { return P; },
+    constants: function () { return C; },
+    activate: activateTab,
+  });
+
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
 })();

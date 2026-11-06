@@ -439,7 +439,7 @@ window.GameCore = (function () {
 
   async function loadRanks() {
     try {
-      const res = await fetch("/api/game/scores");
+      const res = await window.BlogApi.raw("/api/game/scores");
       if (res.headers.get("content-type")?.includes("json")) rankData = await res.json();
     } catch (e) { /* 忽略 */ }
     if (!rankTab || !getGame(rankTab)) rankTab = allGames()[0] ? allGames()[0].id : null;
@@ -493,7 +493,7 @@ window.GameCore = (function () {
       safeLS.set(LS_NICK, nick);
     }
     try {
-      const res = await fetch(`/api/game/score/${encodeURIComponent(gameId)}`, {
+      const res = await window.BlogApi.raw(`/api/game/score/${encodeURIComponent(gameId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: nick, score }),

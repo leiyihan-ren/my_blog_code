@@ -45,6 +45,7 @@ const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".
 
 const PAGE_HTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>播放器测试</title>
 <script src="/utils/blog-utils.js"></script>
+<script src="/services/request.js"></script>
 <script src="/components/lrc.js"></script>
 <script src="/components/player-host.js"></script>
 </head><body>

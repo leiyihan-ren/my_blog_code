@@ -1,5 +1,5 @@
 // ============================================================
-// 全链路测试总runner：顺序执行 29 个测试套件，汇总通过/失败
+// 全链路测试总runner：顺序执行 31 个测试套件，汇总通过/失败
 // 任一失败 → 进程退出码 1（CI 直接判红）
 // 用法：node tests/run-all.mjs
 // 环境变量：CHROMIUM_PATH 指定 Chromium 可执行文件路径
@@ -42,6 +42,7 @@ const SUITES = [
   { name: "v12.0 网盘本地搜索索引", file: "step24-v12-search-drive.mjs" },
   { name: "v12.0 指数退避与弱网缓存", file: "step25-v12-resilience.mjs" },
   { name: "v13.0 极客工具箱端到端", file: "step26-v13-toolbox.mjs" },
+  { name: "v14.0 进阶开发台与底层重构", file: "step27-v14-toolbox.mjs" },
 ];
 
 function runSuite(file) {

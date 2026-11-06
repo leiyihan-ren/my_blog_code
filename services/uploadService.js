@@ -475,7 +475,7 @@ window.UploadService = (function () {
     if (atomicCapability !== null) return Promise.resolve(atomicCapability);
     if (atomicProbePromise) return atomicProbePromise;
     if (typeof fetch !== "function") { atomicCapability = false; return Promise.resolve(false); }
-    atomicProbePromise = fetch("/api/drive/upload/capability", { headers: { "x-drive-pin": hooks.getPin() } })
+    atomicProbePromise = window.BlogApi.raw("/api/drive/upload/capability", { headers: { "x-drive-pin": hooks.getPin() } })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (j) {
         atomicCapability = !!(j && j.atomicBatch === true && j.binaryBody === true);
@@ -563,7 +563,7 @@ window.UploadService = (function () {
       body: buffer,
     };
     if (ctl) opts.signal = ctl.signal;
-    return fetch("/api/drive/upload/blob", opts).then(function (r) {
+    return window.BlogApi.raw("/api/drive/upload/blob", opts).then(function (r) {
       unregister();
       if (!r.ok) throw new Error("第 " + (index + 1) + " 片上传失败（HTTP " + r.status + "）");
       return r.json();
@@ -582,7 +582,7 @@ window.UploadService = (function () {
     // 原子提交用 fetch，不经过 xhrUpload、也不受 task._abort 控制，
     // 因此必须在发出请求前再判一次取消/暂停（与 xhrUpload 的最后闸门对称）。
     throwIfPaused(task);
-    return fetch("/api/drive/upload/finish-atomic", {
+    return window.BlogApi.raw("/api/drive/upload/finish-atomic", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-drive-pin": hooks.getPin() },
       body: JSON.stringify({
@@ -863,7 +863,7 @@ window.UploadService = (function () {
     var repo = "leiyihan-ren/Blog";
     btn.disabled = true;
     btn.textContent = "⏳ 准备中…";
-    return fetch("/api/github/raw/" + repo + "/main/" + encodePathSegments(f.path))
+    return window.BlogApi.raw("/api/github/raw/" + repo + "/main/" + encodePathSegments(f.path))
       .then(function (r) {
         if (!r.ok) throw new Error("清单读取失败（HTTP " + r.status + "）");
         return r.json();
@@ -894,7 +894,7 @@ window.UploadService = (function () {
               });
             }
             // v8.3：同 downloadFile——拉片走 Worker 代理须带口令，否则 401
-            return fetch(url, { headers: { "x-drive-pin": hooks.getPin() } }).then(function (r) {
+            return window.BlogApi.raw(url, { headers: { "x-drive-pin": hooks.getPin() } }).then(function (r) {
               if (r.ok) return r.blob();
               var retryable = r.status === 429 || r.status >= 500;
               if (!retryable) throw new Error("分片 " + (idx + 1) + " 拉取失败（HTTP " + r.status + "）");
@@ -971,7 +971,7 @@ window.UploadService = (function () {
     //   未加载引擎或未启用 Range 的环境自动退化为下面这条等价的普通请求。
     var loader = (typeof window !== "undefined" && window.RangeDownloader)
       ? window.RangeDownloader.fetchBlob(url, hooks.getPin())
-      : fetch(url, { headers: { "x-drive-pin": hooks.getPin() } })
+      : window.BlogApi.raw(url, { headers: { "x-drive-pin": hooks.getPin() } })
         .then(function (r) {
           if (!r.ok) throw new Error("下载失败（HTTP " + r.status + "）");
           return r.blob();

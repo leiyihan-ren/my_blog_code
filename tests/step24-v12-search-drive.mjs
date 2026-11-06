@@ -35,6 +35,8 @@ let driveHits = 0, unauthorizedHits = 0;
 const PAGE_HTML = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>本地搜索测试</title>
 <script src="/vendor/minisearch.js"></script>
 <script src="/utils/pinyin-gb2312.js"></script>
+<script src="/utils/blog-utils.js"></script>
+<script src="/services/request.js"></script>
 </head><body><h1>全站本地搜索</h1><div id="host"></div>
 <script type="module">
 import("/components/global-search.js").catch(function (e) { window.__importErr = String(e); });
