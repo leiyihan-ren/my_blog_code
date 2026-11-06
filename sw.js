@@ -46,7 +46,8 @@
 //         （SW 缓存名与产品版本解耦，但保持 vX.Y.Z 格式便于测试与发布核对）。
 // v12.0：全局播放内核 + 后台计算内核纳入离线外壳；弱网回退增强
 // v13.0：极客工具箱上线，新增 tools.html / toolbox.css / toolbox.js 入离线外壳
-const CACHE_VERSION = "v13.0.0";
+// v13.0.1：工具箱资源加 cache-bust 查询串，绕开边缘缓存的旧 404，清单随之更新
+const CACHE_VERSION = "v13.0.1";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -70,7 +71,7 @@ const PRECACHE_URLS = [
   "/mc.html",
   "/styles/common.css",
   "/styles/drive.css",
-  "/styles/toolbox.css",
+  "/styles/toolbox.css?v=13.0.1",
   "/utils/common.js",
   "/utils/blog-utils.js",
   "/components/ui.js",
@@ -87,7 +88,7 @@ const PRECACHE_URLS = [
   "/components/global-search.js",
   "/player.html",
   "/tools.html",
-  "/components/toolbox.js",
+  "/components/toolbox.js?v=13.0.1",
   "/components/lrc.js",
   "/components/player-engine.js",
   "/components/player-host.js",

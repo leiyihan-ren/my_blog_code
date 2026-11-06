@@ -709,7 +709,13 @@ function addStaticSecurityHeaders(response, pathname) {
   // 静态资源内容随版本变化、路径固定，一律强制覆盖为长缓存；发版即时性
   // 由 HTML（s-maxage=300）与 SW 版本号共同保证，不依赖资源文件本身。
   // 304 响应无 body 也无缓存语义，跳过。
-  if (response.status !== 304) {
+  // v13.0.1 缺陷修复：静态资源路径固定、缓存窗口长（s-maxage=86400 + SWR 7 天），
+  // 若把 404 也按长缓存下发，发版前被访问过一次的新资源（如 toolbox.css/js）
+  // 会在部署完成后继续从边缘吐 404，页面有骨架却没样式没脚本。
+  // 错误响应一律 no-store，让边缘立刻回源，杜绝「404 缓存污染」。
+  if (response.status >= 400) {
+    headers.set("Cache-Control", "no-store");
+  } else if (response.status !== 304) {
     headers.set("Cache-Control", staticCacheControl(pathname || "/"));
   }
   // 304 响应无 body，需传 null

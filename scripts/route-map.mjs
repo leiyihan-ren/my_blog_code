@@ -46,9 +46,13 @@ export const PAGE_FILES = {
  * 的对外 URL 与物理位置本就一致。
  */
 export function staticFilePath(urlPathname) {
-  const mapped = PAGE_FILES[urlPathname];
+  // v13.0.1：允许带 cache-bust 查询串 / 锚点（如 SW 清单里的
+  // /styles/toolbox.css?v=13.0.1），先剥离再映射，保证「清单全部落盘」校验
+  // 与页面引用检查口径一致（后者本就 split("?")[0]）。
+  const p = String(urlPathname).split("?")[0].split("#")[0];
+  const mapped = PAGE_FILES[p];
   if (mapped) return mapped;
-  return urlPathname.replace(/^\/+/, "");
+  return p.replace(/^\/+/, "");
 }
 
 /** 派生 Worker 侧重写表（URL pathname → URL pathname），供同步断言使用 */
