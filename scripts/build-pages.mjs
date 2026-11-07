@@ -34,6 +34,10 @@ const EXCLUDE_DIRS = new Set([
   "docs",
   "tests",
   "scripts",
+  // v16.0：src/ 是纯工程架构层（Feature 域契约 + JSDoc 全局类型），
+  // 不产生任何浏览器请求，属于源码治理资产而非站点资源。排除它可让
+  // 部署产物更小，也避免 .mjs 契约文件被公网直接抓取。
+  "src",
   "playwright-report",
   "test-results",
   "blob-report",
