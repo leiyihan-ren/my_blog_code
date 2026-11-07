@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- interactive-widget=resizes-content：移动端软键盘弹起时收缩布局视口而非遮挡输入框 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -11,18 +12,18 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="极客工具箱">
-<meta name="description" content="极客工具箱：12 个硬核开发工具 —— JSON、Base64、时间戳、密码、哈希、状态码探测、IP 查询，以及正则测试、二维码生成、图片转 Base64、文本 Diff、颜色渐变生成器。纯函数内核 + Web Worker 重计算，秒级响应。">
+<meta name="description" content="极客工具箱：15 个硬核开发工具 —— JSON、Base64、时间戳、密码、哈希、状态码探测、IP 查询，以及正则测试、二维码、图片转 Base64、文本 Diff、渐变生成器、Cron 表达式、URL 编解码、文本大小写转换。纯函数内核 + Web Worker 重计算 + PWA 完全离线可用。">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="我的博客">
 <meta property="og:title" content="极客工具箱 - 我的博客">
-<meta property="og:description" content="12 个硬核开发工具：7 个常规工具 + 5 个进阶工具，纯函数内核 + Web Worker 异步重计算 + 严格 CSP。">
+<meta property="og:description" content="15 个硬核开发工具：7 个常规工具 + 8 个进阶工具，纯函数内核 + Web Worker 异步重计算 + PWA 离线秒开 + 严格 CSP。">
 <meta property="og:url" content="https://leiyihan.dpdns.org/tools.html">
 <meta property="og:image" content="https://leiyihan.dpdns.org/og-image.png">
 <meta name="twitter:card" content="summary">
 <link rel="canonical" href="https://leiyihan.dpdns.org/tools.html">
 <title>极客工具箱 - 我的博客</title>
 <link rel="stylesheet" href="/styles/common.css">
-<link rel="stylesheet" href="/styles/toolbox.css?v=14.0.0">
+<link rel="stylesheet" href="/styles/toolbox.css?v=15.0.0">
 <style>
   /* 终端风页面容器：与 common.css 的导航 / 页脚基建共存，此处只覆盖配色令牌 */
   body.tb-body { background: #070b12; color: #cbd5e1; }
@@ -81,23 +82,23 @@
   <header class="tb-hero">
     <div class="tb-hero-bar">
       <span class="tb-dots"><i></i><i></i><i></i></span>
-      <span class="tb-hero-path">root@toolbox:~/v14.0</span>
+      <span class="tb-hero-path">root@toolbox:~/v15.0</span>
       <span class="tb-hero-live"><i></i> SYSTEM ONLINE</span>
     </div>
     <div class="tb-hero-body">
       <pre class="tb-ascii" aria-hidden="true">┌──────────────────────────────────────────────┐
-│  $ toolbox --init --modules 12 --worker on   │
-│  [ OK ] pure kernel loaded  (33 fns)         │
+│  $ toolbox --init --modules 15 --offline on  │
+│  [ OK ] pure kernel loaded  (47 fns)         │
 │  [ OK ] compute worker armed (regex/diff/img)│
-│  [ OK ] scope registry armed (zero leak)     │
+│  [ OK ] shell cached        (cache-first)    │
 └──────────────────────────────────────────────┘</pre>
       <h1 class="tb-title">&gt; 极客工具箱<span class="tb-cursor">_</span></h1>
-      <p class="tb-sub">12 个硬核开发工具 · <strong>纯函数内核 + Web Worker 异步重计算</strong> · 主线程零掉帧 · 全部边输入边出结果</p>
+      <p class="tb-sub">15 个硬核开发工具 · <strong>纯函数内核 + Web Worker 异步重计算</strong> · PWA 完全离线可用 · 全部边输入边出结果</p>
       <div class="tb-hero-meta flex flex-wrap gap-2 sm:gap-3">
-        <span class="tb-chip">v14.0</span>
+        <span class="tb-chip">v15.0</span>
         <span class="tb-chip">PURE KERNEL</span>
         <span class="tb-chip">WEB WORKER</span>
-        <span class="tb-chip">ZERO LEAK</span>
+        <span class="tb-chip">OFFLINE READY</span>
         <span class="tb-chip">STRICT CSP</span>
       </div>
       <div class="tb-toolbar flex flex-wrap gap-2 mt-4">
@@ -115,9 +116,9 @@
     </button>
     <button id="tb-tab-advanced" class="tb-tab" role="tab" type="button"
             aria-selected="false" aria-controls="tb-panel-advanced" tabindex="-1">
-      <span class="tb-tab-idx">B</span><span class="tb-tab-name">进阶工具</span><span class="tb-tab-count">05</span>
+      <span class="tb-tab-idx">B</span><span class="tb-tab-name">进阶工具</span><span class="tb-tab-count">08</span>
     </button>
-    <span class="tb-tab-meta">12 TOOLS · PURE / WORKER / SCOPE</span>
+    <span class="tb-tab-meta">15 TOOLS · PURE / WORKER / OFFLINE</span>
   </nav>
 
   <!-- ============ TAB A：常规工具（默认激活，7 张卡） ============ -->
@@ -394,7 +395,7 @@
     <section class="tb-section">
       <div class="tb-section-head flex flex-wrap items-center justify-between gap-2">
         <span class="tb-comment">// 03 — ADVANCED · 纯函数内核 + Web Worker</span>
-        <span class="tb-section-meta">5 MODULES · SCOPE 生命周期托管 · 超时熔断</span>
+        <span class="tb-section-meta">8 MODULES · SCOPE 生命周期托管 · 完全离线可用</span>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
 
@@ -619,22 +620,191 @@ console.log(a * b);
           </div></div></div>
         </article>
 
+        <!-- 13 Cron 表达式生成器（v15.0） -->
+        <article class="tb-card md:col-span-2" data-tool="cron">
+          <button class="tb-card-head" aria-expanded="true" type="button">
+            <span class="tb-card-dots"><i></i><i></i><i></i></span>
+            <span class="tb-card-idx">13</span>
+            <span class="tb-card-title">Cron 表达式生成器</span>
+            <span class="tb-tag tb-tag-local">LOCAL</span>
+            <span class="tb-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+            <div class="tb-cron-grid">
+              <div class="tb-field min-w-0">
+                <label for="cron-minute">分钟 MINUTE <span class="tb-dim">0–59</span></label>
+                <select id="cron-minute" class="tb-select">
+                  <option value="*">* 每分钟</option><option value="*/5">*/5 每 5 分钟</option>
+                  <option value="*/10">*/10 每 10 分钟</option><option value="*/15">*/15 每 15 分钟</option>
+                  <option value="*/30">*/30 每 30 分钟</option><option value="0" selected>0 整点</option>
+                  <option value="15">15 分</option><option value="30">30 分</option>
+                  <option value="45">45 分</option><option value="0,30">0,30 半点</option>
+                </select>
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="cron-hour">小时 HOUR <span class="tb-dim">0–23</span></label>
+                <select id="cron-hour" class="tb-select">
+                  <option value="*">* 每小时</option><option value="*/2">*/2 每 2 小时</option>
+                  <option value="*/6">*/6 每 6 小时</option><option value="0">00 点</option>
+                  <option value="2">02 点</option><option value="6">06 点</option>
+                  <option value="9" selected>09 点</option><option value="12">12 点</option>
+                  <option value="18">18 点</option><option value="23">23 点</option>
+                  <option value="9-18">9-18 工作时间</option>
+                </select>
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="cron-dom">日 DAY <span class="tb-dim">1–31</span></label>
+                <select id="cron-dom" class="tb-select">
+                  <option value="*" selected>* 每天</option><option value="1">每月 1 日</option>
+                  <option value="15">每月 15 日</option><option value="1,15">1,15 日</option>
+                  <option value="*/2">*/2 隔天</option>
+                </select>
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="cron-month">月 MONTH <span class="tb-dim">1–12</span></label>
+                <select id="cron-month" class="tb-select">
+                  <option value="*" selected>* 每月</option><option value="1">1 月</option>
+                  <option value="3">3 月</option><option value="6">6 月</option>
+                  <option value="9">9 月</option><option value="12">12 月</option>
+                  <option value="*/3">*/3 每季度</option><option value="1,7">1,7 月</option>
+                </select>
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="cron-dow">周 WEEKDAY <span class="tb-dim">0–7</span></label>
+                <select id="cron-dow" class="tb-select">
+                  <option value="*">* 每天</option><option value="1-5" selected>1-5 工作日</option>
+                  <option value="0,6">0,6 周末</option><option value="0">周日</option>
+                  <option value="1">周一</option><option value="2">周二</option>
+                  <option value="3">周三</option><option value="4">周四</option>
+                  <option value="5">周五</option><option value="6">周六</option>
+                </select>
+              </div>
+            </div>
+            <div class="tb-field">
+              <label for="cron-expression">EXPRESSION <span class="tb-dim">// 分 时 日 月 周</span></label>
+              <input id="cron-expression" class="tb-input tb-mono tb-cron-expr" type="text" readonly spellcheck="false" value="0 9 * * 1-5">
+            </div>
+            <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+              <button id="cron-btn-now" class="tb-btn" type="button">⏱ 使用当前时间</button>
+              <button id="cron-btn-reset" class="tb-btn" type="button">↺ 重置为每天</button>
+              <button class="tb-btn tb-btn-primary" data-copy="cron-expression" type="button">复制表达式</button>
+            </div>
+            <div id="cron-describe" class="tb-output tb-cron-desc">—</div>
+            <div class="tb-field">
+              <label>下次执行时间 <span id="cron-count" class="tb-dim">—</span></label>
+              <div id="cron-next" class="tb-output tb-cron-next"></div>
+            </div>
+            <div id="cron-status" class="tb-status tb-status-ok"></div>
+            <div class="tb-note">🔒 五段字段解析、合法区间校验与「按月 / 按日 / 按小时」跳进预测全部在纯函数层完成；遵循 Vixie cron 语义，日与周同时受限时按「或」匹配，7 与 0 同为周日。预测以本地时区计算。</div>
+          </div></div></div>
+        </article>
+
+        <!-- 14 URL 编解码器（v15.0） -->
+        <article class="tb-card md:col-span-2" data-tool="url">
+          <button class="tb-card-head" aria-expanded="true" type="button">
+            <span class="tb-card-dots"><i></i><i></i><i></i></span>
+            <span class="tb-card-idx">14</span>
+            <span class="tb-card-title">URL 编解码器</span>
+            <span class="tb-tag tb-tag-local">LOCAL</span>
+            <span class="tb-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+            <div class="tb-field">
+              <label for="url-input">INPUT <span class="tb-dim">// 完整 URL 或纯查询串</span></label>
+              <textarea id="url-input" class="tb-textarea tb-mono" rows="3" spellcheck="false" placeholder="https://example.com/?q=关键词&amp;page=1">https://example.com/search?q=极客工具箱&amp;lang=zh-CN&amp;page=1&amp;tag=cool tool#top</textarea>
+            </div>
+            <div class="tb-url-controls">
+              <div class="tb-field min-w-0">
+                <label for="url-scope">SCOPE</label>
+                <select id="url-scope" class="tb-select">
+                  <option value="query" selected>仅参数值（保留 URL 结构）</option>
+                  <option value="all">参数键 + 值</option>
+                  <option value="component">整串作为单个组件</option>
+                </select>
+              </div>
+              <div class="tb-field min-w-0">
+                <label for="url-mode">DIRECTION</label>
+                <select id="url-mode" class="tb-select">
+                  <option value="encode" selected>encodeURIComponent 编码</option>
+                  <option value="decode">decodeURIComponent 解码</option>
+                </select>
+              </div>
+            </div>
+            <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+              <button id="url-btn-encode" class="tb-btn tb-btn-primary" type="button">编码 →</button>
+              <button id="url-btn-decode" class="tb-btn" type="button">← 解码</button>
+              <button id="url-btn-clear" class="tb-btn" type="button">清空</button>
+              <button class="tb-btn" data-copy="url-output" type="button">复制结果</button>
+            </div>
+            <div class="tb-field">
+              <label for="url-output">OUTPUT</label>
+              <textarea id="url-output" class="tb-textarea tb-textarea-out tb-mono" rows="3" readonly spellcheck="false"></textarea>
+            </div>
+            <div class="tb-field">
+              <label>QUERY 参数列表 <span id="url-param-count" class="tb-dim">—</span></label>
+              <div class="tb-table-wrap"><table class="tb-table tb-url-table"><tbody id="url-params"></tbody></table></div>
+            </div>
+            <div id="url-status" class="tb-status tb-status-ok"></div>
+            <div class="tb-note">🔒 参数拆用表单语义（空格 ↔ +），保留 <code>://</code> <code>?</code> <code>&amp;</code> <code>#</code> 结构；非法百分号序列局部隔离，绝不整体抛错。解析结果同时保留原始值与解码值。</div>
+          </div></div></div>
+        </article>
+
+        <!-- 15 文本大小写转换器（v15.0） -->
+        <article class="tb-card md:col-span-2" data-tool="case">
+          <button class="tb-card-head" aria-expanded="true" type="button">
+            <span class="tb-card-dots"><i></i><i></i><i></i></span>
+            <span class="tb-card-idx">15</span>
+            <span class="tb-card-title">文本大小写转换器</span>
+            <span class="tb-tag tb-tag-local">LOCAL</span>
+            <span class="tb-chevron" aria-hidden="true">⌄</span>
+          </button>
+          <div class="tb-card-body"><div class="tb-card-inner"><div class="tb-card-pad">
+            <div class="tb-field">
+              <label for="case-input">INPUT <span class="tb-dim">// 中英文混合 / 已有命名风格均可</span></label>
+              <textarea id="case-input" class="tb-textarea" rows="3" spellcheck="false" placeholder="helloWorld user_name">helloWorld XMLHttpRequest user_name v2 API-test</textarea>
+            </div>
+            <div id="case-modes" class="tb-case-modes">
+              <button class="tb-btn" data-case="upper" type="button">全大写 UPPER</button>
+              <button class="tb-btn" data-case="lower" type="button">全小写 lower</button>
+              <button class="tb-btn" data-case="title" type="button">首字母大写 Title</button>
+              <button class="tb-btn tb-btn-primary" data-case="camel" type="button">驼峰 camelCase</button>
+              <button class="tb-btn" data-case="pascal" type="button">帕斯卡 PascalCase</button>
+              <button class="tb-btn" data-case="snake" type="button">下划线 snake_case</button>
+              <button class="tb-btn" data-case="kebab" type="button">短横线 kebab-case</button>
+            </div>
+            <div class="tb-field">
+              <label for="case-output">OUTPUT <span id="case-mode-label" class="tb-dim">—</span></label>
+              <textarea id="case-output" class="tb-textarea tb-textarea-out" rows="3" readonly spellcheck="false"></textarea>
+            </div>
+            <div class="tb-btn-row flex flex-wrap gap-2 mt-3">
+              <button id="case-btn-clear" class="tb-btn" type="button">清空</button>
+              <button class="tb-btn tb-btn-primary" data-copy="case-output" type="button">一键复制</button>
+            </div>
+            <div class="tb-field">
+              <label>词元切分 <span id="case-words" class="tb-dim">—</span></label>
+              <div id="case-tokens" class="tb-case-tokens"></div>
+            </div>
+            <div id="case-status" class="tb-status tb-status-ok"></div>
+            <div class="tb-note">🔒 词元切分同时处理空格/标点、camelCase / PascalCase 边界、连续大写缩写、字母数字边界与中文等 Unicode 字母；全大写 / 全小写保留原文标点，其余模式按词元重组。</div>
+          </div></div></div>
+        </article>
+
       </div>
     </section>
   </template>
   </div><!-- /#tb-panel-advanced -->
 
   <footer class="tb-footer flex flex-wrap items-center justify-between gap-3">
-    <p>© 2026 Lei Yihan · Toolbox v14.0 · 12 工具 · 纯函数内核 + Web Worker · 前端计算全程本地完成</p>
+    <p>© 2026 Lei Yihan · Toolbox v15.0 · 15 工具 · 纯函数内核 + Web Worker · 前端计算全程本地完成，断网照常运行</p>
     <button class="tb-backtop" onclick="scrollToTop()" type="button" aria-label="返回顶部">↑ TOP</button>
   </footer>
 </div>
 </main>
-<script src="/utils/toolbox-constants.js?v=14.0.0" defer></script>
-<script src="/utils/toolbox-pure.js?v=14.0.0" defer></script>
-<script src="/utils/toolbox-scope.js?v=14.0.0" defer></script>
-<script src="/services/toolboxCompute.js?v=14.0.0" defer></script>
-<script src="/vendor/qrcode.js?v=14.0.0" defer></script>
-<script src="/components/toolbox.js?v=14.0.0" defer></script>
+<script src="/utils/toolbox-constants.js?v=15.0.0" defer></script>
+<script src="/utils/toolbox-pure.js?v=15.0.0" defer></script>
+<script src="/utils/toolbox-scope.js?v=15.0.0" defer></script>
+<script src="/services/toolboxCompute.js?v=15.0.0" defer></script>
+<script src="/vendor/qrcode.js?v=15.0.0" defer></script>
+<script src="/components/toolbox.js?v=15.0.0" defer></script>
 </body>
 </html>

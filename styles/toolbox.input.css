@@ -517,8 +517,104 @@ body.tb-body .mobile-menu a.active { color: var(--tb-green); font-weight: 600; }
   .tb-diff-gutter { flex-basis: 46px; padding-right: 6px; }
   .tb-swatch { width: 46px; height: 34px; }
 }
+
+/* ============================================================
+ * v15.0 —— Tab 过渡 / 按压反馈 / 移动端手感 / 3 个新工具
+ * 全部沿用 body.tb-body 上的 --tb-* 令牌，零新增高频裸色。
+ * ============================================================ */
+
+/* ---------- Tab 切换过渡动画（仅作用于可见面板，hidden 兜底优先） ---------- */
+@keyframes tb-panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tb-panel:not([hidden]) { animation: tb-panel-in .28s var(--ease) both; }
+.tb-tab {
+  transition: color .22s var(--ease), background-color .22s var(--ease),
+    border-color .22s var(--ease), box-shadow .22s var(--ease), transform .16s var(--ease);
+}
+.tb-tab.is-active { box-shadow: inset 0 -2px 0 var(--tb-green); }
+
+/* ---------- 卡片 / 按钮 Active 按压缩放反馈 ---------- */
+.tb-card {
+  transition: border-color .25s var(--ease), box-shadow .25s var(--ease), transform .16s var(--ease);
+}
+.tb-card:active { transform: scale(.995); }
+.tb-btn:active, .tb-mini:active, .tb-tab:active, .tb-backtop:active { transform: scale(.95); }
+.tb-card-head:active { filter: brightness(1.18); }
+
+/* ---------- 移动端：滑动不卡顿 + 软键盘不遮挡 ---------- */
+/* scroll-padding-bottom：配合 scrollIntoView 让聚焦输入框停在可视区中上部 */
+html { scroll-padding-bottom: 42vh; }
+.tb-output, .tb-rx-list, .tb-diff-output, .tb-table-wrap,
+.tb-textarea, .tb-select, .tb-input {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.tb-panel, .tb-card, .tb-btn, .tb-tab { -webkit-tap-highlight-color: transparent; }
+@media (max-width: 640px) {
+  /* iOS 聚焦小于 16px 的输入框会自动放大整页并遮挡内容，移动端统一 16px */
+  .tb-input, .tb-textarea, .tb-select { font-size: 16px; }
+  .tb-textarea { min-height: 72px; }
+}
+@media (max-height: 520px) {
+  .tb-hero-body { padding-top: 12px; padding-bottom: 12px; }
+  .tb-ascii { display: none; }
+}
+
+/* ---------- 13 Cron 表达式生成器 ---------- */
+.tb-cron-grid {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px; margin-bottom: 12px;
+}
+@media (max-width: 900px) { .tb-cron-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.tb-cron-expr {
+  font-size: 16px; letter-spacing: .12em;
+  color: var(--tb-green); font-weight: 600;
+}
+.tb-cron-desc { min-height: 0; margin: 12px 0; color: var(--tb-cyan); white-space: normal; }
+.tb-cron-next { min-height: 0; max-height: 190px; white-space: normal; padding: 8px 12px; }
+.tb-cron-slot {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  padding: 3px 0; border-bottom: 1px dashed var(--tb-border);
+}
+.tb-cron-slot:last-child { border-bottom: none; }
+.tb-cron-no { color: var(--tb-cyan); font-size: 10.5px; flex: 0 0 auto; }
+.tb-cron-slot code { color: var(--tb-blue); font-size: 12px; word-break: break-all; }
+.tb-cron-rel { margin-left: auto; color: var(--tb-dim); font-size: 10.5px; flex: 0 0 auto; }
+
+/* ---------- 14 URL 编解码器 ---------- */
+.tb-url-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.tb-url-table td:first-child { width: 34%; }
+.tb-url-table td { word-break: break-all; }
+.tb-url-empty { color: var(--tb-dim); font-size: 11.5px; }
+
+/* ---------- 15 文本大小写转换器 ---------- */
+.tb-case-modes { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+.tb-case-modes .tb-btn.is-active {
+  border-color: var(--tb-green); color: var(--tb-green);
+  background: rgba(57, 255, 20, .12);
+}
+.tb-case-tokens { display: flex; flex-wrap: wrap; gap: 5px; min-height: 28px; }
+.tb-token {
+  padding: 2px 7px; border: 1px solid var(--tb-border-2); border-radius: 4px;
+  background: var(--tb-input-bg); color: var(--tb-blue); font-size: 11px;
+}
+
+/* ---------- 375px 收敛：新工具栅格降列，零横向溢出 ---------- */
+@media (max-width: 640px) {
+  .tb-cron-grid, .tb-url-controls { grid-template-columns: 1fr; }
+  .tb-cron-rel { margin-left: 0; }
+  .tb-case-modes .tb-btn { flex: 1 1 auto; }
+}
+@media (min-width: 641px) and (max-width: 900px) {
+  .tb-url-controls { grid-template-columns: 1fr; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .tb-tab, .tb-drop, .tb-grad-preview { transition: none; }
+  .tb-tab, .tb-drop, .tb-grad-preview, .tb-card, .tb-btn, .tb-mini, .tb-backtop { transition: none; }
+  .tb-panel:not([hidden]) { animation: none; }
+  .tb-card:active, .tb-btn:active, .tb-mini:active, .tb-tab:active, .tb-backtop:active { transform: none; }
 }
 
 /* Tailwind utilities 最后注入：响应式布局类优先级最高，且不生成 preflight */

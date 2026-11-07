@@ -9,6 +9,10 @@
    │ 同源静态资源      │ stale-while-revalidate：先返回缓存    │
    │ (JS/CSS/图标)     │ 秒开，后台静默更新，下次即最新         │
    ├──────────────────┼──────────────────────────────────────┤
+   │ 工具箱不可变资源   │ v15.0 cache-first：URL 自带内容版本，  │
+   │ (toolbox-* / QR)  │ 命中即返回，绝不后台 revalidate，      │
+   │                   │ 断网也能秒开，含 Worker 无版本依赖     │
+   ├──────────────────┼──────────────────────────────────────┤
    │ /api/github/*    │ stale-while-revalidate：图片代理走     │
    │ （图片/不可变）   │ 缓存秒开（worker 侧已 1 天 TTL）       │
    ├──────────────────┼──────────────────────────────────────┤
@@ -49,7 +53,11 @@
 // v13.0.1：工具箱资源加 cache-bust 查询串，绕开边缘缓存的旧 404，清单随之更新
 // v14.0：极客进阶开发台 —— 纯函数内核 / 生命周期 Scope / Compute 客户端 /
 //        同源 classic Worker / 本地 QR 引擎纳入离线外壳，12 工具全部可离线运行
-const CACHE_VERSION = "v14.0.0";
+// v15.0：工具箱扩至 15 工具 + PWA 离线闭环 —— 新增 3 个纯函数工具；
+//        工具箱不可变资源改严格 cache-first；预缓存补齐 Worker 实际请求的
+//        无版本内核 URL；断网导航增加 STATIC_CACHE 回退，使 /tools.html
+//        真正从自身缓存打开（此前会退化到 index.html）。
+const CACHE_VERSION = "v15.0.0";
 const STATIC_CACHE = `my-blog-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = "my-blog-runtime-v1";
 const OFFLINE_URL = "/index.html";
@@ -73,15 +81,23 @@ const PRECACHE_URLS = [
   "/mc.html",
   "/styles/common.css",
   "/styles/drive.css",
-  "/styles/toolbox.css?v=14.0.0",
+  "/styles/toolbox.css?v=15.0.0",
   "/utils/common.js",
   "/utils/blog-utils.js",
-  "/utils/toolbox-constants.js?v=14.0.0",
-  "/utils/toolbox-pure.js?v=14.0.0",
-  "/utils/toolbox-scope.js?v=14.0.0",
-  "/utils/toolbox-worker.js?v=14.0.0",
-  "/services/toolboxCompute.js?v=14.0.0",
-  "/vendor/qrcode.js?v=14.0.0",
+  "/utils/toolbox-constants.js?v=15.0.0",
+  "/utils/toolbox-pure.js?v=15.0.0",
+  "/utils/toolbox-scope.js?v=15.0.0",
+  "/utils/toolbox-worker.js?v=15.0.0",
+  "/services/toolboxCompute.js?v=15.0.0",
+  "/vendor/qrcode.js?v=15.0.0",
+  // v15.0 离线闭环：classic Worker 由 new Worker() 加载，其自身及
+  // importScripts() 的依赖都请求「不带查询串」的裸 URL。页面引用的
+  // ?v= 版本键命不中这些请求，断网时 Worker 会 404 并退化到主线程。
+  // 故把 Worker 真实请求的三个裸 URL 一并纳入离线外壳，与带版本
+  // 的同名文件共享同一份物理内容，保证断网时后台重计算依然可用。
+  "/utils/toolbox-worker.js",
+  "/utils/toolbox-constants.js",
+  "/utils/toolbox-pure.js",
   "/components/ui.js",
   "/vendor/jszip.min.js",
   "/vendor/minisearch.js",
@@ -96,7 +112,7 @@ const PRECACHE_URLS = [
   "/components/global-search.js",
   "/player.html",
   "/tools.html",
-  "/components/toolbox.js?v=14.0.0",
+  "/components/toolbox.js?v=15.0.0",
   "/components/lrc.js",
   "/components/player-engine.js",
   "/components/player-host.js",
@@ -159,6 +175,43 @@ async function trimCache(cache) {
 /* ---------- 可缓存性判定 ---------- */
 function isCacheableResponse(resp) {
   return resp && resp.status === 200 && resp.type === "basic";
+}
+
+/* ---------- v15.0：工具箱不可变资源严格 Cache-First ----------
+ * 这些资源的 URL 自带内容版本（?v=），或本身就是被 Worker 以裸 URL
+ * 加载的内核文件，内容一经发布永不变。命中缓存即返回，绝不像通用
+ * stale-while-revalidate 那样在后台发起必然失败（断网）或无收益（联网）
+ * 的二次请求，从而让工具箱在离线时真正秒开且零网络噪声。 */
+const TOOLBOX_IMMUTABLE_PATH = /^\/(?:utils\/toolbox-|services\/toolboxCompute\.js|vendor\/qrcode\.js|components\/toolbox\.js|styles\/toolbox\.css)/;
+
+/**
+ * 工具箱不可变资源的 Cache-First 响应（含 ignoreSearch 兜底）。
+ * @param {Request} req 同源 GET 请求
+ * @returns {Promise<Response>} 缓存命中或网络响应
+ */
+async function cacheFirstImmutable(req) {
+  const runtime = await caches.open(RUNTIME_CACHE);
+  const shell = await caches.open(STATIC_CACHE);
+  // 精确匹配优先；Worker 的裸 URL 与页面带版本号的 URL 指向同一份物理
+  // 文件，故再按忽略查询串兜底，两种写法都能命中离线外壳。
+  const hit = (await runtime.match(req)) ||
+              (await shell.match(req)) ||
+              (await runtime.match(req, { ignoreSearch: true })) ||
+              (await shell.match(req, { ignoreSearch: true }));
+  if (hit) return hit;
+  try {
+    const fresh = await fetch(req);
+    if (isCacheableResponse(fresh)) {
+      await runtime.put(req, fresh.clone());
+      trimCache(runtime);
+    }
+    return fresh;
+  } catch (e) {
+    return new Response("", {
+      status: 503,
+      headers: { "Content-Type": "application/javascript; charset=utf-8" },
+    });
+  }
 }
 
 /* ---------- fetch：分策略派发 ---------- */
@@ -291,12 +344,19 @@ self.addEventListener("fetch", (event) => {
           return fresh;
         } catch (e) {
           const cache = await caches.open(RUNTIME_CACHE);
+          const shell = await caches.open(STATIC_CACHE);
           // v12.0 弱网增强：查询串不同的同一页面（如 /post.html?id=a 与 ?id=b）
           // 也回退到任一已缓存版本，最后才落到 OFFLINE_URL。在线路径完全不变，
           // network-first 语义与 step16 I2 断言保持逐字节一致。
+          // v15.0 离线闭环：预缓存页面存放在 STATIC_CACHE，此前断网导航只查
+          // RUNTIME_CACHE，导致 /tools.html 会退化到首页而非打开自身。现在
+          // 两个容器都按「精确 → ignoreSearch」依次查找，页面级完全离线。
           const hit = (await cache.match(req)) ||
                       (await cache.match(req, { ignoreSearch: true })) ||
-                      (await cache.match(OFFLINE_URL));
+                      (await shell.match(req)) ||
+                      (await shell.match(req, { ignoreSearch: true })) ||
+                      (await cache.match(OFFLINE_URL)) ||
+                      (await shell.match(OFFLINE_URL));
           if (hit) return hit;
           return new Response(
             "<!DOCTYPE html><html lang='zh-CN'><head><meta charset='UTF-8'>" +
@@ -344,6 +404,15 @@ self.addEventListener("fetch", (event) => {
         }
       })()
     );
+    return;
+  }
+
+  // 2.5) v15.0 工具箱「完全离线可用」：URL 自带内容版本的不可变资源
+  // 走严格 Cache-First。置于全部 /api/ 分支之后，实时接口 / 状态码探测 /
+  // IP 查询 / 云盘 Range 的行为逐字不变；仅接管工具箱自己的前端资产。
+  if (!url.pathname.startsWith("/api/") && req.mode !== "navigate" &&
+      TOOLBOX_IMMUTABLE_PATH.test(url.pathname)) {
+    event.respondWith(cacheFirstImmutable(req));
     return;
   }
 

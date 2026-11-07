@@ -1,5 +1,5 @@
 /* ============================================================
- * toolbox-pure.js —— 极客工具箱「纯函数内核」（v14.0）
+ * toolbox-pure.js —— 极客工具箱「纯函数内核」（v15.0）
  * ------------------------------------------------------------
  * 架构纪律（模块一 · 纯函数彻底抽离）：
  *   · 12 个工具的**全部核心算法**都在这里，不含任何 DOM、网络、
@@ -724,6 +724,413 @@
   }
 
   /* ============================================================
+   * v15.0 工具 13：Cron 表达式生成 / 解析 / 下次执行时间预测
+   * ------------------------------------------------------------
+   * 纯数值 + Date 运算，不依赖任何 DOM、Intl 或第三方库。时间基准
+   * 一律采用「本地时区」（与用户在可视化界面上看到的时间一致），
+   * 起始时间戳由调用方注入，保证相同入参必得相同出参。
+   * ============================================================ */
+
+  /**
+   * 解析 Cron 单字段为排序去重的合法取值集合。
+   * 支持通配星号、带步进的通配、单值 `a`、区间 `a-b`、区间带步进、起始值带步进，
+   * 以及用逗号连接的多段组合（如 1,3,5-9）。
+   * @param {string} field 字段原文
+   * @param {number} min 该字段合法最小值
+   * @param {number} max 该字段合法最大值
+   * @returns {{ok: boolean, values?: number[], star?: boolean, error?: string}} 解析结果
+   */
+  function parseCronField(field, min, max) {
+    var s = String(field == null ? "" : field).trim();
+    if (!s) return { ok: false, error: "字段不能为空" };
+    var star = /^\*$/.test(s);
+    var out = [];
+    var parts = s.split(",");
+    for (var pi = 0; pi < parts.length; pi++) {
+      var part = parts[pi].trim();
+      if (!part) return { ok: false, error: "存在空的分段" };
+      var step = 1, range = part, stepped = false;
+      var slash = part.indexOf("/");
+      if (slash >= 0) {
+        range = part.slice(0, slash).trim();
+        var stepRaw = part.slice(slash + 1).trim();
+        if (!/^\d+$/.test(stepRaw)) return { ok: false, error: "步进值必须是正整数：" + part };
+        step = Number(stepRaw);
+        if (step < 1) return { ok: false, error: "步进值必须大于 0：" + part };
+        stepped = true;
+      }
+      var lo, hi;
+      if (range === "*") {
+        lo = min; hi = max;
+      } else {
+        var m = /^(\d+)(?:-(\d+))?$/.exec(range);
+        if (!m) return { ok: false, error: "无法解析字段：" + part };
+        lo = Number(m[1]);
+        hi = m[2] === undefined ? (stepped ? max : lo) : Number(m[2]);
+      }
+      if (!isFinite(lo) || !isFinite(hi) || lo < min || hi > max || lo > hi) {
+        return { ok: false, error: "字段超出范围 " + min + "–" + max + "：" + part };
+      }
+      for (var v = lo; v <= hi; v += step) out.push(v);
+    }
+    if (!out.length) return { ok: false, error: "字段未产生任何取值" };
+    out.sort(function (a, b) { return a - b; });
+    var uniq = [];
+    for (var i = 0; i < out.length; i++) {
+      if (uniq.length === 0 || uniq[uniq.length - 1] !== out[i]) uniq.push(out[i]);
+    }
+    return { ok: true, values: uniq, star: star };
+  }
+
+  /**
+   * 把 5 段 Cron 表达式字符串拆为字段对象。
+   * @param {string} expression Cron 表达式（分 时 日 月 周）
+   * @returns {{ok: boolean, parts?: Object, error?: string}} 拆分结果
+   */
+  function cronExpressionToParts(expression) {
+    var t = String(expression == null ? "" : expression).trim().split(/\s+/);
+    if (t.length !== 5 || !t[0]) return { ok: false, error: "Cron 表达式必须恰好 5 段（分 时 日 月 周）" };
+    return {
+      ok: true,
+      parts: { minute: t[0], hour: t[1], dom: t[2], month: t[3], dow: t[4] },
+    };
+  }
+
+  /**
+   * 校验并组装 Cron 表达式（可视化控件的唯一出口）。
+   * @param {Object|string} parts 字段对象或 5 段表达式字符串
+   * @returns {{ok: boolean, expression?: string, fields?: Object, wild?: Object,
+   *            parts?: Object, field?: string, error?: string}} 组装结果
+   */
+  function buildCron(parts) {
+    var p = parts;
+    if (typeof parts === "string") {
+      var sp = cronExpressionToParts(parts);
+      if (!sp.ok) return { ok: false, error: sp.error };
+      p = sp.parts;
+    }
+    var src = p || {};
+    var ranges = C.CRON_RANGES || {
+      minute: { min: 0, max: 59 }, hour: { min: 0, max: 23 }, dom: { min: 1, max: 31 },
+      month: { min: 1, max: 12 }, dow: { min: 0, max: 7 },
+    };
+    var names = C.CRON_FIELDS || ["minute", "hour", "dom", "month", "dow"];
+    var fields = {}, wild = {}, normalized = {}, text = [];
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      var raw = String(src[name] == null ? "*" : src[name]).trim() || "*";
+      var r = parseCronField(raw, ranges[name].min, ranges[name].max);
+      if (!r.ok) return { ok: false, error: name + " 段：" + r.error, field: name };
+      fields[name] = r.values;
+      wild[name] = !!r.star;
+      normalized[name] = raw;
+      text.push(raw);
+    }
+    // 星期 7 与 0 都代表周日，统一归并，避免预测时漏匹配
+    var dow = fields.dow.slice();
+    if (dow.indexOf(7) >= 0 && dow.indexOf(0) < 0) dow.push(0);
+    fields.dow = dow.sort(function (a, b) { return a - b; });
+    return {
+      ok: true, expression: text.join(" "), fields: fields,
+      wild: wild, parts: normalized,
+    };
+  }
+
+  /**
+   * 判断某个本地时间点是否命中 Cron 各字段。
+   * 遵循 Vixie cron 语义：日 / 周都受限时二者为「或」关系，都通配时每天命中。
+   * @param {Object} fields buildCron 返回的取值集合
+   * @param {Object} wild buildCron 返回的通配标记
+   * @param {Date} d 待判定的本地时间点
+   * @returns {boolean} 是否命中
+   */
+  function cronMatches(fields, wild, d) {
+    var minute = d.getMinutes(), hour = d.getHours();
+    var month = d.getMonth() + 1, dom = d.getDate(), dow = d.getDay();
+    if (fields.minute.indexOf(minute) < 0) return false;
+    if (fields.hour.indexOf(hour) < 0) return false;
+    if (fields.month.indexOf(month) < 0) return false;
+    var domHit = fields.dom.indexOf(dom) >= 0;
+    var dowHit = fields.dow.indexOf(dow) >= 0;
+    if (!wild.dom && !wild.dow) return domHit || dowHit;
+    if (!wild.dom) return domHit;
+    if (!wild.dow) return dowHit;
+    return true;
+  }
+
+  /**
+   * 预测接下来 N 次执行时间戳（升序）。
+   * 采用「按月 / 按小时」跳进 + 分钟级扫描，避免逐年逐分钟遍历带来的开销；
+   * 扫描窗口耗尽仍凑不满 N 次时返回已找到的结果并置 truncated。
+   * @param {string|Object} expression Cron 表达式或字段对象
+   * @param {number} [count] 需要预测的条数
+   * @param {number} [fromMs] 起始时间戳（毫秒，注入保证可测）
+   * @param {number} [maxScanMinutes] 最大扫描窗口（分钟）
+   * @returns {{ok: boolean, times: number[], count: number, truncated: boolean,
+   *            expression?: string, error?: string}} 预测结果
+   */
+  function cronNext(expression, count, fromMs, maxScanMinutes) {
+    var built = buildCron(expression);
+    if (!built.ok) return { ok: false, times: [], count: 0, truncated: false, error: built.error };
+    var want = Math.max(1, Math.min(20, Number(count) || C.CRON_NEXT_COUNT || 5));
+    var limit = Math.max(1, Number(maxScanMinutes) || C.CRON_MAX_SCAN_MINUTES || 527040);
+    var start = (typeof fromMs === "number" && isFinite(fromMs)) ? fromMs : Date.now();
+    var deadline = start + limit * 60000;
+    var t = Math.floor(start / 60000) * 60000 + 60000;
+    var times = [], steps = 0;
+    var fields = built.fields, wild = built.wild;
+    while (t <= deadline && times.length < want) {
+      if (++steps > limit * 2) break; // 绝对熔断，杜绝任何异常导致的死循环
+      var d = new Date(t);
+      if (fields.month.indexOf(d.getMonth() + 1) < 0) {
+        var nextMonth = new Date(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0).getTime();
+        t = nextMonth > t ? nextMonth : t + 60000;
+        continue;
+      }
+      var domHit = fields.dom.indexOf(d.getDate()) >= 0;
+      var dowHit = fields.dow.indexOf(d.getDay()) >= 0;
+      var dayOk = (!wild.dom && !wild.dow) ? (domHit || dowHit)
+        : !wild.dom ? domHit : !wild.dow ? dowHit : true;
+      if (!dayOk) {
+        var nextDay = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1, 0, 0, 0, 0).getTime();
+        t = nextDay > t ? nextDay : t + 60000;
+        continue;
+      }
+      if (fields.hour.indexOf(d.getHours()) < 0) {
+        var nextHour = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours() + 1, 0, 0, 0).getTime();
+        t = nextHour > t ? nextHour : t + 60000;
+        continue;
+      }
+      if (fields.minute.indexOf(d.getMinutes()) < 0) { t += 60000; continue; }
+      times.push(t);
+      t += 60000;
+    }
+    return {
+      ok: times.length > 0, times: times, count: times.length,
+      truncated: times.length < want, expression: built.expression,
+    };
+  }
+
+  /**
+   * 生成 Cron 表达式的中文可读描述（用于可视化面板的即时反馈）。
+   * @param {string|Object} expression Cron 表达式或字段对象
+   * @returns {{ok: boolean, text?: string, error?: string}} 描述结果
+   */
+  function cronDescribe(expression) {
+    var b = buildCron(expression);
+    if (!b.ok) return { ok: false, error: b.error };
+    var p = b.parts, w = b.wild;
+    var days = [];
+    if (!w.dom) days.push("每月 " + p.dom + " 日");
+    if (!w.dow) {
+      var dows = b.fields.dow.filter(function (v) { return v !== 7; });
+      var names = dows.map(function (v) {
+        return "周" + ["日", "一", "二", "三", "四", "五", "六"][v];
+      });
+      var contiguous = dows.length > 2 && dows[dows.length - 1] - dows[0] === dows.length - 1;
+      days.push(contiguous ? names[0] + "至" + names[names.length - 1] : names.join("、"));
+    }
+    if (!w.month) days.push(p.month + " 月");
+    var when = "每分钟";
+    if (!w.minute && !w.hour) when = "每天 " + pad2(Number(p.hour.split(/[^0-9]/)[0]) || 0) + ":" + pad2(Number(p.minute) || 0);
+    else if (!w.minute) when = "每小时的第 " + p.minute + " 分";
+    else if (!w.hour) when = p.hour + " 点的每分钟";
+    return { ok: true, text: (days.length ? days.join(" / ") + " · " : "") + when + " 执行" };
+  }
+
+  /* ============================================================
+   * v15.0 工具 14：URL 编解码 / Query 参数解析
+   * ------------------------------------------------------------
+   * 三种作用域：component（整串当作一个 URI 组件，严格按
+   * encodeURIComponent / decodeURIComponent）、query（保留 URL 结构，
+   * 只处理参数值）、all（键与值都处理）。query/all 采用表单语义，
+   * 空格编码为 `+`，保证编解码可逆且不破坏 `://` `?` `&` `#` 结构。
+   * ============================================================ */
+
+  /**
+   * 拆分 URL 为 base / query / hash（不依赖全局 URL 类，三端通用）。
+   * @param {string} raw 原始输入
+   * @returns {{base: string, query: string, hash: string, hasQuery: boolean}} 拆分结果
+   */
+  function splitUrl(raw) {
+    var s = String(raw == null ? "" : raw);
+    var hash = "", hi = s.indexOf("#");
+    if (hi >= 0) { hash = s.slice(hi); s = s.slice(0, hi); }
+    var qi = s.indexOf("?");
+    return {
+      base: qi >= 0 ? s.slice(0, qi) : "",
+      query: qi >= 0 ? s.slice(qi + 1) : s,
+      hash: hash,
+      hasQuery: qi >= 0,
+    };
+  }
+
+  /**
+   * 表单语义编码（空格 → `+`）。
+   * @param {string} v 明文
+   * @returns {string} 编码串
+   */
+  function formEncode(v) {
+    return encodeURIComponent(String(v == null ? "" : v)).replace(/%20/g, "+");
+  }
+
+  /**
+   * 表单语义解码（`+` → 空格），非法百分号序列局部隔离为原串。
+   * @param {string} v 编码串
+   * @returns {{value: string, invalid: boolean}} 解码值与是否遇到非法编码
+   */
+  function formDecode(v) {
+    var raw = String(v == null ? "" : v);
+    try {
+      return { value: decodeURIComponent(raw.replace(/\+/g, " ")), invalid: false };
+    } catch (e) {
+      return { value: raw, invalid: true };
+    }
+  }
+
+  /**
+   * URL 编解码统一入口。
+   * @param {string} input 输入串
+   * @param {"encode"|"decode"} mode 编码 / 解码
+   * @param {"component"|"query"|"all"} [scope] 作用域，默认 query
+   * @returns {{ok: boolean, value?: string, invalid?: number, error?: string}} 转换结果
+   */
+  function urlConvert(input, mode, scope) {
+    var s = String(input == null ? "" : input);
+    if (s.length > (C.URL_MAX_LEN || 20000)) return { ok: false, error: "输入过长，无法处理" };
+    var dec = mode === "decode";
+    var sc = scope || "query";
+    if (sc === "component") {
+      try {
+        return { ok: true, value: dec ? decodeURIComponent(s) : encodeURIComponent(s), invalid: 0 };
+      } catch (e) {
+        return { ok: false, error: dec ? "包含非法的百分号编码（% 后需跟两位十六进制）" : "编码失败：" + String(e && e.message || e) };
+      }
+    }
+    if (sc !== "query" && sc !== "all") return { ok: false, error: "不支持的作用域：" + sc };
+    var sp = splitUrl(s);
+    var pairs = sp.query.length ? sp.query.split("&") : [];
+    var out = [], invalid = 0;
+    for (var i = 0; i < pairs.length; i++) {
+      var pair = pairs[i];
+      if (pair === "") { out.push(""); continue; }
+      var eq = pair.indexOf("=");
+      var k = eq >= 0 ? pair.slice(0, eq) : pair;
+      var v = eq >= 0 ? pair.slice(eq + 1) : "";
+      var nk = k, nv = v;
+      if (dec) {
+        var dk = formDecode(k), dv = formDecode(v);
+        if (dk.invalid) invalid++;
+        if (dv.invalid) invalid++;
+        nk = sc === "all" ? dk.value : k;
+        nv = dv.value;
+      } else {
+        nk = sc === "all" ? formEncode(k) : k;
+        nv = formEncode(v);
+      }
+      out.push(eq >= 0 ? nk + "=" + nv : nk);
+    }
+    var prefix = sp.hasQuery ? sp.base + "?" : "";
+    return { ok: true, value: prefix + out.join("&") + sp.hash, invalid: invalid };
+  }
+
+  /**
+   * 解析 URL 的 Query 参数列表（保留原始值与解码值，重复键按出现顺序保留）。
+   * @param {string} url 完整 URL 或纯查询串
+   * @returns {{ok: boolean, base: string, hash: string,
+   *            params: Array<{key: string, value: string, rawKey: string, rawValue: string, invalid: boolean}>,
+   *            count: number, invalid: number, truncated: boolean}} 解析结果
+   */
+  function parseQuery(url) {
+    var s = String(url == null ? "" : url);
+    if (s.length > (C.URL_MAX_LEN || 20000)) return {
+      ok: false, base: "", hash: "", params: [], count: 0, invalid: 0, truncated: true,
+    };
+    var sp = splitUrl(s);
+    var limit = C.QUERY_MAX_PARAMS || 200;
+    var segs = sp.query.length ? sp.query.split("&") : [];
+    var params = [], invalid = 0;
+    for (var i = 0; i < segs.length && params.length < limit; i++) {
+      var seg = segs[i];
+      if (seg === "") continue;
+      var eq = seg.indexOf("=");
+      var rawK = eq >= 0 ? seg.slice(0, eq) : seg;
+      var rawV = eq >= 0 ? seg.slice(eq + 1) : "";
+      var dk = formDecode(rawK), dv = formDecode(rawV);
+      if (dk.invalid || dv.invalid) invalid++;
+      params.push({
+        key: dk.value, value: dv.value,
+        rawKey: rawK, rawValue: rawV,
+        invalid: dk.invalid || dv.invalid,
+      });
+    }
+    return {
+      ok: true, base: sp.hasQuery ? sp.base : "", hash: sp.hash,
+      params: params, count: params.length, invalid: invalid,
+      truncated: segs.length > limit,
+    };
+  }
+
+  /* ============================================================
+   * v15.0 工具 15：文本大小写转换
+   * ------------------------------------------------------------
+   * 词元切分同时处理：空格/标点分隔、camelCase / PascalCase 边界、
+   * 连续大写缩写、字母与数字边界，以及中文等 Unicode 字母。
+   * ============================================================ */
+
+  /**
+   * 把任意文本切分为词元数组（保留原始大小写）。
+   * @param {string} text 输入文本
+   * @returns {string[]} 词元数组
+   */
+  function splitWords(text) {
+    var s = String(text == null ? "" : text).trim();
+    if (!s) return [];
+    var normalized = s
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+      .replace(/([A-Za-z])([0-9])/g, "$1 $2")
+      .replace(/([0-9])([A-Za-z])/g, "$1 $2");
+    return normalized.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  }
+
+  /**
+   * 词元首字母大写、其余小写。
+   * @param {string} w 词元
+   * @returns {string} 首字母大写形式
+   */
+  function capitalize(w) {
+    var s = String(w == null ? "" : w).toLowerCase();
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  /**
+   * 文本大小写 / 命名风格转换。
+   * @param {string} text 输入文本
+   * @param {"upper"|"lower"|"title"|"camel"|"pascal"|"snake"|"kebab"} mode 目标形态
+   * @returns {{ok: boolean, value?: string, words?: string[], mode?: string, error?: string}} 转换结果
+   */
+  function convertCase(text, mode) {
+    var raw = String(text == null ? "" : text);
+    var m = mode || "lower";
+    var words = splitWords(raw);
+    var value;
+    switch (m) {
+      case "upper": value = raw.toUpperCase(); break;
+      case "lower": value = raw.toLowerCase(); break;
+      case "title": value = words.map(capitalize).join(" "); break;
+      case "camel": value = words.map(function (w, i) {
+        return i === 0 ? w.toLowerCase() : capitalize(w);
+      }).join(""); break;
+      case "pascal": value = words.map(capitalize).join(""); break;
+      case "snake": value = words.map(function (w) { return w.toLowerCase(); }).join("_"); break;
+      case "kebab": value = words.map(function (w) { return w.toLowerCase(); }).join("-"); break;
+      default: return { ok: false, error: "不支持的转换模式：" + m };
+    }
+    return { ok: true, value: value, words: words, mode: m };
+  }
+
+  /* ============================================================
    * 导出
    * ============================================================ */
 
@@ -752,6 +1159,12 @@
     // 12 颜色
     hexToRgb, rgbToHex, rgbToHsl, relativeLuminance, contrastRatio,
     buildGradientCss, gradientPalette, randomHex,
+    // 13 Cron
+    parseCronField, cronExpressionToParts, buildCron, cronMatches, cronNext, cronDescribe,
+    // 14 URL
+    splitUrl, formEncode, formDecode, urlConvert, parseQuery,
+    // 15 文本大小写
+    splitWords, capitalize, convertCase,
   };
 
   root.ToolboxPure = api;

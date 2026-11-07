@@ -1,5 +1,5 @@
 /* ============================================================
- * toolbox-constants.js —— 极客工具箱全局常量（v14.0）
+ * toolbox-constants.js —— 极客工具箱全局常量（v15.0）
  * ------------------------------------------------------------
  * 单一事实来源：所有硬编码的防抖时长、超时阈值、尺寸上限、
  * 强度分档、默认值、状态文案前缀统一收敛于此，UI 层与 Worker
@@ -51,12 +51,19 @@
    * @property {number} QR_MODULE_PX 二维码单模块像素
    * @property {number} QR_MARGIN_MODULES 二维码静默区（模块数）
    * @property {number} QR_MAX_TEXT_LEN 二维码最大文本长度
-   * @property {number} GRADIENT_DEFAULT_ANGLE 线性渐变默认角度
-   * @property {string} STATUS_OK 成功状态前缀
-   * @property {string} STATUS_ERROR 失败状态前缀
-   */
-  var C = {
-    VERSION: "14.0.0",
+ * @property {number} GRADIENT_DEFAULT_ANGLE 线性渐变默认角度
+ * @property {string} STATUS_OK 成功状态前缀
+ * @property {string} STATUS_ERROR 失败状态前缀
+ * @property {number} CRON_NEXT_COUNT 下次执行时间默认预测条数
+ * @property {number} CRON_MAX_SCAN_MINUTES Cron 预测最大扫描分钟数（约一年）
+ * @property {Object} CRON_RANGES Cron 五段字段的合法取值区间
+ * @property {number} URL_MAX_LEN URL 编解码输入最大长度
+ * @property {number} QUERY_MAX_PARAMS Query 参数最多解析条数
+ * @property {Array<string>} CASE_MODES 文本大小写转换支持的模式
+ * @property {number} KEYBOARD_GUARD_DELAY_MS 键盘弹起后滚动聚焦元素的延后时间
+ */
+var C = {
+  VERSION: "15.0.0",
 
     /* ---- 时序 ---- */
     DEBOUNCE_MS: 160,
@@ -120,6 +127,22 @@
     HTTP_3XX: 300,
     HTTP_4XX: 400,
     HTTP_5XX: 500,
+
+    /* ---- v15.0：Cron / URL / 大小写 三工具 ---- */
+    CRON_NEXT_COUNT: 5,
+    CRON_MAX_SCAN_MINUTES: 366 * 24 * 60,
+    CRON_RANGES: Object.freeze({
+      minute: Object.freeze({ min: 0, max: 59 }),
+      hour: Object.freeze({ min: 0, max: 23 }),
+      dom: Object.freeze({ min: 1, max: 31 }),
+      month: Object.freeze({ min: 1, max: 12 }),
+      dow: Object.freeze({ min: 0, max: 7 }),
+    }),
+    CRON_FIELDS: Object.freeze(["minute", "hour", "dom", "month", "dow"]),
+    URL_MAX_LEN: 20000,
+    QUERY_MAX_PARAMS: 200,
+    CASE_MODES: Object.freeze(["upper", "lower", "title", "camel", "snake", "pascal", "kebab"]),
+    KEYBOARD_GUARD_DELAY_MS: 60,
 
     /* ---- 状态文案 ---- */
     STATUS_OK: "● OK  ",
