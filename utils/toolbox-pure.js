@@ -1131,6 +1131,102 @@
   }
 
   /* ============================================================
+   * v16.0 展示塑形层（Presenters）
+   * ------------------------------------------------------------
+   * 把「业务规则 → 展示数据」这一步从 components/toolbox.js 抽离：
+   * 状态码分档、探测结果文案、IP 字段映射、Query 空值判定等规则
+   * 全部下沉到本层，输出纯数据视图模型；UI 薄层只做一次 DOM 写入，
+   * 不再持有任何业务判定。零 DOM / 零网络 / 零 console，
+   * 主线程与 Worker 可安全复用，类型契约见 src/shared/types.js。
+   * ============================================================ */
+
+  /**
+   * 按 HTTP 状态码分档返回状态色类名（与探测卡片着色规则一致）。
+   * @param {number} code HTTP 状态码，0 或非法值归为 dim
+   * @returns {string} CSS 类名（tb-ok / tb-redirect / tb-warn / tb-bad / tb-dim）
+   */
+  function httpStatusClass(code) {
+    if (code >= C.HTTP_2XX && code < C.HTTP_3XX) return "tb-ok";
+    if (code >= C.HTTP_3XX && code < C.HTTP_4XX) return "tb-redirect";
+    if (code >= C.HTTP_4XX && code < C.HTTP_5XX) return "tb-warn";
+    if (code >= C.HTTP_5XX) return "tb-bad";
+    return "tb-dim";
+  }
+
+  /**
+   * 状态码探测结果 → 展示视图模型（ProbeViewModel）。
+   * @param {Object} d Worker 代理返回的数据，允许为空
+   * @returns {Object} 纯数据视图模型，UI 层据此写 DOM
+   */
+  function probeViewModel(d) {
+    var data = d || {};
+    var code = data.httpStatus ? data.httpStatus : 0;
+    var hs = data.headers || {};
+    var isError = data.status === "error";
+    return {
+      badgeClass: httpStatusClass(code),
+      codeText: code ? String(code) : "ERR",
+      desc: data.statusText ? data.statusText : (data.error ? "探测失败" : "—"),
+      latency: typeof data.elapsed === "number" ? data.elapsed + " ms" : "—",
+      method: data.method || "—",
+      target: data.url || "—",
+      headers: Object.keys(hs).map(function (k) {
+        return { key: k, value: hs[k] };
+      }),
+      noteClass: isError ? "tb-note-bad" : "",
+      note: isError
+        ? "✕ " + (data.error || "目标不可达") + "（" + (data.code || "NETWORK_ERROR") + "）"
+        : data.note || "—",
+    };
+  }
+
+  /**
+   * IP 归属信息 → 展示视图模型（IpViewModel）。
+   * @param {Object} d ipinfo 返回数据
+   * @param {boolean} fallback 是否为本地缓存降级数据
+   * @returns {Object} 纯数据视图模型
+   */
+  function ipViewModel(d, fallback) {
+    var data = d || {};
+    var unavailable = data.status === "unavailable";
+    var loc = [data.country, data.region, data.city].filter(Boolean).join(" · ");
+    var msg = unavailable
+      ? "✕ " + (data.error || "上游暂不可用") +
+        (data.attempts && data.attempts.length ? "：" + data.attempts.join("；") : "")
+      : (fallback ? "⚠ 网络不稳定，展示的是本地缓存数据。" : "") + (data.message || "") +
+        (data.scope === "visitor" ? "  · 数据来自访客真实公网 IP" : "  · 出口视角");
+    return {
+      query: data.query || "—",
+      location: unavailable ? "—" : (loc || "—"),
+      continent: data.continent || "—",
+      isp: data.isp || "—",
+      org: data.org || "—",
+      asn: data.asn || "—",
+      timezone: data.timezone || "—",
+      source: (data.provider || "—") + " / " + (data.source || "—") + (data.cached ? " / 缓存" : ""),
+      elapsed: typeof data.elapsed === "number" ? data.elapsed + " ms" : "—",
+      noteClass: unavailable ? "tb-note-bad" : "",
+      note: msg || "查询完成",
+    };
+  }
+
+  /**
+   * URL Query 参数 → 表格视图模型（QueryViewModel）。
+   * @param {string} src 原始 URL 或纯查询串
+   * @returns {Object} 含计数文案、空态标记与参数行的视图模型
+   */
+  function queryViewModel(src) {
+    var q = parseQuery(src);
+    return {
+      countLabel: q.ok ? q.count + " 个参数" : "—",
+      empty: !q.ok || !q.params.length,
+      rows: (q.params || []).map(function (p) {
+        return { key: p.key, value: p.value === "" ? "(空)" : p.value, invalid: !!p.invalid };
+      }),
+    };
+  }
+
+  /* ============================================================
    * 导出
    * ============================================================ */
 
@@ -1165,6 +1261,8 @@
     splitUrl, formEncode, formDecode, urlConvert, parseQuery,
     // 15 文本大小写
     splitWords, capitalize, convertCase,
+    // v16.0 展示塑形层（业务规则下沉，UI 层只做 DOM 写入）
+    httpStatusClass, probeViewModel, ipViewModel, queryViewModel,
   };
 
   root.ToolboxPure = api;

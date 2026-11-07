@@ -131,7 +131,8 @@ window.BlogApi = (function () {
    * @param {number} [opts.cacheTtl=600000] 兜底缓存有效期（毫秒）
    * @param {function} [opts.onFallback] (cachedData, err) => void 降级命中时回调
    * @param {boolean} [opts.dedupe=true] 读请求并发去重（默认开启）
-   * @returns {Promise<any>} 解析后的 JSON（或文本）
+   * @returns {Promise<JsonValue|string>} 解析后的 JSON（或原始文本）
+   *   v16.0：消除 any，类型契约统一在 src/shared/types.js 声明。
    */
   async function request(url, opts) {
     const options = opts || {};

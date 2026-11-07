@@ -382,47 +382,43 @@
   /* ============================================================
    * 06 状态码探测 / 07 IP 查询 —— 统一走 BlogApi
    * ============================================================ */
-  function probeClass(code) {
-    if (code >= C.HTTP_2XX && code < C.HTTP_3XX) return "tb-ok";
-    if (code >= C.HTTP_3XX && code < C.HTTP_4XX) return "tb-redirect";
-    if (code >= C.HTTP_4XX && code < C.HTTP_5XX) return "tb-warn";
-    if (code >= C.HTTP_5XX) return "tb-bad";
-    return "tb-dim";
-  }
-
+  /**
+   * 把探测视图模型写入 DOM。
+   * v16.0：状态码分档 / 文案与空值规则已全部下沉至
+   * ToolboxPure.probeViewModel，本函数只负责一次性 DOM 写入。
+   * @param {Object} d Worker 代理返回的原始数据
+   * @returns {void}
+   */
   function renderProbe(d) {
     var badge = $("probe-status"), label = $("probe-status-text");
     if (!badge || !label) return;
-    var code = d && d.httpStatus ? d.httpStatus : 0;
-    badge.className = "tb-code-badge " + probeClass(code);
-    text(label, code ? String(code) : "ERR");
-    text($("probe-status-desc"), d && d.statusText ? d.statusText : (d && d.error ? "探测失败" : "—"));
-    text($("probe-latency"), d && typeof d.elapsed === "number" ? d.elapsed + " ms" : "—");
-    text($("probe-method"), d && d.method ? d.method : "—");
-    text($("probe-target"), d && d.url ? d.url : "—");
+    var vm = P.probeViewModel(d);
+    badge.className = "tb-code-badge " + vm.badgeClass;
+    text(label, vm.codeText);
+    text($("probe-status-desc"), vm.desc);
+    text($("probe-latency"), vm.latency);
+    text($("probe-method"), vm.method);
+    text($("probe-target"), vm.target);
     var tbody = $("probe-headers");
     if (tbody) {
       tbody.textContent = "";
-      var hs = (d && d.headers) || {}, keys = Object.keys(hs);
-      if (!keys.length) {
+      if (!vm.headers.length) {
         var tr0 = document.createElement("tr"), td0 = document.createElement("td");
         td0.colSpan = 2; td0.className = "tb-dim"; td0.textContent = "（无响应头）";
         tr0.appendChild(td0); tbody.appendChild(tr0);
       } else {
-        keys.forEach(function (k) {
+        vm.headers.forEach(function (h) {
           var tr = document.createElement("tr");
           var a = document.createElement("td"), b = document.createElement("td");
-          a.textContent = k; b.textContent = hs[k];
+          a.textContent = h.key; b.textContent = h.value;
           tr.appendChild(a); tr.appendChild(b); tbody.appendChild(tr);
         });
       }
     }
     var note = $("probe-note");
     if (note) {
-      note.className = "tb-note " + (d && d.status === "error" ? "tb-note-bad" : "");
-      text(note, d && d.status === "error"
-        ? "✕ " + (d.error || "目标不可达") + "（" + (d.code || "NETWORK_ERROR") + "）"
-        : (d && d.note) || "—");
+      note.className = "tb-note " + vm.noteClass;
+      text(note, vm.note);
     }
   }
 
@@ -471,27 +467,30 @@
     });
   }
 
+  /**
+   * 把 IP 归属视图模型写入 DOM。
+   * v16.0：字段映射、地区拼接、降级/错误提示规则已下沉至
+   * ToolboxPure.ipViewModel，本函数只负责 DOM 写入。
+   * @param {Object} d ipinfo 返回数据
+   * @param {boolean} fallback 是否本地缓存降级
+   * @returns {void}
+   */
   function renderIpInfo(d, fallback) {
     if (!d) return;
-    var unavailable = d.status === "unavailable";
-    text($("ip-query"), d.query || "—");
-    var loc = [d.country, d.region, d.city].filter(Boolean).join(" · ");
-    text($("ip-location"), unavailable ? "—" : (loc || "—"));
-    text($("ip-continent"), d.continent || "—");
-    text($("ip-isp"), d.isp || "—");
-    text($("ip-org"), d.org || "—");
-    text($("ip-asn"), d.asn || "—");
-    text($("ip-timezone"), d.timezone || "—");
-    text($("ip-source"), (d.provider || "—") + " / " + (d.source || "—") + (d.cached ? " / 缓存" : ""));
-    text($("ip-elapsed"), typeof d.elapsed === "number" ? d.elapsed + " ms" : "—");
+    var vm = P.ipViewModel(d, fallback);
+    text($("ip-query"), vm.query);
+    text($("ip-location"), vm.location);
+    text($("ip-continent"), vm.continent);
+    text($("ip-isp"), vm.isp);
+    text($("ip-org"), vm.org);
+    text($("ip-asn"), vm.asn);
+    text($("ip-timezone"), vm.timezone);
+    text($("ip-source"), vm.source);
+    text($("ip-elapsed"), vm.elapsed);
     var note = $("ip-note");
     if (!note) return;
-    var msg = unavailable
-      ? "✕ " + (d.error || "上游暂不可用") + (d.attempts && d.attempts.length ? "：" + d.attempts.join("；") : "")
-      : (fallback ? "⚠ 网络不稳定，展示的是本地缓存数据。" : "") + (d.message || "") +
-        (d.scope === "visitor" ? "  · 数据来自访客真实公网 IP" : "  · 出口视角");
-    note.className = "tb-note " + (unavailable ? "tb-note-bad" : "");
-    text(note, msg || "查询完成");
+    note.className = "tb-note " + vm.noteClass;
+    text(note, vm.note);
   }
 
   function loadIpInfo() {
@@ -1038,25 +1037,32 @@
    * @param {string} src 原始输入串
    * @returns {void}
    */
+  /**
+   * 把 Query 参数视图模型写入 DOM。
+   * v16.0：计数文案、空态判定、空值/非法编码标记已下沉至
+   * ToolboxPure.queryViewModel，本函数只负责 DOM 写入。
+   * @param {string} src 原始 URL 或查询串
+   * @returns {void}
+   */
   function renderQuery(src) {
     var tbody = $("url-params");
     if (!tbody) return;
     tbody.textContent = "";
-    var q = P.parseQuery(src);
-    text($("url-param-count"), q.ok ? q.count + " 个参数" : "—");
-    if (!q.ok || !q.params.length) {
+    var vm = P.queryViewModel(src);
+    text($("url-param-count"), vm.countLabel);
+    if (vm.empty) {
       var tr0 = document.createElement("tr"), td0 = document.createElement("td");
       td0.colSpan = 2; td0.className = "tb-url-empty";
       td0.textContent = "（无 Query 参数，或输入为纯组件串）";
       tr0.appendChild(td0); tbody.appendChild(tr0);
       return;
     }
-    q.params.forEach(function (p) {
+    vm.rows.forEach(function (r) {
       var tr = document.createElement("tr");
       var a = document.createElement("td"), b = document.createElement("td");
-      a.textContent = p.key;
-      b.textContent = p.value === "" ? "(空)" : p.value;
-      if (p.invalid) b.className = "tb-tok-err";
+      a.textContent = r.key;
+      b.textContent = r.value;
+      if (r.invalid) b.className = "tb-tok-err";
       tr.appendChild(a); tr.appendChild(b); tbody.appendChild(tr);
     });
   }
