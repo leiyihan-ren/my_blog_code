@@ -45,6 +45,11 @@ console.log("\n═══ A. 静态架构与工程规范 ═══");
   const cssIn = read("styles/toolbox.input.css");
   const sw = read("sw.js");
   const html = read("pages/tools.html");
+  // v15.0：版本断言改为「从源码动态提取并对齐」，不再把具体大版本钉死。
+  // 每次发版只需保证 常量层 / SW / 页面查询串 三者一致，断言强度不降反升。
+  const prodVer = (/VERSION:\s*"([\d.]+)"/.exec(cons) || [])[1] || "";
+  const swVer = (/CACHE_VERSION = "v([\d.]+)"/.exec(sw) || [])[1] || "";
+  const verEscape = swVer.replace(/\./g, "\\.");
 
   // A1 纯函数彻底抽离：剥离注释后再判定（注释里说明「零 fetch/console」不算副作用）
   const pureCode = pure.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
@@ -141,24 +146,27 @@ console.log("\n═══ A. 静态架构与工程规范 ═══");
     && /clearInterval|clearTimeout|removeEventListener|cancelIdleCallback|cancelAnimationFrame|terminate/.test(scope);
   check("A10 Scope 统一登记并销毁全部监听器/定时器/Worker", scopeOk);
 
-  // A11 PWA：版本号 + 6 个新资源预缓存
-  const swOk = /const CACHE_VERSION = "v14\.0\.0"/.test(sw)
+  // A11 PWA：版本号三方对齐 + 6 个新资源预缓存 + Worker 裸 URL（v15 离线闭环）
+  const swOk = !!swVer && swVer === prodVer
     && ["toolbox-constants", "toolbox-pure", "toolbox-scope", "toolbox-worker", "toolboxCompute", "qrcode"]
-      .every((n) => new RegExp("/(?:utils|services|vendor)/" + n + "\\.js\\?v=14\\.0\\.0").test(sw));
-  check("A11 SW v14.0.0 + 6 个新资源全部纳入预缓存", swOk);
+      .every((n) => new RegExp("/(?:utils|services|vendor)/" + n + "\\.js\\?v=" + verEscape).test(sw))
+    && ["/utils/toolbox-worker.js\"", "/utils/toolbox-constants.js\"", "/utils/toolbox-pure.js\""]
+      .every((u) => sw.includes(u));
+  check("A11 SW/常量层版本对齐 + 6 内核资源 + Worker 裸 URL 全部预缓存", swOk,
+    `SW v${swVer} / 常量 ${prodVer}`);
 
   // A12 脚本加载顺序（依赖链不可颠倒）+ cache-bust
   const order = ["toolbox-constants", "toolbox-pure", "toolbox-scope", "toolboxCompute", "qrcode", "toolbox"];
-  const idxs = order.map((n) => html.indexOf(n + ".js?v=14.0.0"));
-  check("A12 内核脚本依赖顺序正确且全部带 ?v=14.0.0",
+  const idxs = order.map((n) => html.indexOf(n + ".js?v=" + swVer));
+  check("A12 内核脚本依赖顺序正确且全部带匹配 SW 的 ?v=" + swVer,
     idxs.every((v, i) => v > 0 && (i === 0 || v > idxs[i - 1])));
 
   // A13 Tab 分类：默认 DOM 只有 7 卡（Tab B 在 template 内惰性挂载）
   const panelCut = html.indexOf('<div id="tb-panel-advanced"');
   const basicCards = (html.slice(0, panelCut).match(/data-tool="/g) || []).length;
   const tplCards = (html.slice(html.indexOf("<template")).match(/data-tool="/g) || []).length;
-  check("A13 Tab 分类 A=7 / B(template)=5，默认 DOM 恰 7 卡",
-    basicCards === 7 && tplCards === 5 && /role="tablist"/.test(html),
+  check("A13 Tab 分类 A=7 / B(template)=8，默认 DOM 恰 7 卡",
+    basicCards === 7 && tplCards === 8 && /role="tablist"/.test(html),
     `A=${basicCards} B=${tplCards}`);
 
   // A14 红线静态核对：路由双表一致 + probe/ipinfo 仍走 BlogApi.get
@@ -187,9 +195,12 @@ console.log("\n═══ B. 纯函数内核 Node VM 自检 ═══");
   const C = vm.runInContext("ToolboxConstants", ctx);
   const qr = vm.runInContext("qrcode", ctx);
 
-  check("B1 常量层冻结 + 33 个纯函数导出 + 版本对齐",
-    Object.isFrozen(C) && C.VERSION === "14.0.0" && C.DEBOUNCE_MS === 160
-    && Object.keys(P).length >= 30, `导出 ${Object.keys(P).length} 个`);
+  const prodVerB = (/VERSION:\s*"([\d.]+)"/.exec(read("utils/toolbox-constants.js")) || [])[1];
+  const swVerB = (/CACHE_VERSION = "v([\d.]+)"/.exec(read("sw.js")) || [])[1];
+  check("B1 常量层冻结 + 47 个纯函数导出 + 版本与源码/SW 三方对齐",
+    Object.isFrozen(C) && C.VERSION === prodVerB && C.VERSION === swVerB
+    && C.DEBOUNCE_MS === 160 && Object.keys(P).length >= 40,
+    `导出 ${Object.keys(P).length} 个 · v${C.VERSION}`);
 
   // JSON：格式化 / 高亮 / XSS 转义 / 非法输入隔离
   const jf = P.formatJson('{"a":1,"ok":true,"n":null,"s":"hi"}', "format");
@@ -345,9 +356,9 @@ try {
   await sleep(700);
   const tools = await page.evaluate(() =>
     [...document.querySelectorAll("[data-tool]")].map((e) => e.getAttribute("data-tool")));
-  const advNames = ["regex", "qrcode", "image", "diff", "gradient"];
-  check("C3 Tab B 共 12 工具，5 个进阶工具全部挂载 + aria-selected 同步",
-    tools.length === 12 && advNames.every((n) => tools.includes(n))
+  const advNames = ["regex", "qrcode", "image", "diff", "gradient", "cron", "url", "case"];
+  check("C3 Tab B 共 15 工具，8 个进阶工具全部挂载 + aria-selected 同步",
+    tools.length === 15 && advNames.every((n) => tools.includes(n))
     && (await page.getAttribute("#tb-tab-advanced", "aria-selected")) === "true"
     && (await page.locator("#tb-panel-basic").isHidden()),
     `tools=${tools.length}`);

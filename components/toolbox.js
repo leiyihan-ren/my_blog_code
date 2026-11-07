@@ -1,7 +1,7 @@
 /* ============================================================
- * toolbox.js —— 极客工具箱 v14.0 · UI 薄层控制器
+ * toolbox.js —— 极客工具箱 v15.0 · UI 薄层控制器
  * ------------------------------------------------------------
- * 架构纪律（模块一）：
+ * 架构纪律（v14 模块一，v15 完整继承）：
  *   1) 纯函数彻底抽离：所有算法在 utils/toolbox-pure.js；本文件只做
  *      「读 DOM → 调 ToolboxPure / ToolboxCompute → 写 DOM」，不含任何
  *      正则解析 / Base64 / MD5 / Diff / 颜色换算的实现。
@@ -14,10 +14,18 @@
  *      Worker 调用经 ToolboxScope 登记；Tab 切换销毁在途作用域，
  *      pagehide 销毁根作用域并 terminate Worker。
  *
- * Tab 策略（模块二）：
+ * Tab 策略（v14 模块二，v15 扩充至 8 张）：
  *   默认 Tab A【常规工具】= 7 张卡（与 v13.0 完全兼容，step26 零改动）；
- *   Tab B【进阶工具】的 5 张卡放在 inert <template>，首次激活才克隆挂载，
+ *   Tab B【进阶工具】的 8 张卡放在 inert <template>，首次激活才克隆挂载，
  *   因此默认视图的 DOM 卡片数恒为 7。两个 Tab 共用折叠 / 复制事件委托。
+ *
+ * v15.0 新增（模块一 / 二 / 三）：
+ *   13 Cron 生成器、14 URL 编解码器、15 文本大小写转换器，全部沿用
+ *   「读 DOM → 调 ToolboxPure → 写 DOM」薄层纪律，零算法下沉到 UI。
+ *   离线守卫：navigator.onLine === false 时跳过注定失败的 IP 查询，
+ *   给出明确离线提示，保证断网页面零错误噪声（配合 SW 完全离线）。
+ *   键盘守卫：仅在 visualViewport 被软键盘压缩时把聚焦输入框滚入可视区，
+ *   桌面 / 无键盘环境零干预，所有监听都登记进 rootScope。
  *
  * 严格 CSP：无内联脚本、无 eval、无第三方运行时；用户输入一律
  * textContent 或经 ToolboxPure.escapeHtml 转义后再拼 HTML。
@@ -99,13 +107,13 @@
    * Tab B 的默认值直接写在 <template> 的 DOM 属性 / textarea 正文里，
    * 克隆即带值，无需 JS 播种（template.content 不属于文档树，
    * getElementById 在克隆前取不到，这是不能用 JS 播种的根本原因）。 */
-  var JSON_SAMPLE = '{"project":"toolbox","version":"14.0","stack":["Cloudflare Workers","PWA","TailwindCSS","Web Worker"],"features":{"frontend":7,"backend":2,"advanced":5,"ssrfGuard":true,"latencyMs":null},"author":{"name":"Lei Yihan","site":"https://leiyihan.dpdns.org"}}';
+  var JSON_SAMPLE = '{"project":"toolbox","version":"15.0","stack":["Cloudflare Workers","PWA","TailwindCSS","Web Worker"],"features":{"frontend":7,"backend":2,"advanced":8,"total":15,"offline":true,"ssrfGuard":true,"latencyMs":null},"author":{"name":"Lei Yihan","site":"https://leiyihan.dpdns.org"}}';
 
   function seedDefaults() {
     if ($("json-input")) $("json-input").value = JSON_SAMPLE;
-    if ($("b64-input")) $("b64-input").value = "极客工具箱 · Toolbox v14.0 🚀";
+    if ($("b64-input")) $("b64-input").value = "极客工具箱 · Toolbox v15.0 🚀";
     if ($("ts-input")) $("ts-input").value = String(Date.now());
-    if ($("hash-input")) $("hash-input").value = "Hello, Toolbox v14.0 — 极客工具箱";
+    if ($("hash-input")) $("hash-input").value = "Hello, Toolbox v15.0 — 极客工具箱";
     if ($("probe-url")) $("probe-url").value = "https://www.baidu.com";
     if ($("pw-length") && $("pw-length-num")) $("pw-length-num").value = $("pw-length").value;
   }
@@ -506,6 +514,12 @@
   function initIpInfo(scope) {
     if (!$("ip-query")) return;
     scope.on($("ip-refresh"), "click", guarded(scope, function () { loadIpInfo(); }));
+    // v15 PWA：断网时不发起注定失败的实时查询，避免错误噪声与超时等待。
+    // 前端 15 个计算工具全部离线可用，此处仅后端查询类工具给出明确提示。
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      renderIpInfo({ status: "unavailable", query: "—", error: "当前离线，联网后可查询" }, false);
+      return;
+    }
     scope.timeout(guarded(scope, function () { loadIpInfo(); }), C.IPINFO_AUTO_DELAY_MS);
   }
 
@@ -895,6 +909,322 @@
   }
 
   /* ============================================================
+   * 13 Cron 表达式生成器 —— 纯函数层：buildCron / cronNext / cronDescribe
+   * ============================================================ */
+  var CASE_LABELS = {
+    upper: "全大写 UPPER", lower: "全小写 lower", title: "首字母大写 Title Case",
+    camel: "驼峰 camelCase", pascal: "帕斯卡 PascalCase",
+    snake: "下划线 snake_case", kebab: "短横线 kebab-case",
+  };
+
+  /**
+   * 读取五个 Cron 可视化控件的当前取值。
+   * @returns {{minute: string, hour: string, dom: string, month: string, dow: string}} 字段对象
+   */
+  function readCronParts() {
+    var parts = {};
+    C.CRON_FIELDS.forEach(function (name) {
+      parts[name] = ($("cron-" + name) || {}).value || "*";
+    });
+    return parts;
+  }
+
+  /**
+   * 设置 select 的值；不存在对应 option 时动态补齐，避免「使用当前时间」出现空白。
+   * @param {string} id select 元素 id
+   * @param {string|number} value 目标值
+   * @returns {void}
+   */
+  function setCronSelect(id, value) {
+    var el = $(id);
+    if (!el) return;
+    var v = String(value);
+    var exists = false;
+    for (var i = 0; i < el.options.length; i++) {
+      if (el.options[i].value === v) { exists = true; break; }
+    }
+    if (!exists) {
+      var opt = document.createElement("option");
+      opt.value = v; opt.textContent = v;
+      el.appendChild(opt);
+    }
+    el.value = v;
+  }
+
+  /**
+   * 渲染 Cron 表达式、中文描述与接下来 N 次执行时间。
+   * @returns {void}
+   */
+  function runCron() {
+    var built = P.buildCron(readCronParts());
+    var expr = $("cron-expression"), out = $("cron-next"), desc = $("cron-describe");
+    if (!built.ok) {
+      if (expr) expr.value = "";
+      if (desc) text(desc, "表达式非法：" + built.error);
+      if (out) out.textContent = "";
+      text($("cron-count"), "—");
+      setStatus("cron-status", false, built.error);
+      return;
+    }
+    if (expr) expr.value = built.expression;
+    var d = P.cronDescribe(built.expression);
+    if (desc) text(desc, d.ok ? d.text : "—");
+    var next = P.cronNext(built.expression, C.CRON_NEXT_COUNT, Date.now());
+    if (out) {
+      out.textContent = "";
+      if (!next.ok) {
+        var empty = document.createElement("span");
+        empty.className = "tb-dim";
+        empty.textContent = "扫描窗口内未找到下次执行时间";
+        out.appendChild(empty);
+      } else {
+        var now = Date.now();
+        next.times.forEach(function (ts, i) {
+          var row = document.createElement("div");
+          row.className = "tb-cron-slot";
+          var no = document.createElement("span");
+          no.className = "tb-cron-no"; no.textContent = "#" + (i + 1);
+          var code = document.createElement("code");
+          code.textContent = P.formatLocal(new Date(ts)) + " · " +
+            ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][new Date(ts).getDay()];
+          var rel = document.createElement("span");
+          rel.className = "tb-cron-rel";
+          rel.textContent = P.relativeTime(new Date(ts), now);
+          row.appendChild(no); row.appendChild(code); row.appendChild(rel);
+          out.appendChild(row);
+        });
+      }
+    }
+    text($("cron-count"), next.count + " 次预测");
+    setStatus("cron-status", true, "表达式合法 · " + next.count + " 次预测" +
+      (next.truncated ? "（扫描窗口内未凑满）" : ""), "VALID");
+  }
+
+  /**
+   * 初始化 Cron 工具：五段 select 变更即时重算 + 两个快捷按钮。
+   * @param {Object} scope 生命周期作用域
+   * @returns {void}
+   */
+  function initCron(scope) {
+    if (!$("cron-minute")) return;
+    C.CRON_FIELDS.forEach(function (name) {
+      scope.on($("cron-" + name), "change", guarded(scope, runCron));
+    });
+    scope.on($("cron-btn-reset"), "click", guarded(scope, function () {
+      C.CRON_FIELDS.forEach(function (name) {
+        var el = $("cron-" + name);
+        if (el) el.value = "*";
+      });
+      runCron();
+    }));
+    scope.on($("cron-btn-now"), "click", guarded(scope, function () {
+      var d = new Date();
+      setCronSelect("cron-minute", d.getMinutes());
+      setCronSelect("cron-hour", d.getHours());
+      setCronSelect("cron-dom", "*");
+      setCronSelect("cron-month", "*");
+      setCronSelect("cron-dow", "*");
+      runCron();
+    }));
+    runCron();
+  }
+
+  /* ============================================================
+   * 14 URL 编解码器 —— 纯函数层：urlConvert / parseQuery
+   * ============================================================ */
+
+  /**
+   * 渲染 Query 参数表（展示解码后的键与值，非法编码标红）。
+   * @param {string} src 原始输入串
+   * @returns {void}
+   */
+  function renderQuery(src) {
+    var tbody = $("url-params");
+    if (!tbody) return;
+    tbody.textContent = "";
+    var q = P.parseQuery(src);
+    text($("url-param-count"), q.ok ? q.count + " 个参数" : "—");
+    if (!q.ok || !q.params.length) {
+      var tr0 = document.createElement("tr"), td0 = document.createElement("td");
+      td0.colSpan = 2; td0.className = "tb-url-empty";
+      td0.textContent = "（无 Query 参数，或输入为纯组件串）";
+      tr0.appendChild(td0); tbody.appendChild(tr0);
+      return;
+    }
+    q.params.forEach(function (p) {
+      var tr = document.createElement("tr");
+      var a = document.createElement("td"), b = document.createElement("td");
+      a.textContent = p.key;
+      b.textContent = p.value === "" ? "(空)" : p.value;
+      if (p.invalid) b.className = "tb-tok-err";
+      tr.appendChild(a); tr.appendChild(b); tbody.appendChild(tr);
+    });
+  }
+
+  /**
+   * 按当前方向 / 作用域执行 URL 转换并刷新参数表。
+   * @returns {void}
+   */
+  function runUrl() {
+    var input = $("url-input"), out = $("url-output");
+    if (!input || !out) return;
+    var mode = ($("url-mode") || {}).value || "encode";
+    var scopeName = ($("url-scope") || {}).value || "query";
+    var src = input.value;
+    if (!src) {
+      out.value = "";
+      renderQuery("");
+      setStatus("url-status", true, "等待输入");
+      return;
+    }
+    var r = P.urlConvert(src, mode, scopeName);
+    if (!r.ok) {
+      out.value = "";
+      setStatus("url-status", false, r.error);
+      return;
+    }
+    out.value = r.value;
+    var q = P.parseQuery(src);
+    renderQuery(src);
+    setStatus("url-status", true,
+      (mode === "decode" ? "已解码 · " : "已编码 · ") + q.count + " 个参数 · " +
+      (r.invalid || 0) + " 处非法编码已隔离", "VALID");
+  }
+
+  /**
+   * 初始化 URL 工具：输入防抖转换 + 方向/作用域切换 + 两个快捷按钮。
+   * @param {Object} scope 生命周期作用域
+   * @returns {void}
+   */
+  function initUrl(scope) {
+    var input = $("url-input"), mode = $("url-mode"), scopeSel = $("url-scope");
+    if (!input) return;
+    var auto = scopedDebounce(scope, runUrl, C.DEBOUNCE_MS);
+    scope.on(input, "input", auto);
+    scope.on(mode, "change", guarded(scope, runUrl));
+    scope.on(scopeSel, "change", guarded(scope, runUrl));
+    scope.on($("url-btn-encode"), "click", guarded(scope, function () {
+      mode.value = "encode"; runUrl();
+    }));
+    scope.on($("url-btn-decode"), "click", guarded(scope, function () {
+      mode.value = "decode"; runUrl();
+    }));
+    scope.on($("url-btn-clear"), "click", guarded(scope, function () {
+      input.value = ""; runUrl(); input.focus();
+    }));
+    runUrl();
+  }
+
+  /* ============================================================
+   * 15 文本大小写转换器 —— 纯函数层：convertCase / splitWords
+   * ============================================================ */
+
+  /**
+   * 渲染词元切分结果。
+   * @param {string[]} words 词元数组
+   * @returns {void}
+   */
+  function renderTokens(words) {
+    var host = $("case-tokens");
+    if (!host) return;
+    host.textContent = "";
+    text($("case-words"), words.length + " 个");
+    words.forEach(function (w) {
+      var s = document.createElement("span");
+      s.className = "tb-token"; s.textContent = w;
+      host.appendChild(s);
+    });
+    if (!words.length) {
+      var e = document.createElement("span");
+      e.className = "tb-dim"; e.textContent = "—";
+      host.appendChild(e);
+    }
+  }
+
+  /**
+   * 按指定模式转换文本并刷新输出 / 词元 / 激活态按钮。
+   * @param {string} mode 目标形态
+   * @returns {void}
+   */
+  function runCase(mode) {
+    var input = $("case-input"), out = $("case-output");
+    if (!input || !out) return;
+    var r = P.convertCase(input.value, mode);
+    if (!r.ok) {
+      out.value = "";
+      setStatus("case-status", false, r.error);
+      return;
+    }
+    out.value = r.value;
+    text($("case-mode-label"), CASE_LABELS[mode] || mode);
+    document.querySelectorAll("#case-modes [data-case]").forEach(function (b) {
+      b.classList.toggle("is-active", b.getAttribute("data-case") === mode);
+    });
+    renderTokens(r.words);
+    setStatus("case-status", true, "已转换 · " + r.words.length + " 个词元 · " + r.value.length + " 字符", "VALID");
+  }
+
+  /**
+   * 初始化大小写工具：模式按钮委托 + 输入防抖重算 + 清空。
+   * @param {Object} scope 生命周期作用域
+   * @returns {void}
+   */
+  function initCase(scope) {
+    var input = $("case-input");
+    if (!input) return;
+    var currentMode = "camel";
+    var rerun = function () { runCase(currentMode); };
+    scope.on(input, "input", scopedDebounce(scope, rerun, C.DEBOUNCE_MS));
+    scope.on($("case-modes"), "click", guarded(scope, function (e) {
+      var b = e.target && e.target.closest ? e.target.closest("[data-case]") : null;
+      if (!b) return;
+      currentMode = b.getAttribute("data-case");
+      rerun();
+    }));
+    scope.on($("case-btn-clear"), "click", guarded(scope, function () {
+      input.value = ""; rerun();
+    }));
+    rerun();
+  }
+
+  /* ============================================================
+   * 移动端软键盘守卫（v15 模块三）
+   * 只在 visualViewport 被明显压缩（键盘弹起）时介入，桌面零干预。
+   * ============================================================ */
+
+  /**
+   * 键盘是否处于弹起状态（布局视口高度显著收缩）。
+   * @returns {boolean} 是否弹起
+   */
+  function keyboardVisible() {
+    var vv = window.visualViewport;
+    return !!(vv && window.innerHeight > 0 && vv.height < window.innerHeight * 0.75);
+  }
+
+  /**
+   * 把当前聚焦的输入控件滚入可视区中部，避免被软键盘遮挡。
+   * 所有 timeout 与监听都登记进 rootScope，pagehide 一并销毁。
+   * @param {Object} scope 生命周期作用域
+   * @returns {void}
+   */
+  function initKeyboardGuard(scope) {
+    function refocus() {
+      if (!keyboardVisible()) return;
+      var el = document.activeElement;
+      if (!el || !el.tagName) return;
+      var tag = el.tagName.toLowerCase();
+      if (tag !== "input" && tag !== "textarea" && tag !== "select") return;
+      if (el.type === "range" || el.type === "checkbox" || el.type === "color" || el.readOnly) return;
+      scope.timeout(guarded(scope, function () {
+        try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+      }), C.KEYBOARD_GUARD_DELAY_MS);
+    }
+    var vv = window.visualViewport;
+    if (vv && typeof vv.addEventListener === "function") scope.on(vv, "resize", refocus);
+    scope.on(document, "focusin", refocus);
+  }
+
+  /* ============================================================
    * Tab 编排
    * ============================================================ */
   function initBasicTools(scope) {
@@ -905,6 +1235,7 @@
   function initAdvancedTools(scope) {
     initRegex(scope); initQr(scope); initImage(scope);
     initDiff(scope); initGradient(scope);
+    initCron(scope); initUrl(scope); initCase(scope);
   }
 
   function mountAdvanced() {
@@ -942,6 +1273,7 @@
   /* ---------- 启动 / 卸载 ---------- */
   function boot() {
     initGlobalDelegates(rootScope);
+    initKeyboardGuard(rootScope);
     seedDefaults();
     activateTab("basic");
     rootScope.on(window, "pagehide", function () {
