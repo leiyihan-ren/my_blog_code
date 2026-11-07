@@ -46,10 +46,18 @@ jobs:
       - name: Build — 生成静态产物（dist/）
         run: node scripts/build-pages.mjs
 
+      # v15.0 修正：v7.0 起页面下沉 pages/、样式下沉 styles/，
+      # 旧的 dist/index.html / dist/common.css 断言早已失效（本门禁仅在
+      # PR / 手动触发时运行，故长期未暴露）。此处对齐 deploy.yml 的真实
+      # 目录结构，并补上工具箱关键产物，避免校验形同虚设。
       - name: 校验构建产物
         run: |
-          test -f dist/index.html || { echo "::error::缺少 dist/index.html"; exit 1; }
+          test -f dist/pages/index.html || { echo "::error::缺少 dist/pages/index.html"; exit 1; }
+          test -f dist/pages/tools.html || { echo "::error::缺少 dist/pages/tools.html"; exit 1; }
           test -f dist/_worker.js || { echo "::error::缺少 dist/_worker.js（Pages 高级模式需要）"; exit 1; }
-          test -f dist/common.css || { echo "::error::缺少 dist/common.css"; exit 1; }
+          test -f dist/styles/common.css || { echo "::error::缺少 dist/styles/common.css"; exit 1; }
+          test -f dist/styles/toolbox.css || { echo "::error::缺少 dist/styles/toolbox.css"; exit 1; }
+          test -f dist/components/toolbox.js || { echo "::error::缺少 dist/components/toolbox.js"; exit 1; }
+          test -f dist/utils/toolbox-pure.js || { echo "::error::缺少 dist/utils/toolbox-pure.js"; exit 1; }
           test -f dist/manifest.json || { echo "::error::缺少 dist/manifest.json"; exit 1; }
           echo "✅ dist/ 产物校验通过（顶层 $(ls dist | wc -l) 个条目）"
