@@ -84,8 +84,16 @@ check("A3 运行时版本 15.0.0 冻结（常量层 / SW / 页面查询串三方
   // 与 step28 A1 同一契约：tools.html 恰 7 处内核资源带 ?v=15.0.0 查询串
   && (html.match(/\?v=15\.0\.0/g) || []).length >= 7,
   `SW v${swVer}`);
-check("A3b 工程版本 17.0.0 仅存在于 package.json（与运行时解耦）",
-  /"version":\s*"17\.0\.0"/.test(read("package.json")) && !/17\.0\.0/.test(cons));
+// A3b：工程版本（package.json）与运行时版本（常量层冻结 15.0.0）解耦。
+// v19.0 收尾修正：原断言硬编码 "17.0.0"，随 package.json 演进（19.0.0 →
+// v21 …）会误报。改为动态读取实际工程版本，只校验三条不变量：
+//   ① 合法 semver；② 不等于运行时版本 15.0.0；③ 不渗入运行时常量层。
+// 语义（解耦）不变，且对未来阶段升级免疫。
+const engPkg = JSON.parse(read("package.json"));
+const engVer = engPkg.version || "";
+check("A3b 工程版本仅存在于 package.json（与运行时解耦，动态版本）",
+  /^\d+\.\d+\.\d+$/.test(engVer) && engVer !== "15.0.0"
+  && !cons.includes(engVer), `工程 v${engVer} / 运行时 15.0.0`);
 const chain = ["toolbox-constants", "toolbox-pure", "toolbox-scope", "toolboxCompute", "qrcode", "toolbox"];
 const idxs = chain.map((n) => html.indexOf(n + ".js?v=15.0.0"));
 check("A3c 六个内核 <script> 标签与依赖顺序零改动（A12 契约）",

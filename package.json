@@ -1,6 +1,6 @@
 {
   "name": "my-blog",
-  "version": "17.0.0",
+  "version": "19.0.0",
   "private": true,
   "description": "Cloudflare Worker 博客：PWA + 动态内容 + SEO/CSP 加固 + GitHub 云盘 + 全链路测试",
   "type": "module",
@@ -28,10 +28,23 @@
     "test:chunked": "node tests/step8-drive-chunked.mjs && node tests/step9-drive-chunked-ui.mjs",
     "test:statemachine": "node tests/step11-drive-state-machine.mjs",
     "test:stress": "node tests/step12-drive-stress.mjs",
-    "test:routes": "node tests/step10-routes-verify.mjs"
+    "test:routes": "node tests/step10-routes-verify.mjs",
+    "lint": "eslint components utils services modules scripts src",
+    "lint:fix": "eslint components utils services modules scripts src --fix",
+    "lint:css": "stylelint \"styles/*.css\"",
+    "lint:all": "npm run lint && npm run lint:css && npm run audit:arch",
+    "build:opt": "node scripts/build-pages.mjs && node scripts/build-optimize.mjs --report .v19-size-report.json",
+    "perf:server": "node scripts/perf-server.mjs",
+    "critical:inject": "node scripts/inject-critical.mjs",
+    "critical:revert": "node scripts/inject-critical.mjs --revert",
+    "test:engineering": "node tests/step30-v19-engineering.mjs"
   },
   "devDependencies": {
-    "playwright": "^1.58.1"
+    "esbuild": "^0.28.2",
+    "eslint": "^10.14.0",
+    "lighthouse": "^12.8.2",
+    "playwright": "^1.58.1",
+    "stylelint": "^17.16.0"
   },
   "config": {
     "playwright_skip_browser_download": "1"

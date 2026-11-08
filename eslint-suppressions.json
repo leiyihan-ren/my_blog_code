@@ -1,0 +1,32 @@
+{
+  "components/games/snake.js": {
+    "quotes": {
+      "count": 1
+    }
+  },
+  "components/global-search.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "components/player-engine.js": {
+    "no-unused-vars": {
+      "count": 2
+    }
+  },
+  "scripts/arch-audit.mjs": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "services/request.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  },
+  "services/uploadService.js": {
+    "no-unused-vars": {
+      "count": 1
+    }
+  }
+}

@@ -2,6 +2,8 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <!-- v19.0 critical-css：首屏令牌 + 布局稳定基元（源：styles/critical.css，勿手改） -->
+  <style data-v19-critical>:root{--bg: #f8f9ff;--card-bg: #ffffff;--text: #333;--text-light: #666;--text-mute: #6b7280;--border: #eaecef;--primary: #4f46e5;--primary-text: #4f46e5;--primary-hover: #4338ca;--card-shadow: 0 2px 12px rgba(0,0,0,.04);--primary-rgb: 79,70,229;--accent-rgb: 99,102,241;--brand-from: #5a67d8;--brand-to: #764ba2;--brand-rgb: 90,103,216;--success-rgb: 22,163,74;--warning-rgb: 245,158,11;--danger-rgb: 239,68,68;--on-accent: #fff;--brand-deep: #5b21b6;--grad-brand: linear-gradient(135deg, var(--brand-from), var(--brand-to));--success: #16a34a;--success-bg: #dcfce7;--success-text: #166534;--danger: #dc2626;--danger-solid: #ef4444;--danger-bg: #fee2e2;--danger-text: #991b1b;--warning: #d97706;--warning-strong: #b45309;--warning-bg: #fef3c7;--warning-text: #92400e;--radius-pill: 999px;--primary-disabled: #a5b4fc;--ease: cubic-bezier(.4, 0, .2, 1);--ease-spring: cubic-bezier(.2, .8, .3, 1.1)}body.dark{--primary-text: #818cf8;--bg: #0f0f1a;--card-bg: #1a1a2e;--text: #e5e7eb;--text-light: #9ca3af;--text-mute: #9ca3af;--border: #2a2a40;--card-shadow: 0 2px 12px rgba(0,0,0,.3);--success: #22c55e;--success-bg: rgba(34,197,94,.16);--success-text: #86efac;--danger: #fca5a5;--danger-bg: rgba(239,68,68,.16);--danger-text: #fca5a5;--warning: #fbbf24;--warning-strong: #fbbf24;--warning-bg: rgba(251,191,36,.14);--warning-text: #fcd34d}:root{--glass-bg: rgba(255, 255, 255, .72);--glass-border: rgba(255, 255, 255, .65);--glass-shadow: 0 8px 32px rgba(31, 38, 135, .1);--glass-blur: 16px;--nav-glass: saturate(180%) blur(16px);--sheen: linear-gradient(135deg, rgba(255,255,255,.28), rgba(255,255,255,0) 45%)}body.dark{--glass-bg: rgba(26, 26, 46, .66);--glass-border: rgba(255, 255, 255, .09);--glass-shadow: 0 8px 32px rgba(0, 0, 0, .38);--sheen: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,0) 45%)}:root{--radius-card: 12px;--radius-field: 8px;--shadow-card: 0 2px 12px rgba(0,0,0,.04);--field-border: var(--border)}body.dark{--shadow-card: 0 2px 12px rgba(0,0,0,.3)}:root{--text-mute: #5b6472}body.dark{--text-mute: #b3bac8}:focus-visible{outline:2px solid var(--primary);outline-offset:2px}::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(var(--primary-rgb),.3);border-radius:4px}.glass{background:var(--glass-bg);-webkit-backdrop-filter:blur(var(--glass-blur)) saturate(160%);backdrop-filter:blur(var(--glass-blur)) saturate(160%);border:1px solid var(--glass-border);box-shadow:var(--glass-shadow)}.navbar{-webkit-backdrop-filter:var(--nav-glass);backdrop-filter:var(--nav-glass)}:where(.glass,.toast){border-radius:var(--radius-card)}:where(input,textarea,select,.btn){border-radius:var(--radius-field)}.back-top,.toast,.offline-banner{opacity:0;pointer-events:none}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}</style>
 <!-- v17.0 模块三：全局 EventBus + DNS 预解析 / 预连接 / 主导航页预取 -->
 <script src="/utils/event-bus.js"></script>
 <link rel="preconnect" href="https://api.mcsrvstat.us" crossorigin>
@@ -34,7 +36,10 @@
 <link rel="canonical" href="https://leiyihan.dpdns.org/blog.html">
   <meta name="twitter:card" content="summary">
   <title>博客 - 我的博客</title>
-  <link rel="stylesheet" href="/styles/common.css">
+  <!-- v19.0 common-css-nonblocking:start -->
+  <link rel="stylesheet" href="/styles/common.css" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="/styles/common.css"></noscript>
+  <!-- v19.0 common-css-nonblocking:end -->
     <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {

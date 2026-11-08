@@ -28,9 +28,13 @@ jobs:
         with:
           node-version: 22
 
-      # 构建脚本只用 Node 内置模块，无需安装 npm 依赖（跳过 playwright，构建更快更稳）
-      - name: 构建静态产物（dist/）
-        run: node scripts/build-pages.mjs
+      # v19.0：产物走 esbuild 压缩管线（原地压缩、物理路径与全局契约不变，
+      # 已由 step30 Node VM 验证三端等价）。需先装 esbuild，跳过浏览器下载。
+      - name: 安装构建依赖（跳过浏览器下载）
+        run: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
+
+      - name: 构建静态产物并压缩（dist/）
+        run: npm run build:opt
 
       - name: 校验产物
         run: |

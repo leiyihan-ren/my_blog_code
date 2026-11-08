@@ -19,10 +19,21 @@ export default Object.freeze({
     "utils/pinyin-gb2312.js",
     "styles/common.css",
     "manifest.json",
+    // v19.0 模块三：首屏 Critical CSS 单一源（由 inject-critical 内联到 13 页）
+    "styles/critical.css",
+    // v19.0 模块一/四：esbuild 压缩管线、Critical CSS 注入器、可复现性能服务器
+    "scripts/build-optimize.mjs",
+    "scripts/inject-critical.mjs",
+    "scripts/perf-server.mjs",
+    // v19.0 工程化门禁配置（逻辑归属：全站公共基建）
+    "eslint.config.mjs",
+    "stylelint.config.mjs",
+    "eslint-suppressions.json",
   ]),
   tests: Object.freeze([
     "tests/step5-common-verify.mjs",
     "tests/step15-dialogs.mjs",
+    "tests/step30-v19-engineering.mjs",
   ]),
   dependsOn: Object.freeze([]),
 });

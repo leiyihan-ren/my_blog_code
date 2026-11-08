@@ -1,5 +1,5 @@
 // ============================================================
-// 全链路测试总runner：顺序执行 33 个测试套件，汇总通过/失败
+// 全链路测试总runner：顺序执行 33 个既有套件 + v19.0 工程化门禁 1 个 = 34 个套件，汇总通过/失败
 // 任一失败 → 进程退出码 1（CI 直接判红）
 // 用法：node tests/run-all.mjs
 // 环境变量：CHROMIUM_PATH 指定 Chromium 可执行文件路径
@@ -45,6 +45,7 @@ const SUITES = [
   { name: "v14.0 进阶开发台与底层重构", file: "step27-v14-toolbox.mjs" },
   { name: "v15.0 终极增维与 PWA 离线强化", file: "step28-v15-toolbox.mjs" },
   { name: "v17.0 按需加载 / EventBus / 资源预取", file: "step29-v17-toolbox.mjs" },
+  { name: "v19.0 工程化 / Critical CSS / 压缩等价", file: "step30-v19-engineering.mjs" },
 ];
 
 function runSuite(file) {

@@ -1,0 +1,191 @@
+{
+  "generatedAt": "2026-11-08T12:47:20.601Z",
+  "engine": "esbuild transform minify (format=iife, keepNames=true)",
+  "files": 129,
+  "beforeTotal": 1852866,
+  "afterTotal": 1033449,
+  "shrinkPct": 44.2,
+  "failed": 0,
+  "top": [
+    {
+      "dir": "dist",
+      "file": "services/uploadService.js",
+      "before": 54570,
+      "after": 17823
+    },
+    {
+      "dir": "dist",
+      "file": "utils/toolbox-pure.js",
+      "before": 53203,
+      "after": 20926
+    },
+    {
+      "dir": "dist",
+      "file": "components/music-player.js",
+      "before": 59114,
+      "after": 34333
+    },
+    {
+      "dir": "dist",
+      "file": "components/toolbox.js",
+      "before": 34219,
+      "after": 15851
+    },
+    {
+      "dir": "dist",
+      "file": "services/request.js",
+      "before": 16020,
+      "after": 3615
+    },
+    {
+      "dir": "dist",
+      "file": "components/game-core.js",
+      "before": 22318,
+      "after": 11186
+    },
+    {
+      "dir": "dist",
+      "file": "utils/common.js",
+      "before": 16602,
+      "after": 6831
+    },
+    {
+      "dir": "dist",
+      "file": "components/global-search.js",
+      "before": 21536,
+      "after": 12035
+    },
+    {
+      "dir": "dist",
+      "file": "services/rangeDownloader.js",
+      "before": 9185,
+      "after": 2772
+    },
+    {
+      "dir": "dist",
+      "file": "utils/blog-utils.js",
+      "before": 9213,
+      "after": 2941
+    },
+    {
+      "dir": "dist",
+      "file": "components/player-host.js",
+      "before": 10797,
+      "after": 4792
+    },
+    {
+      "dir": "dist",
+      "file": "components/ui.js",
+      "before": 12676,
+      "after": 7109
+    },
+    {
+      "dir": "dist",
+      "file": "components/player-engine.js",
+      "before": 11428,
+      "after": 5888
+    },
+    {
+      "dir": "dist",
+      "file": "utils/toolbox-constants.js",
+      "before": 6996,
+      "after": 1640
+    },
+    {
+      "dir": "dist",
+      "file": "styles/common.css",
+      "before": 11611,
+      "after": 6899
+    },
+    {
+      "dir": "dist",
+      "file": "services/toolboxCompute.js",
+      "before": 6515,
+      "after": 2017
+    },
+    {
+      "dir": "dist",
+      "file": "components/games/snake.js",
+      "before": 10046,
+      "after": 5699
+    },
+    {
+      "dir": "dist",
+      "file": "utils/event-bus.js",
+      "before": 5531,
+      "after": 1195
+    },
+    {
+      "dir": "dist",
+      "file": "services/computeWorker.js",
+      "before": 8775,
+      "after": 4450
+    },
+    {
+      "dir": "dist",
+      "file": "components/games/mines.js",
+      "before": 8689,
+      "after": 4408
+    },
+    {
+      "dir": "dist",
+      "file": "components/games/breakout.js",
+      "before": 9040,
+      "after": 5210
+    },
+    {
+      "dir": "dist",
+      "file": "utils/toolbox-scope.js",
+      "before": 5654,
+      "after": 1895
+    },
+    {
+      "dir": "dist",
+      "file": "styles/drive.css",
+      "before": 14458,
+      "after": 10848
+    },
+    {
+      "dir": "dist",
+      "file": "modules/toolbox/image.js",
+      "before": 7184,
+      "after": 3860
+    },
+    {
+      "dir": "dist",
+      "file": "components/games/reaction.js",
+      "before": 7495,
+      "after": 4204
+    },
+    {
+      "dir": "dist",
+      "file": "components/games/g2048.js",
+      "before": 6419,
+      "after": 3213
+    },
+    {
+      "dir": "dist",
+      "file": "modules/toolbox/cron.js",
+      "before": 5427,
+      "after": 2319
+    },
+    {
+      "dir": "dist",
+      "file": "modules/toolbox/url.js",
+      "before": 4522,
+      "after": 1748
+    },
+    {
+      "dir": "dist",
+      "file": "components/games/hanoi.js",
+      "before": 7739,
+      "after": 5125
+    },
+    {
+      "dir": "dist",
+      "file": "utils/toolbox-worker.js",
+      "before": 4527,
+      "after": 2022
+    }
+  ]
+}

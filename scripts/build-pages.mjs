@@ -49,6 +49,10 @@ const EXCLUDE_FILE_RE = [
   // 开发/仓库管理文件：不属于部署产物（同时避免 Pages 在输出目录里触发 npm 安装）
   /^package\.json$/, /^package-lock\.json$/, /^README\.md$/, /^\.gitignore$/,
   /^\.npmrc$/, /^wrangler\.toml$/,
+  // v19.0：lint 门禁配置 / 存量告警基线 / 体积报告属源码治理资产，
+  // 不进静态产物，避免公网直接抓取工程配置。
+  /^eslint\.config\.mjs$/, /^stylelint\.config\.mjs$/,
+  /^eslint-suppressions\.json$/, /^\.v19-size-report\.json$/,
 ];
 
 async function listEntries(dir) {

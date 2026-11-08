@@ -78,3 +78,46 @@ jobs:
           test -f dist/utils/event-bus.js || { echo "::error::缺少全局 EventBus"; exit 1; }
           test -f dist/4874997fe38afa094805abd462d246f8.txt || { echo "::error::缺少微信域名验证文件"; exit 1; }
           echo "✅ v17.0 产物校验通过"
+
+  # v19.0 模块四：现代化工程化门禁（独立 Job，不改动上方已验证的 Lint+Build Job）。
+  # 需要 npm 依赖（esbuild / eslint / stylelint），故单独安装；存量告警由
+  # eslint-suppressions.json 冻结为棘轮基线，新增违规一律报红。
+  engineering:
+    name: 工程化门禁（ESLint / Stylelint / 压缩构建 / step30）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装 npm 依赖（跳过浏览器下载）
+        run: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci
+
+      - name: ESLint（双引号 / 分号 / 未使用变量 / no-undef，存量基线棘轮）
+        run: npm run lint
+
+      - name: Stylelint（CSS 正确性规则）
+        run: npm run lint:css
+
+      - name: 架构审计（Feature 域 / 依赖图 / 死资源）
+        run: npm run audit:arch
+
+      - name: 生产构建 + esbuild 压缩（原地、物理路径不变）
+        run: npm run build:opt
+
+      - name: v19.0 工程化验收（step30：Critical CSS / 不变量 / 压缩 VM 等价）
+        run: node tests/step30-v19-engineering.mjs
+
+      - name: 校验压缩产物（全局挂载存活 / src 架构层已排除）
+        run: |
+          test -f dist/utils/toolbox-pure.js || { echo "::error::缺少压缩内核"; exit 1; }
+          test -f dist/styles/critical.css || { echo "::error::缺少 Critical CSS 单一源"; exit 1; }
+          test ! -d dist/src || { echo "::error::src 架构层不应进入产物"; exit 1; }
+          test ! -f dist/eslint.config.mjs || { echo "::error::lint 配置不应进入产物"; exit 1; }
+          echo "✅ v19.0 压缩产物校验通过"
