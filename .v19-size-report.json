@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-11-08T12:47:20.601Z",
+  "generatedAt": "2026-11-08T15:28:33.774Z",
   "engine": "esbuild transform minify (format=iife, keepNames=true)",
-  "files": 129,
-  "beforeTotal": 1852866,
-  "afterTotal": 1033449,
-  "shrinkPct": 44.2,
+  "files": 141,
+  "beforeTotal": 2014893,
+  "afterTotal": 1112538,
+  "shrinkPct": 44.8,
   "failed": 0,
   "top": [
     {
@@ -28,8 +28,8 @@
     {
       "dir": "dist",
       "file": "components/toolbox.js",
-      "before": 34219,
-      "after": 15851
+      "before": 34660,
+      "after": 15896
     },
     {
       "dir": "dist",
@@ -46,14 +46,32 @@
     {
       "dir": "dist",
       "file": "utils/common.js",
-      "before": 16602,
-      "after": 6831
+      "before": 17544,
+      "after": 6999
     },
     {
       "dir": "dist",
       "file": "components/global-search.js",
       "before": 21536,
       "after": 12035
+    },
+    {
+      "dir": "dist",
+      "file": "utils/telemetry.js",
+      "before": 15375,
+      "after": 7036
+    },
+    {
+      "dir": "dist",
+      "file": "components/dashboard.js",
+      "before": 18711,
+      "after": 11373
+    },
+    {
+      "dir": "dist",
+      "file": "services/toolboxCompute.js",
+      "before": 9034,
+      "after": 2592
     },
     {
       "dir": "dist",
@@ -87,6 +105,12 @@
     },
     {
       "dir": "dist",
+      "file": "utils/render-scheduler.js",
+      "before": 7717,
+      "after": 2322
+    },
+    {
+      "dir": "dist",
       "file": "utils/toolbox-constants.js",
       "before": 6996,
       "after": 1640
@@ -96,12 +120,6 @@
       "file": "styles/common.css",
       "before": 11611,
       "after": 6899
-    },
-    {
-      "dir": "dist",
-      "file": "services/toolboxCompute.js",
-      "before": 6515,
-      "after": 2017
     },
     {
       "dir": "dist",
@@ -141,6 +159,12 @@
     },
     {
       "dir": "dist",
+      "file": "modules/toolbox/regex.js",
+      "before": 6793,
+      "after": 3183
+    },
+    {
+      "dir": "dist",
       "file": "styles/drive.css",
       "before": 14458,
       "after": 10848
@@ -162,30 +186,6 @@
       "file": "components/games/g2048.js",
       "before": 6419,
       "after": 3213
-    },
-    {
-      "dir": "dist",
-      "file": "modules/toolbox/cron.js",
-      "before": 5427,
-      "after": 2319
-    },
-    {
-      "dir": "dist",
-      "file": "modules/toolbox/url.js",
-      "before": 4522,
-      "after": 1748
-    },
-    {
-      "dir": "dist",
-      "file": "components/games/hanoi.js",
-      "before": 7739,
-      "after": 5125
-    },
-    {
-      "dir": "dist",
-      "file": "utils/toolbox-worker.js",
-      "before": 4527,
-      "after": 2022
     }
   ]
 }

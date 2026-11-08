@@ -26,9 +26,8 @@ var kit = null;
   function renderDiff(res) {
     var host = kit.$("diff-output");
     if (!host) return;
-    host.textContent = "";
     var prefix = { add: "+", del: "-", eq: " " };
-    (res.ops || []).forEach(function (op) {
+    function makeLine(op) {
       var line = document.createElement("div");
       line.className = "tb-diff-line tb-diff-" + op.type;
       var gutter = document.createElement("span");
@@ -38,8 +37,21 @@ var kit = null;
       body.className = "tb-diff-text";
       body.textContent = prefix[op.type] + " " + op.text;
       line.appendChild(gutter); line.appendChild(body);
-      host.appendChild(line);
-    });
+      return line;
+    }
+    // v21.0 模块二-1：经 kit 注入的渲染调度器批量/分片挂载。小结果同步
+    // DocumentFragment 一次成型（DOM 与旧实现逐字一致），超大结果 rAF
+    // 分片按 8ms 帧预算让出主线程，杜绝逐节点 appendChild 的强制重排。
+    // 调度器缺失（降级场景）时回退到等价的一次性 DocumentFragment 挂载。
+    var S = kit.Scheduler, ops = res.ops || [];
+    if (S && typeof S.mount === "function") {
+      S.mount(host, ops, makeLine, { key: "tb-diff-lines" });
+    } else {
+      host.textContent = "";
+      var frag = document.createDocumentFragment();
+      ops.forEach(function (op) { frag.appendChild(makeLine(op)); });
+      host.appendChild(frag);
+    }
     var s = res.stats || { added: 0, removed: 0, equal: 0 };
     kit.text(kit.$("diff-stats"), "+" + s.added + " 新增 / -" + s.removed + " 删除 / " + s.equal + " 未变" +
       (res.truncated ? " · 超大文本已降级为整块对比" : ""));
@@ -51,7 +63,8 @@ var kit = null;
       a: (kit.$("diff-a") || {}).value || "",
       b: (kit.$("diff-b") || {}).value || "",
     };
-    return kit.Compute.exec("diff", req, function () { return diffFallback(req); })
+    // v21.0 模块一-3：slot 抢占，连续输入时旧计算立即作废，结果不再乱序回写。
+    return kit.Compute.exec("diff", req, function () { return diffFallback(req); }, "diff")
       .then(function (res) { if (!scope.disposed() && !res.cancelled) renderDiff(res); }, kit.noop);
   }
 

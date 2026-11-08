@@ -10,13 +10,23 @@
  *   · Tab 切换调用 cancelAll() 取消在途调用；pagehide 调用 dispose()
  *     terminate Worker 并清空全部在途 Promise，杜绝悬挂回调。
  *
+ * v21.0 模块一-3「异步计算中心」强化：
+ *   · exec() 新增可选第 4 参 slot：同一 slot 的新任务到达时，立即让在途
+ *     旧任务以 { cancelled:true } 结束并从 waiting 摘除，杜绝长文本连续
+ *     输入时旧结果乱序回写、重复触发主线程重渲染（60 帧的关键前提）。
+ *   · 抢占只在显式传 slot 时启用；不传 slot 的既有调用行为逐字不变，
+ *     cancelAll() / dispose() / state() 契约与 v14 完全一致（step27/28
+ *     的 pending===0 等断言不受影响）。
+ *   · 新增 stats() 暴露抢占计数，供 step33 验收。
+ *
  * 对外 API：
- *   ToolboxCompute.supported()                       → boolean
- *   ToolboxCompute.exec(cmd, payload, fallback)     → Promise<result>
+ *   ToolboxCompute.supported()                          → boolean
+ *   ToolboxCompute.exec(cmd, payload, fallback, slot)  → Promise<result>
  *       result 附带 engine: "worker" | "main" | "cancelled"
- *   ToolboxCompute.cancelAll()                      → void
- *   ToolboxCompute.dispose()                        → void
- *   ToolboxCompute.state()                          → { workerAlive, pending, broken, seq }
+ *   ToolboxCompute.cancelAll()                         → void
+ *   ToolboxCompute.dispose()                           → void
+ *   ToolboxCompute.state()                             → { workerAlive, pending, broken, seq }
+ *   ToolboxCompute.stats()                             → { superseded, ... }
  * ============================================================ */
 window.ToolboxCompute = (function () {
   "use strict";
@@ -26,6 +36,8 @@ window.ToolboxCompute = (function () {
   var broken = false;
   var seq = 0;
   var waiting = Object.create(null);
+  var slots = Object.create(null);   // v21: slot → 在途任务 id
+  var superseded = 0;                // v21: 被抢占取消的任务计数
 
   /** @returns {boolean} 当前是否可尝试启用后台计算 */
   function supported() { return typeof Worker !== "undefined" && !broken; }
@@ -39,8 +51,27 @@ window.ToolboxCompute = (function () {
       var w = waiting[id];
       clearTimeout(w.timer);
       delete waiting[id];
+      if (w.slot && slots[w.slot] === id) delete slots[w.slot];
       w.resolve({ ok: false, cancelled: true, engine: "cancelled" });
     });
+  }
+
+  /**
+   * v21.0：抢占同一 slot 的在途任务。长文本连续输入时，只让最新一次
+   * 计算的结果回写 DOM，旧结果立即以 cancelled 结束，避免乱序重渲染。
+   * @param {string} slot 任务槽位（如 "regex" / "diff"）
+   * @returns {void}
+   */
+  function supersede(slot) {
+    var oldId = slots[slot];
+    if (oldId == null) return;
+    var w = waiting[oldId];
+    if (!w) { delete slots[slot]; return; }
+    clearTimeout(w.timer);
+    delete waiting[oldId];
+    delete slots[slot];
+    superseded++;
+    w.resolve({ ok: false, cancelled: true, engine: "cancelled", superseded: true });
   }
 
   /**
@@ -56,6 +87,7 @@ window.ToolboxCompute = (function () {
       var w = waiting[id];
       clearTimeout(w.timer);
       delete waiting[id];
+      if (w.slot && slots[w.slot] === id) delete slots[w.slot];
       callFallback(w.fallback, new Error(lastError)).then(w.resolve, w.reject);
     });
     if (worker) {
@@ -81,6 +113,7 @@ window.ToolboxCompute = (function () {
         if (!w) return;
         clearTimeout(w.timer);
         delete waiting[m.id];
+        if (w.slot && slots[w.slot] === m.id) delete slots[w.slot];
         if (m.ok === false) {
           // 计算层报错交由 fallback 兜底，保证 UI 永不白屏
           callFallback(w.fallback, new Error(m.error || "后台计算失败"))
@@ -119,39 +152,45 @@ window.ToolboxCompute = (function () {
 
   /**
    * 派发一次后台计算，失败自动降级。
-   * @param {string} cmd 指令（regex / diff / image / ping）
+   * @param {string} cmd 指令（regex / diff / image / ping / highlight）
    * @param {Object} payload 参数（不得含不可结构化克隆的对象）
    * @param {function():(Object|Promise<Object>)} fallback 主线程降级实现
+   * @param {string} [slot] v21 可选抢占槽位；同 slot 新任务会取消在途旧任务
    * @returns {Promise<Object>} 计算结果（含 engine 字段）
    */
-  function exec(cmd, payload, fallback) {
+  function exec(cmd, payload, fallback, slot) {
+    if (slot) supersede(slot);
     var w = ensure();
     if (!w) return callFallback(fallback, new Error(lastError || "Worker 不可用"));
     var id = ++seq;
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () {
         delete waiting[id];
+        if (slot && slots[slot] === id) delete slots[slot];
         callFallback(fallback, new Error("后台计算超时")).then(resolve, reject);
       }, C.WORKER_TIMEOUT_MS || 4000);
-      waiting[id] = { resolve: resolve, reject: reject, timer: timer, fallback: fallback };
+      waiting[id] = { resolve: resolve, reject: reject, timer: timer, fallback: fallback, slot: slot || "" };
+      if (slot) slots[slot] = id;
       try {
         // 不转移 ArrayBuffer：降级路径仍需读取同一份字节
         w.postMessage(Object.assign({ id: id, cmd: cmd }, payload || {}));
       } catch (e) {
         clearTimeout(timer);
         delete waiting[id];
+        if (slot && slots[slot] === id) delete slots[slot];
         callFallback(fallback, e).then(resolve, reject);
       }
     });
   }
 
   /**
-   * 页面卸载时彻底释放：取消在途调用 + 终止 Worker。
+   * 页面卸载时彻底释放：取消在途调用 + 清空抢占槽位 + 终止 Worker。
    * broken 保持 false，若从 bfcache 恢复可再次懒创建。
    * @returns {void}
    */
   function dispose() {
     cancelAll();
+    slots = Object.create(null);
     if (worker) {
       try { worker.terminate(); } catch (e) {}
     }
@@ -172,11 +211,26 @@ window.ToolboxCompute = (function () {
     };
   }
 
+  /**
+   * v21.0：异步计算中心诊断计数，供 step33 验收抢占与降级链路。
+   * @returns {{superseded: number, pending: number, slots: number, broken: boolean, seq: number}} 统计
+   */
+  function stats() {
+    return Object.freeze({
+      superseded: superseded,
+      pending: Object.keys(waiting).length,
+      slots: Object.keys(slots).length,
+      broken: broken,
+      seq: seq,
+    });
+  }
+
   return Object.freeze({
     supported: supported,
     exec: exec,
     cancelAll: cancelAll,
     dispose: dispose,
     state: state,
+    stats: stats,
   });
 })();

@@ -40,61 +40,89 @@ var kit = null;
     };
   }
 
+  /**
+   * v21.0 模块二-1：把一个数组批量/分片挂载到容器。优先走 kit 注入的
+   * RenderScheduler（小结果同步 DocumentFragment / 大结果 rAF 分片 +
+   * 同 key 抢占），调度器缺失时降级为等价的一次性 DocumentFragment 挂载。
+   * @param {HTMLElement} host 容器
+   * @param {Array} items 数据项
+   * @param {function(*, number):Node} makeNode 节点工厂
+   * @param {string} key 抢占槽位
+   * @returns {void}
+   */
+  function mountInto(host, items, makeNode, key) {
+    if (!host) return;
+    var S = kit.Scheduler, list = items || [];
+    if (S && typeof S.mount === "function") {
+      S.mount(host, list, makeNode, { key: key });
+    } else {
+      host.textContent = "";
+      var frag = document.createDocumentFragment();
+      list.forEach(function (it, i) { frag.appendChild(makeNode(it, i)); });
+      host.appendChild(frag);
+    }
+  }
+
   function renderRegex(res) {
     var host = kit.$("regex-output"), groups = kit.$("regex-groups"), list = kit.$("regex-match-list");
     if (!host) return;
-    host.textContent = "";
-    if (groups) groups.textContent = "";
-    if (list) list.textContent = "";
+    // v21.0 模块二-1：三个容器在每条分支都经同一 key 调度（空数组即清空 +
+    // 取消在途分片）。即使超大结果 rAF 分片尚未完成，新结果也能抢占覆盖，
+    // 旧分片帧绝不再 appendChild 到新结果之上，彻底杜绝乱序回写与重复重排。
     if (!res.ok) {
-      var err = document.createElement("span");
-      err.className = "tb-tok-err";
-      err.textContent = "正则非法：" + (res.error || "未知错误");
-      host.appendChild(err);
+      var msg = "正则非法：" + (res.error || "未知错误");
+      mountInto(host, [msg], function (m) {
+        var span = document.createElement("span");
+        span.className = "tb-tok-err"; span.textContent = m;
+        return span;
+      }, "tb-regex-segments");
+      mountInto(list, [], function () { return null; }, "tb-regex-list");
+      mountInto(groups, [], function () { return null; }, "tb-regex-groups");
       kit.setStatus("regex-status", false, "表达式无法解析（已局部隔离，未影响其他工具）");
       kit.text(kit.$("regex-count"), "—");
       return;
     }
     var src = readRegex().text;
-    (res.segments || []).forEach(function (seg) {
+    mountInto(host, res.segments, function (seg) {
       var span = document.createElement("span");
       span.className = seg.kind === "group" ? "tb-rx-group tb-rx-group-" + (seg.groupIndex % 5 + 1)
         : seg.kind === "match" ? "tb-rx-match" : "";
       span.textContent = src.slice(seg.start, seg.end);
-      host.appendChild(span);
-    });
+      return span;
+    }, "tb-regex-segments");
     kit.text(kit.$("regex-count"), res.count + (res.truncated ? "（已截断）" : ""));
     kit.setStatus("regex-status", true,
       (res.hasGroups ? "捕获组已高亮 · " : "") + res.count + " 处匹配 · " +
       (res.engine === "worker" ? "Web Worker 计算" : "主线程计算"));
-    if (list) {
-      var shown = (res.matches || []).slice(0, kit.C.REGEX_LIST_LIMIT);
-      shown.forEach(function (mt, i) {
-        var li = document.createElement("div");
-        li.className = "tb-rx-item";
-        var no = document.createElement("span");
-        no.className = "tb-rx-no"; no.textContent = "#" + (i + 1) + " @" + mt.index;
-        var val = document.createElement("code");
-        val.textContent = mt.text;
-        li.appendChild(no); li.appendChild(val);
-        list.appendChild(li);
-      });
-    }
-    if (groups && res.hasGroups) {
-      var first = (res.matches || [])[0];
-      if (first) first.groups.forEach(function (g) {
+    mountInto(list, (res.matches || []).slice(0, kit.C.REGEX_LIST_LIMIT), function (mt, i) {
+      var li = document.createElement("div");
+      li.className = "tb-rx-item";
+      var no = document.createElement("span");
+      no.className = "tb-rx-no"; no.textContent = "#" + (i + 1) + " @" + mt.index;
+      var val = document.createElement("code");
+      val.textContent = mt.text;
+      li.appendChild(no); li.appendChild(val);
+      return li;
+    }, "tb-regex-list");
+    var first = (res.matches || [])[0];
+    if (res.hasGroups && first) {
+      mountInto(groups, first.groups, function (g) {
         var row = document.createElement("div");
         row.className = "tb-rx-grow";
         var k = document.createElement("span"); k.className = "tb-rx-no"; k.textContent = "$" + g.index;
         var v = document.createElement("code"); v.textContent = g.text || "(未参与匹配)";
-        row.appendChild(k); row.appendChild(v); groups.appendChild(row);
-      });
+        row.appendChild(k); row.appendChild(v);
+        return row;
+      }, "tb-regex-groups");
+    } else {
+      mountInto(groups, [], function () { return null; }, "tb-regex-groups");
     }
   }
 
   function runRegex(scope) {
     var req = readRegex();
-    return kit.Compute.exec("regex", req, function () { return regexFallback(req); })
+    // v21.0 模块一-3：slot 抢占，长文本连续输入时旧计算立即作废，杜绝乱序回写。
+    return kit.Compute.exec("regex", req, function () { return regexFallback(req); }, "regex")
       .then(function (res) { if (!scope.disposed() && !res.cancelled) renderRegex(res); }, kit.noop);
   }
 

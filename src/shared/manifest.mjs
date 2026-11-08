@@ -34,6 +34,10 @@ export default Object.freeze({
     "utils/telemetry.js",
     // v21.0 模块一-2：字体与图片子集化引擎（构建期工具，产出 assets/）
     "scripts/subset-assets.mjs",
+    // v21.0 模块二-1：DOM 渲染调度器（classic UMD，叶子层零依赖）。
+    // 被 features/tools 的 toolbox.js 经 window.RenderScheduler 消费，
+    // 方向 features→shared 合法，不引入反向分层或环。
+    "utils/render-scheduler.js",
   ]),
   tests: Object.freeze([
     "tests/step5-common-verify.mjs",

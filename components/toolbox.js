@@ -36,6 +36,10 @@
   var P = window.ToolboxPure;
   var S = window.ToolboxScope;
   var Compute = window.ToolboxCompute;
+  // v21.0 模块二-1：DOM 渲染调度器（classic UMD，随内核脚本链同步加载）。
+  // 经 kit 注入给 ESM 分片；若因离线/加载失败缺失，分片自动降级到
+  // 一次性 DocumentFragment 挂载，功能完整无损（混沌测试覆盖该路径）。
+  var Scheduler = window.RenderScheduler || null;
   var copyText = window.UI.copyText;
 
   /**
@@ -603,11 +607,12 @@
     cronNextCount: C.CRON_NEXT_COUNT,
   });
 
-  /** 依赖注入容器：分片的全部共享依赖经它注入，零全局耦合 */
+  /** 依赖注入容器：分片的全部共享依赖经它注入，零全局耦合。
+   * v21.0 模块二-1 新增 Scheduler：DOM 渲染拦截的唯一注入点。 */
   var kit = Object.freeze({
     $: $, text: text, setStatus: setStatus,
     scopedDebounce: scopedDebounce, guarded: guarded, noop: noop,
-    P: P, C: C, Compute: Compute,
+    P: P, C: C, Compute: Compute, Scheduler: Scheduler,
     toast: toast, copyText: copyText,
     cfg: ADV_MODULE_CFG,
   });

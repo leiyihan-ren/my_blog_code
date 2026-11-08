@@ -121,6 +121,9 @@ const PRECACHE_URLS = [
   "/components/toolbox.js?v=15.0.0",
   // v17.0 全局事件总线：classic UMD，先于一切业务脚本加载，离线可用。
   "/utils/event-bus.js",
+  // v21.0 模块二-1：DOM 渲染调度器（classic UMD，先于 toolbox.js 加载）。
+  // 裸 URL 纳入离线外壳，保证断网时工具箱分片渲染拦截依旧可用。
+  "/utils/render-scheduler.js",
   // v17.0 模块一：Tab B 八个工具 ESM 分片 + 清单。它们只在用户点击
   // 【进阶工具】Tab 时由 import() 动态加载；此处预缓存保证断网时
   // 依旧能从 STATIC_CACHE 命中，配合下方 Cache-First 分支实现完全离线。
@@ -202,7 +205,7 @@ function isCacheableResponse(resp) {
  * 加载的内核文件，内容一经发布永不变。命中缓存即返回，绝不像通用
  * stale-while-revalidate 那样在后台发起必然失败（断网）或无收益（联网）
  * 的二次请求，从而让工具箱在离线时真正秒开且零网络噪声。 */
-const TOOLBOX_IMMUTABLE_PATH = /^\/(?:utils\/toolbox-|services\/toolboxCompute\.js|vendor\/qrcode\.js|components\/toolbox\.js|styles\/toolbox\.css|modules\/toolbox\/|utils\/event-bus\.js)/;
+const TOOLBOX_IMMUTABLE_PATH = /^\/(?:utils\/toolbox-|services\/toolboxCompute\.js|vendor\/qrcode\.js|components\/toolbox\.js|styles\/toolbox\.css|modules\/toolbox\/|utils\/event-bus\.js|utils\/render-scheduler\.js)/;
 
 /**
  * 工具箱不可变资源的 Cache-First 响应（含 ignoreSearch 兜底）。
