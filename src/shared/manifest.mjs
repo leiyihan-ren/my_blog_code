@@ -32,6 +32,8 @@ export default Object.freeze({
     // v21.0 模块一-1：全站轻量埋点与本地数据聚合层（叶子层公共数据层，
     // 被 common.js 空闲加载 + dashboard 域消费，无反向依赖）
     "utils/telemetry.js",
+    // v21.0 模块一-2：字体与图片子集化引擎（构建期工具，产出 assets/）
+    "scripts/subset-assets.mjs",
   ]),
   tests: Object.freeze([
     "tests/step5-common-verify.mjs",

@@ -1,0 +1,110 @@
+{
+  "generatedAt": "2026-11-08T14:07:39.966Z",
+  "engine": "Pillow(AVIF/WebP) + fontTools pyftsubset(woff2)",
+  "scannedFiles": 61,
+  "charset": {
+    "total": 1386,
+    "cjk": 1276,
+    "file": "assets/fonts/charset-cn.txt"
+  },
+  "font": {
+    "ok": true,
+    "source": "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "sourceBytes": 19484784,
+    "outBytes": 435716,
+    "glyphs": 1386,
+    "engine": "fontTools pyftsubset (woff2)"
+  },
+  "images": [
+    {
+      "src": "icons/apple-touch-icon.png",
+      "srcBytes": 3374,
+      "outputs": {
+        ".webp": {
+          "ok": true,
+          "bytes": 1174,
+          "path": "assets/images/apple-touch-icon.webp"
+        },
+        ".avif": {
+          "ok": true,
+          "bytes": 993,
+          "path": "assets/images/apple-touch-icon.avif"
+        }
+      }
+    },
+    {
+      "src": "icons/favicon-32.png",
+      "srcBytes": 687,
+      "outputs": {
+        ".webp": {
+          "ok": true,
+          "bytes": 230,
+          "path": "assets/images/favicon-32.webp"
+        },
+        ".avif": {
+          "ok": true,
+          "bytes": 433,
+          "path": "assets/images/favicon-32.avif"
+        }
+      }
+    },
+    {
+      "src": "icons/icon-192.png",
+      "srcBytes": 4251,
+      "outputs": {
+        ".webp": {
+          "ok": true,
+          "bytes": 1592,
+          "path": "assets/images/icon-192.webp"
+        },
+        ".avif": {
+          "ok": true,
+          "bytes": 1591,
+          "path": "assets/images/icon-192.avif"
+        }
+      }
+    },
+    {
+      "src": "icons/icon-512.png",
+      "srcBytes": 10958,
+      "outputs": {
+        ".webp": {
+          "ok": true,
+          "bytes": 4226,
+          "path": "assets/images/icon-512.webp"
+        },
+        ".avif": {
+          "ok": true,
+          "bytes": 3428,
+          "path": "assets/images/icon-512.avif"
+        }
+      }
+    },
+    {
+      "src": "og-image.png",
+      "srcBytes": 35163,
+      "outputs": {
+        ".webp": {
+          "ok": true,
+          "bytes": 13484,
+          "path": "assets/images/og-image.webp"
+        },
+        ".avif": {
+          "ok": true,
+          "bytes": 7989,
+          "path": "assets/images/og-image.avif"
+        }
+      }
+    }
+  ],
+  "totals": {
+    "pngBytes": 54433,
+    "webpBytes": 20706,
+    "avifBytes": 14434,
+    "webpShrinkPct": 62,
+    "avifShrinkPct": 73.5
+  },
+  "disclosure": "全站使用系统字体栈（无 @font-face / 无本地字体文件），Lighthouse 首屏 0 字体对象；子集 WOFF2 与 @font-face CSS 为按需启用资产，默认未注入任何页面，避免引入字体请求破坏已跑通的性能基线。原 PNG 全部保留，13 页引用与 /og-image.png 的 image/png 契约零改动。",
+  "errors": [],
+  "force": false
+}

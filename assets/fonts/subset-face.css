@@ -1,0 +1,8 @@
+/* v21.0 字体子集化引擎产物 · 默认未注入任何页面（守 v19 Lighthouse 100 基线） */
+/* 启用方式：把本文件内容并入 styles/common.css，并把 --font-cn 加入 body font-family 末尾 */
+@font-face {
+  font-family: "SiteCNSubset";
+  src: url("/assets/fonts/site-cn-subset.woff2") format("woff2");
+  font-display: swap;
+  /* unicode-range: 由 1386 个实际用到的字符构成；未覆盖字符自动回退系统字体 */
+}

@@ -1,8 +1,8 @@
 {
   "name": "my-blog",
-  "version": "19.0.0",
+  "version": "21.0.0",
   "private": true,
-  "description": "Cloudflare Worker 博客：PWA + 动态内容 + SEO/CSP 加固 + GitHub 云盘 + 全链路测试",
+  "description": "Cloudflare Worker 博客：PWA + 动态内容 + SEO/CSP 加固 + GitHub 云盘 + 数据大屏 + 全链路测试",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -37,7 +37,12 @@
     "perf:server": "node scripts/perf-server.mjs",
     "critical:inject": "node scripts/inject-critical.mjs",
     "critical:revert": "node scripts/inject-critical.mjs --revert",
-    "test:engineering": "node tests/step30-v19-engineering.mjs"
+    "test:engineering": "node tests/step30-v19-engineering.mjs",
+    "assets:subset": "node scripts/subset-assets.mjs",
+    "assets:check": "node scripts/subset-assets.mjs --check",
+    "test:dashboard": "node tests/step31-v21-dashboard.mjs",
+    "test:chaos": "node tests/step32-v21-chaos.mjs",
+    "test:v21": "node tests/step31-v21-dashboard.mjs && node tests/step32-v21-chaos.mjs && node tests/step33-v21-worker-dom.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

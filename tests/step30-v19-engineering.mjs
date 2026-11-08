@@ -109,8 +109,13 @@ console.log("═══ A. 静态门禁（零浏览器 / 零 npm 依赖） ══
 {
   const pkg = JSON.parse(read("package.json"));
   const need = ["lint", "lint:css", "lint:all", "build:opt", "perf:server", "critical:inject", "critical:revert", "test:engineering"];
-  check("A4 package.json 版本 19.0.0 且工程化 scripts 齐备",
-    pkg.version === "19.0.0" && need.every((k) => typeof pkg.scripts[k] === "string"),
+  // v21.0 收尾修正：原断言硬编码 "19.0.0"，随阶段演进每次升级都要改测试。
+  // 改为动态校验「合法 semver + 主版本 >= 19（工程化基建已建立的起点）」，
+  // 保留「工程化 scripts 齐备」的核心语义，且对未来版本免疫。
+  const major = Number((pkg.version || "").split(".")[0]);
+  check("A4 package.json 合法工程版本且工程化 scripts 齐备",
+    /^\d+\.\d+\.\d+$/.test(pkg.version || "") && major >= 19
+    && need.every((k) => typeof pkg.scripts[k] === "string"),
     `v${pkg.version}，${need.length} 个脚本`);
   check("A4b devDependencies 纳入 esbuild / eslint / stylelint / lighthouse",
     ["esbuild", "eslint", "stylelint", "lighthouse"].every((k) => pkg.devDependencies[k]));

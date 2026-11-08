@@ -1,0 +1,34 @@
+<!-- icons/apple-touch-icon.png -->
+<picture>
+  <source srcset="/assets/images/apple-touch-icon.avif" type="image/avif">
+  <source srcset="/assets/images/apple-touch-icon.webp" type="image/webp">
+  <img src="/icons/apple-touch-icon.png" alt="">
+</picture>
+
+<!-- icons/favicon-32.png -->
+<picture>
+  <source srcset="/assets/images/favicon-32.avif" type="image/avif">
+  <source srcset="/assets/images/favicon-32.webp" type="image/webp">
+  <img src="/icons/favicon-32.png" alt="">
+</picture>
+
+<!-- icons/icon-192.png -->
+<picture>
+  <source srcset="/assets/images/icon-192.avif" type="image/avif">
+  <source srcset="/assets/images/icon-192.webp" type="image/webp">
+  <img src="/icons/icon-192.png" alt="">
+</picture>
+
+<!-- icons/icon-512.png -->
+<picture>
+  <source srcset="/assets/images/icon-512.avif" type="image/avif">
+  <source srcset="/assets/images/icon-512.webp" type="image/webp">
+  <img src="/icons/icon-512.png" alt="">
+</picture>
+
+<!-- og-image.png -->
+<picture>
+  <source srcset="/assets/images/og-image.avif" type="image/avif">
+  <source srcset="/assets/images/og-image.webp" type="image/webp">
+  <img src="/og-image.png" alt="">
+</picture>

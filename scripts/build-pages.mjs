@@ -53,6 +53,8 @@ const EXCLUDE_FILE_RE = [
   // 不进静态产物，避免公网直接抓取工程配置。
   /^eslint\.config\.mjs$/, /^stylelint\.config\.mjs$/,
   /^eslint-suppressions\.json$/, /^\.v19-size-report\.json$/,
+  // v21.0 模块一-2：子集化体积报告属工程治理资产，不进静态产物
+  /^\.v21-assets-report\.json$/,
 ];
 
 async function listEntries(dir) {
