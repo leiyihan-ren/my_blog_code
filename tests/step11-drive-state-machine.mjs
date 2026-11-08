@@ -94,9 +94,14 @@ globalThis.fetch = async (input, init) => {
       //   观察窗口被压缩到小于「等 hint → 点取消」的往返延迟，导致取消时上传
       //   其实已结束（表现为 S5d 假阳性）。S5 段单独开启慢速模式拉宽窗口，
       //   确保取消真的落在传输途中——这是测试时序修复，不掩盖任何产品缺陷。
+      // v21.0：全量套件由 34 扩到 37，串行累计负载（宿主 load ~3.2）把
+      //   「waitForFunction + 3 次诊断 evaluate + 点击」的往返进一步拉长，
+      //   1200ms 窗口仍偶发被压穿（全量两次复现、单跑稳定通过）。沿用 v8.2
+      //   同一性质的时序修复，把 S5 单片窗口拉宽到 2000ms；断言语义与产品
+      //   代码均零改动，uploadService 的 throwIfPaused 闸门仍由 S5d 守护。
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
-      await sleep(slowMode ? 1200 : 300);
+      await sleep(slowMode ? 2000 : 300);
       inFlight -= 1;
       ghLog.partPuts.push({ path: p, index: idx });
       store.set(p, { sha: "psha-" + store.size, content: body.content, size: Math.floor((body.content.length * 3) / 4) });
@@ -537,9 +542,9 @@ async function main() {
     check("S5a 取消后任务立即出队", true);
     // 在途 PUT 服务端可能已收完（HTTP 语义，落库 ≤+1 属正常，resume 时断点查询会跳过）；
     // 等 500ms 让其落定后，该任务必须零增长
-    // 落定等待必须大于单片传输窗口（慢速模式下为 1200ms），否则会把
+    // 落定等待必须大于单片传输窗口（v21 慢速模式下为 2000ms），否则会把
     // 「尚未落定的在途请求」误判为「取消后仍在落库」
-    await sleep(slowMode ? 1800 : 500);
+    await sleep(slowMode ? 2600 : 500);
     const putsOfCanceled = () => ghLog.partPuts.filter((p) => cancelUid && p.path.includes(cancelUid)).length;
     const cancelPutsAt = putsOfCanceled();
     await sleep(1200);
