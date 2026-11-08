@@ -65,6 +65,9 @@ const FRONT_JS = [
   ...glob("components", ".js"),
   ...glob("utils", ".js"),
   ...glob("services", ".js"),
+  // v17.0：Tab B 按需加载的 ESM 分片同样纳入 console / 裸 fetch 审计。
+  // 它们以 kit 注入依赖、不产生 window.* 全局定义，故不会引入依赖图环路。
+  ...glob("modules", ".js"),
   "sw.js",
 ];
 {
@@ -73,8 +76,25 @@ const FRONT_JS = [
   const USE_RE = /(?:\bwindow|\bglobalThis|\bself)\.([A-Za-z_$][\w$]*)/g;
   const definedAt = new Map();   // 全局名 → 定义文件
   const uses = new Map();        // 文件 → Set<全局名>
+
+  /**
+   * v17.0 审计工具自纠：依赖图必须只基于「可执行代码」。
+   * 此前直接扫描源码全文，文档注释里的示例（如 EventBus 用法中的
+   * window.UI.toast / window.EventBus.on）会被当成真实引用，制造出
+   * 根本不存在的双向依赖。这里剥离块注释与「整行」// 注释后再扫描；
+   * 只匹配行首（可含空白）的 //，不会误伤字符串里的 https:// 字面量。
+   * 规则本身不放宽：仍然要求零双向边，只是输入不再有注释噪声。
+   * @param {string} src 源码
+   * @returns {string} 去注释后的代码
+   */
+  function stripComments(src) {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[\r\n])[ \t]*\/\/[^\n]*/g, "$1");
+  }
+
   for (const f of FRONT_JS) {
-    const src = read(f);
+    const src = stripComments(read(f));
     for (const m of src.matchAll(DEF_RE)) {
       if (!definedAt.has(m[1])) definedAt.set(m[1], f);
     }

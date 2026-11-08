@@ -11,6 +11,9 @@ export default Object.freeze({
   urls: Object.freeze([]),
   assets: Object.freeze([
     "src/shared/types.js",
+    // v17.0 模块二：EventBus 规范实现（架构契约层）与生产 classic 运行时
+    "src/shared/event-bus.js",
+    "utils/event-bus.js",
     "components/ui.js",
     "utils/blog-utils.js",
     "utils/pinyin-gb2312.js",

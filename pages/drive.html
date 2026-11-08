@@ -2,6 +2,15 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+<!-- v17.0 模块三：全局 EventBus + DNS 预解析 / 预连接 / 主导航页预取 -->
+<script src="/utils/event-bus.js"></script>
+<link rel="preconnect" href="https://api.mcsrvstat.us" crossorigin>
+<link rel="dns-prefetch" href="https://api.github.com">
+<link rel="dns-prefetch" href="https://raw.githubusercontent.com">
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+<link rel="prefetch" href="/index.html" as="document">
+<link rel="prefetch" href="/blog.html" as="document">
+<link rel="prefetch" href="/tools.html" as="document">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>云盘 · Lei Yihan</title>
   <meta name="description" content="基于 GitHub 的极客云盘：拖拽上传、下载、删除，数据实时同步。">

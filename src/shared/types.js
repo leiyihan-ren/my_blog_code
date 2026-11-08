@@ -121,3 +121,45 @@
 /** @typedef {{id:string, src:string, thumb:string, title:string, date:string}} AlbumItem */
 /** @typedef {{path:string, name:string, size:number, type:"file"|"dir", sha?:string}} DriveEntry */
 /** @typedef {{id:string, title:string, artist:string, src:string, cover?:string, lrc?:string}} MusicTrack */
+
+/**
+ * v17.0 模块二：全局事件总线契约。
+ * 发布者只依赖事件名与载荷，订阅者不持有发布者的函数引用。
+ * @typedef {Object} EventBusInstance
+ * @property {(type:string, fn:Function)=>function():void} on 订阅，返回退订函数
+ * @property {(type:string, fn:Function)=>function():void} once 单次订阅
+ * @property {(type:string, fn?:Function)=>void} off 退订
+ * @property {(type:string, payload?:*)=>number} emit 发布，返回通知到的订阅者数
+ * @property {(type?:string)=>void} clear 清空频道
+ * @property {(type:string)=>number} listenerCount 频道订阅者数
+ * @property {()=>*} lastError 最近一次订阅者异常（诊断用）
+ */
+
+/** @typedef {{message:string, type?:"success"|"error"|"warn"|"info"}} ToastEvent */
+/** @typedef {{count:number}} ModulesLoadingEvent */
+/** @typedef {{count:number}} ModulesReadyEvent */
+/** @typedef {{message:string}} ModulesErrorEvent */
+
+/**
+ * v17.0 模块一：工具分片的依赖注入容器。
+ * 每个 ESM 分片导出 init(scope, kit)，全部共享依赖经此注入，
+ * 分片自身不读取任何 window 全局，便于独立测试与复用。
+ * @typedef {Object} ToolboxKit
+ * @property {(id:string)=>HTMLElement|null} $
+ * @property {(el:HTMLElement|null, v:*)=>void} text
+ * @property {(id:string, ok:boolean, msg:string, okWord?:string)=>void} setStatus
+ * @property {(scope:ScopeHandle, fn:Function, ms:number)=>Function} scopedDebounce
+ * @property {(scope:ScopeHandle, fn:Function)=>Function} guarded
+ * @property {Function} noop
+ * @property {Object} P ToolboxPure 纯函数内核
+ * @property {Object} C ToolboxConstants 常量层
+ * @property {Object} Compute ToolboxCompute 重计算客户端
+ * @property {(msg:string, type?:string)=>void} toast
+ * @property {(text:string)=>Promise<boolean>} copyText
+ */
+
+/**
+ * 工具分片的统一导出形状。
+ * @typedef {Object} ToolboxModule
+ * @property {(scope:ScopeHandle, kit:ToolboxKit)=>void} init
+ */

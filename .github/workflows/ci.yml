@@ -61,3 +61,20 @@ jobs:
           test -f dist/utils/toolbox-pure.js || { echo "::error::缺少 dist/utils/toolbox-pure.js"; exit 1; }
           test -f dist/manifest.json || { echo "::error::缺少 dist/manifest.json"; exit 1; }
           echo "✅ dist/ 产物校验通过（顶层 $(ls dist | wc -l) 个条目）"
+
+      # v17.0 模块四：把架构审计与按需加载测试纳入门禁。
+      # 两者只用 Node 内置能力，无需 npm ci；step29 检测不到 Playwright 时
+      # 自动只跑静态段，故本 Job 秒级完成且不会因缺浏览器而报红。
+      - name: 架构审计（Feature 域 / 依赖图 / 死代码 / 零调试输出）
+        run: npm run audit:arch
+
+      - name: 按需加载与 EventBus 门禁（step29 静态段）
+        run: node tests/step29-v17-toolbox.mjs
+
+      - name: 校验 v17.0 产物（ESM 分片 / 全局 EventBus / 微信验证文件）
+        run: |
+          test -f dist/modules/toolbox/manifest.js || { echo "::error::缺少 ESM 分片清单"; exit 1; }
+          test -f dist/modules/toolbox/regex.js || { echo "::error::缺少 regex 分片"; exit 1; }
+          test -f dist/utils/event-bus.js || { echo "::error::缺少全局 EventBus"; exit 1; }
+          test -f dist/4874997fe38afa094805abd462d246f8.txt || { echo "::error::缺少微信域名验证文件"; exit 1; }
+          echo "✅ v17.0 产物校验通过"

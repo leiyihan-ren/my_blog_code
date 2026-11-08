@@ -246,4 +246,16 @@
     copyText: copyText,
     btnLoading: btnLoading,
   };
+
+  /* v17.0 模块二：通知中心订阅全局 ui:toast 事件。
+   * 业务模块不再直接引用 window.UI.toast，改为向 EventBus 发布事件；
+   * 二者只共享事件名与载荷形状，编译期彻底解耦。未加载 EventBus 的
+   * 页面由守卫短路跳过，行为与 v16 逐字一致。 */
+  if (window.EventBus && typeof window.EventBus.on === "function") {
+    window.EventBus.on("ui:toast", function (payload) {
+      var p = payload || {};
+      if (p.message == null) return;
+      toast(p.message, p.type || "info");
+    });
+  }
 })();
