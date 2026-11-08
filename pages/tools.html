@@ -51,10 +51,6 @@
 </style>
 </head>
 <body class="tb-body">
-<script src="/components/ui.js"></script>
-<script src="/utils/common.js"></script>
-<script src="/utils/blog-utils.js"></script>
-<script src="/services/request.js"></script>
 <main>
 <nav class="navbar">
   <div class="nav-inner">
@@ -830,6 +826,16 @@ console.log(a * b);
   </footer>
 </div>
 </main>
+<!-- v21.0 模块二-2：4 个公共脚本移出关键渲染路径并改 defer。
+     原置于 <body> 开头、<main>/<h1> 之前，同步执行阻塞首次绘制约 300ms
+     （LCP 1.96s / Performance 99）。仅后置仍会被 Lighthouse 判为
+     parser-blocking，故与同页 6 个内核脚本统一为 defer：全部按文档顺序
+     在 DOMContentLoaded 前执行，相对依赖链（ui→common→blog-utils→
+     request→render-scheduler→toolbox 内核）零改动，但不阻塞解析与渲染。 -->
+<script src="/components/ui.js" defer></script>
+<script src="/utils/common.js" defer></script>
+<script src="/utils/blog-utils.js" defer></script>
+<script src="/services/request.js" defer></script>
 <!-- v21.0 模块二-1：DOM 渲染调度器，classic UMD，须先于 toolbox.js 加载 -->
 <script src="/utils/render-scheduler.js" defer></script>
 <script src="/utils/toolbox-constants.js?v=15.0.0" defer></script>
