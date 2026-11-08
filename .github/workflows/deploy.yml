@@ -39,6 +39,10 @@ jobs:
           test -f dist/pages/drive.html || { echo "::error::缺少 dist/pages/drive.html"; exit 1; }
           test -f dist/_worker.js || { echo "::error::缺少 dist/_worker.js（Pages 高级模式需要）"; exit 1; }
           test -f dist/services/uploadService.js || { echo "::error::缺少 dist/services/uploadService.js"; exit 1; }
+          # v17.0：按需加载分片、全局 EventBus 与微信验证文件必须在产物中
+          test -f dist/modules/toolbox/manifest.js || { echo "::error::缺少 ESM 分片清单"; exit 1; }
+          test -f dist/utils/event-bus.js || { echo "::error::缺少全局 EventBus"; exit 1; }
+          test -f dist/4874997fe38afa094805abd462d246f8.txt || { echo "::error::缺少微信域名验证文件"; exit 1; }
           echo "✅ 产物就绪（顶层 $(ls dist | wc -l) 个条目）"
 
       # 凭据探测：未配置 Secrets 时优雅跳过（不报红），由 Cloudflare Git 集成继续部署；

@@ -22,11 +22,22 @@ export default Object.freeze({
     "services/toolboxCompute.js",
     "vendor/qrcode.js",
     "scripts/tailwind.toolbox.config.cjs",
+    // v17.0 模块一：Tab B 八个工具 ESM 分片 + URL 清单（按需 import）
+    "modules/toolbox/manifest.js",
+    "modules/toolbox/regex.js",
+    "modules/toolbox/qrcode.js",
+    "modules/toolbox/image.js",
+    "modules/toolbox/diff.js",
+    "modules/toolbox/gradient.js",
+    "modules/toolbox/cron.js",
+    "modules/toolbox/url.js",
+    "modules/toolbox/case.js",
   ]),
   tests: Object.freeze([
     "tests/step26-v13-toolbox.mjs",
     "tests/step27-v14-toolbox.mjs",
     "tests/step28-v15-toolbox.mjs",
+    "tests/step29-v17-toolbox.mjs",
   ]),
   /** 允许依赖的层（禁止反向） */
   dependsOn: Object.freeze(["core", "shared", "services"]),

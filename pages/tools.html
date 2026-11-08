@@ -2,6 +2,15 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<!-- v17.0 模块三：全局 EventBus + DNS 预解析 / 预连接 / 主导航页预取 -->
+<script src="/utils/event-bus.js"></script>
+<link rel="preconnect" href="https://api.mcsrvstat.us" crossorigin>
+<link rel="dns-prefetch" href="https://api.github.com">
+<link rel="dns-prefetch" href="https://raw.githubusercontent.com">
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+<link rel="prefetch" href="/index.html" as="document">
+<link rel="prefetch" href="/blog.html" as="document">
+<link rel="prefetch" href="/drive.html" as="document">
 <!-- interactive-widget=resizes-content：移动端软键盘弹起时收缩布局视口而非遮挡输入框 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
 <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
@@ -792,6 +801,22 @@ console.log(a * b);
       </div>
     </section>
   </template>
+  <!-- v17.0 模块一：Tab B 首次动态 import() 8 个 ESM 分片时的局部骨架屏。
+       刻意不含 data-tool —— 默认 DOM 卡片计数（C1=7 / C3=15 / D5=15）逐字不变。 -->
+  <div id="tb-advanced-skeleton" class="tb-skeleton" hidden aria-hidden="true">
+    <div class="tb-skeleton-grid">
+      <div class="tb-skeleton-card"><span class="tb-skeleton-bar"></span><span class="tb-skeleton-line"></span><span class="tb-skeleton-line w70"></span><span class="tb-skeleton-line w45"></span></div>
+      <div class="tb-skeleton-card"><span class="tb-skeleton-bar"></span><span class="tb-skeleton-line"></span><span class="tb-skeleton-line w70"></span><span class="tb-skeleton-line w45"></span></div>
+      <div class="tb-skeleton-card"><span class="tb-skeleton-bar"></span><span class="tb-skeleton-line"></span><span class="tb-skeleton-line w70"></span><span class="tb-skeleton-line w45"></span></div>
+      <div class="tb-skeleton-card"><span class="tb-skeleton-bar"></span><span class="tb-skeleton-line"></span><span class="tb-skeleton-line w70"></span><span class="tb-skeleton-line w45"></span></div>
+      <div class="tb-skeleton-card"><span class="tb-skeleton-bar"></span><span class="tb-skeleton-line"></span><span class="tb-skeleton-line w70"></span><span class="tb-skeleton-line w45"></span></div>
+      <div class="tb-skeleton-card"><span class="tb-skeleton-bar"></span><span class="tb-skeleton-line"></span><span class="tb-skeleton-line w70"></span><span class="tb-skeleton-line w45"></span></div>
+      <div class="tb-skeleton-card"><span class="tb-skeleton-bar"></span><span class="tb-skeleton-line"></span><span class="tb-skeleton-line w70"></span><span class="tb-skeleton-line w45"></span></div>
+      <div class="tb-skeleton-card"><span class="tb-skeleton-bar"></span><span class="tb-skeleton-line"></span><span class="tb-skeleton-line w70"></span><span class="tb-skeleton-line w45"></span></div>
+    </div>
+    <div class="tb-skeleton-status"><span id="tb-skeleton-count"></span><span id="tb-load-badge" hidden></span></div>
+  </div>
+  <div id="tb-advanced-load-error" class="tb-note tb-note-bad" hidden role="alert"></div>
   </div><!-- /#tb-panel-advanced -->
 
   <footer class="tb-footer flex flex-wrap items-center justify-between gap-3">

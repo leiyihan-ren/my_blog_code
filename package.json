@@ -1,6 +1,6 @@
 {
   "name": "my-blog",
-  "version": "16.0.0",
+  "version": "17.0.0",
   "private": true,
   "description": "Cloudflare Worker 博客：PWA + 动态内容 + SEO/CSP 加固 + GitHub 云盘 + 全链路测试",
   "type": "module",
@@ -14,6 +14,7 @@
     "pages:build": "node scripts/build-pages.mjs",
     "build:cloudflare": "node scripts/build-pages.mjs",
     "audit:arch": "node scripts/arch-audit.mjs",
+    "test:lazy": "node tests/step29-v17-toolbox.mjs",
     "test:pwa": "node tests/step1-pwa-verify.mjs",
     "test:music": "node tests/step2-music-dynamic.mjs",
     "test:album": "node tests/step2-album-dynamic.mjs",

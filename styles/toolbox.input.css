@@ -615,7 +615,45 @@ html { scroll-padding-bottom: 42vh; }
   .tb-tab, .tb-drop, .tb-grad-preview, .tb-card, .tb-btn, .tb-mini, .tb-backtop { transition: none; }
   .tb-panel:not([hidden]) { animation: none; }
   .tb-card:active, .tb-btn:active, .tb-mini:active, .tb-tab:active, .tb-backtop:active { transform: none; }
+  .tb-skeleton-bar, .tb-skeleton-line { animation: none; }
 }
+
+/* ---------- v17.0 模块一：Tab B 动态 import() 间隙的局部骨架屏 ---------- */
+.tb-panel { position: relative; }
+.tb-skeleton[hidden] { display: none !important; }
+.tb-skeleton {
+  position: absolute; inset: 0; z-index: 6;
+  box-sizing: border-box; padding: 18px 4px 28px;
+  background: var(--tb-body-bg, #070b12);
+  animation: tbFadeIn .18s ease-out both;
+}
+.tb-skeleton-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.tb-skeleton-card {
+  box-sizing: border-box; min-height: 128px; padding: 18px;
+  border: 1px solid var(--tb-border-2); border-radius: var(--tb-radius);
+  background: var(--tb-input-bg, #0b1220);
+}
+.tb-skeleton-bar, .tb-skeleton-line {
+  display: block; border-radius: 4px;
+  background: linear-gradient(90deg, rgba(90,120,160,.10) 25%, rgba(120,160,210,.26) 37%, rgba(90,120,160,.10) 63%);
+  background-size: 400% 100%;
+  animation: tbShimmer 1.3s ease-in-out infinite;
+}
+.tb-skeleton-bar { height: 12px; width: 100%; margin-bottom: 14px; }
+.tb-skeleton-line { height: 9px; margin-bottom: 9px; }
+.tb-skeleton-line.w70 { width: 70%; }
+.tb-skeleton-line.w45 { width: 45%; }
+.tb-skeleton-status {
+  margin-top: 14px; font-size: 11px; color: var(--tb-dim, #7b8ca6);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+#tb-load-badge { color: #f87171; margin-left: 10px; }
+#tb-load-badge[hidden] { display: none; }
+#tb-advanced-load-error { margin-top: 12px; }
+#tb-advanced-load-error[hidden] { display: none; }
+@keyframes tbShimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+@keyframes tbFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@media (max-width: 640px) { .tb-skeleton-grid { grid-template-columns: 1fr; } }
 
 /* Tailwind utilities 最后注入：响应式布局类优先级最高，且不生成 preflight */
 @tailwind utilities;

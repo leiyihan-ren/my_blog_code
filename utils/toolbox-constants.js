@@ -61,6 +61,7 @@
  * @property {number} QUERY_MAX_PARAMS Query 参数最多解析条数
  * @property {Array<string>} CASE_MODES 文本大小写转换支持的模式
  * @property {number} KEYBOARD_GUARD_DELAY_MS 键盘弹起后滚动聚焦元素的延后时间
+ * @property {number} ADV_MODULE_COUNT v17.0 Tab B 按需加载的 ESM 分片数量
  */
 var C = {
   VERSION: "15.0.0",
@@ -143,6 +144,9 @@ var C = {
     QUERY_MAX_PARAMS: 200,
     CASE_MODES: Object.freeze(["upper", "lower", "title", "camel", "snake", "pascal", "kebab"]),
     KEYBOARD_GUARD_DELAY_MS: 60,
+
+    /* ---- v17.0：Tab B 进阶工具 ESM 分片数量（骨架屏占位 + 加载事件） ---- */
+    ADV_MODULE_COUNT: 8,
 
     /* ---- 状态文案 ---- */
     STATUS_OK: "● OK  ",
