@@ -23,15 +23,16 @@ import album from "./features/album/manifest.mjs";
 import player from "./features/player/manifest.mjs";
 import drive from "./features/drive/manifest.mjs";
 import games from "./features/games/manifest.mjs";
+import dashboard from "./features/dashboard/manifest.mjs";
 import bootstrap from "./bootstrap/manifest.mjs";
 
 /** 全部架构单元（层 + 功能域），顺序即 ownerOf 的归属优先级 */
 export const UNITS = Object.freeze([
-  shared, core, services, tools, blog, album, player, drive, games, bootstrap,
+  shared, core, services, tools, blog, album, player, drive, games, dashboard, bootstrap,
 ]);
 
 /** 功能域（对外可交付的能力集合） */
-export const FEATURES = Object.freeze([tools, blog, album, player, drive, games]);
+export const FEATURES = Object.freeze([tools, blog, album, player, drive, games, dashboard]);
 
 /** 分层依赖白名单：key 层只能依赖 value 中列出的层，反向一律判违规 */
 export const LAYER_RULES = Object.freeze({
@@ -54,6 +55,8 @@ export const FROZEN_CONTRACTS = Object.freeze({
     "pages/guestbook.html", "pages/links.html", "pages/mc.html",
     "pages/player.html", "pages/post.html", "pages/timeline.html",
     "pages/tools.html",
+    // v21.0 模块一-1：全站数据大屏（第 14 页，存在性校验，不改动既有 13 页）
+    "pages/dashboard.html",
   ]),
   /** 工具箱运行时依赖链（顺序即 <script> 加载顺序，不可颠倒） */
   toolboxScriptChain: Object.freeze([

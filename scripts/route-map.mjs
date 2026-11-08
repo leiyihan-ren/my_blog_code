@@ -37,6 +37,9 @@ export const PAGE_FILES = {
   // v13.0 极客工具箱（7 个工具：5 个纯前端 + 2 个 Worker 代理）
   // ⚠️ 必须与 _worker.js 的 PAGE_REWRITES 同步，step10 有一致性断言。
   "/tools.html": "pages/tools.html",
+  // v21.0 模块一-1：全站数据大屏（纯本地 LocalStorage/IndexedDB 可视化）
+  // ⚠️ 必须与 _worker.js 的 PAGE_REWRITES 同步，step10 有一致性断言。
+  "/dashboard.html": "pages/dashboard.html",
 };
 
 /**

@@ -647,6 +647,8 @@ const PAGE_REWRITES = {
   "/player.html": "/pages/player.html",
   // v13.0 极客工具箱
   "/tools.html": "/pages/tools.html",
+  // v21.0 模块一-1：全站数据大屏（纯本地可视化，后台 noindex 页）
+  "/dashboard.html": "/pages/dashboard.html",
 };
 
 /** 每请求生成 CSP nonce（16 字节密码学随机 → Base64） */

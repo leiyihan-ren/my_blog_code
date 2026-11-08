@@ -320,11 +320,28 @@
     });
   }
 
+  /* v21.0 模块一-1：全站数据大屏埋点接入。
+   * 与全局搜索同一套「idle + loadScript + 静默降级」模式：
+   *   · 全站 14 页经 common.js 一处注入，页面 HTML 零改动，首屏零阻塞；
+   *   · dashboard.html 已在 <script> 中同步加载过 telemetry.js，此处检测
+   *     到 window.SiteTelemetry 存在即跳过，绝不重复请求、绝不重复计 PV；
+   *   · telemetry.js 内部全部 try/catch，隐私模式 / 存储禁用不影响全站。
+   * 埋点只写独立键 wb.telemetry.v1，不触碰任何既有业务存储。 */
+  function initTelemetry() {
+    if (window.SiteTelemetry) return;
+    var idle = window.requestIdleCallback || function (fn) { setTimeout(fn, 1800); };
+    idle(function () {
+      loadScript("/utils/telemetry.js").catch(function () {
+        /* 统计是增强项；加载失败时全站功能毫发无损 */
+      });
+    });
+  }
+
   function boot() {
     const steps = [
       initTheme, initMobileMenu, initScrollFx, initSeoUrls, initPwa,
       initPrefetch, initPageEnter, initOfflineBanner, initErrorBoundary,
-      initPlayerHostDeps, initGlobalSearch,
+      initPlayerHostDeps, initGlobalSearch, initTelemetry,
     ];
     steps.forEach(function (fn) {
       try { fn(); } catch (e) {

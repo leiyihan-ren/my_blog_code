@@ -1,0 +1,327 @@
+/* ============================================================
+ * dashboard.css —— v21.0 全站数据大屏
+ * ------------------------------------------------------------
+ * 纯 CSS + Canvas 图表，零第三方库、零网络请求、零内联样式。
+ * 设计令牌全部复用 critical.css / common.css 的 --变量，自动跟随
+ * 全站 light/dark 主题；本文件只定义 v21 新增的 .db-* 组件。
+ * BEM 约定：块 db / db-kpi / db-panel / db-bar / db-legend / db-badge。
+ * 遵守 Stylelint 门禁：无空块、无重复属性、无未知单位与伪类。
+ * ============================================================ */
+
+.db {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 20px 64px;
+  color: var(--text);
+}
+
+.db-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.db-title {
+  font-size: clamp(22px, 3.4vw, 32px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: var(--grad-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.db-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-light);
+}
+
+.db-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.db-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: transform 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+
+.db-btn:hover {
+  box-shadow: var(--card-shadow-hover, 0 8px 20px rgba(0, 0, 0, 0.1));
+}
+
+.db-btn:active {
+  transform: scale(0.96);
+}
+
+.db-badge {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.db-badge--ok {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.db-badge--warn {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.db-status {
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--text-light);
+}
+
+.db-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.db-kpi {
+  position: relative;
+  overflow: hidden;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.db-kpi::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--grad-brand);
+}
+
+.db-kpi__label {
+  font-size: 12px;
+  color: var(--text-mute);
+}
+
+.db-kpi__value {
+  margin-top: 8px;
+  font-size: clamp(26px, 4vw, 36px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--text);
+}
+
+.db-kpi__unit {
+  margin-left: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-light);
+}
+
+.db-kpi__hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.db-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.db-panel {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.db-panel--wide {
+  grid-column: 1 / -1;
+}
+
+.db-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.db-panel__title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.db-panel__meta {
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+.db-canvas {
+  display: block;
+  width: 100%;
+  height: 220px;
+}
+
+.db-canvas--ring {
+  height: 190px;
+}
+
+/* 图表不可用 / 脏数据时展示的纯 CSS 兜底表 */
+.db-fallback {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.db-fallback th,
+.db-fallback td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.db-fallback th {
+  color: var(--text-mute);
+  font-weight: 600;
+}
+
+.db-fallback td:last-child {
+  text-align: right;
+}
+
+.db-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.db-bar {
+  display: grid;
+  grid-template-columns: 108px 1fr 52px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.db-bar__name {
+  overflow: hidden;
+  color: var(--text-light);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-bar__track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--primary-rgb), 0.1);
+}
+
+.db-bar__fill {
+  height: 100%;
+  min-width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--grad-brand);
+  transition: width 0.5s var(--ease);
+}
+
+.db-bar__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.db-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 14px;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+.db-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.db-legend__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.db-empty {
+  padding: 28px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-mute);
+}
+
+.db-quota {
+  margin-top: 16px;
+}
+
+.db-quota__row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+.db-quota__track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--primary-rgb), 0.1);
+}
+
+.db-quota__fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--success), var(--warning));
+}
+
+@media (max-width: 560px) {
+  .db {
+    padding: 20px 14px 48px;
+  }
+
+  .db-bar {
+    grid-template-columns: 84px 1fr 40px;
+  }
+
+  .db-canvas {
+    height: 180px;
+  }
+}

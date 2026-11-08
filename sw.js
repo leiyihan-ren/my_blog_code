@@ -112,6 +112,12 @@ const PRECACHE_URLS = [
   "/components/global-search.js",
   "/player.html",
   "/tools.html",
+  // v21.0 模块一-1：全站数据大屏（页面 + 数据层 + 渲染引擎 + 样式）
+  // 全部为纯本地资源，纳入离线外壳保证断网时大屏依旧可用。
+  "/dashboard.html",
+  "/utils/telemetry.js",
+  "/components/dashboard.js",
+  "/styles/dashboard.css",
   "/components/toolbox.js?v=15.0.0",
   // v17.0 全局事件总线：classic UMD，先于一切业务脚本加载，离线可用。
   "/utils/event-bus.js",

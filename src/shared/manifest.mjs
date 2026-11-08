@@ -29,6 +29,9 @@ export default Object.freeze({
     "eslint.config.mjs",
     "stylelint.config.mjs",
     "eslint-suppressions.json",
+    // v21.0 模块一-1：全站轻量埋点与本地数据聚合层（叶子层公共数据层，
+    // 被 common.js 空闲加载 + dashboard 域消费，无反向依赖）
+    "utils/telemetry.js",
   ]),
   tests: Object.freeze([
     "tests/step5-common-verify.mjs",
