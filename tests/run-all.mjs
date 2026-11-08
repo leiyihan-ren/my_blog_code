@@ -1,5 +1,8 @@
 // ============================================================
-// 全链路测试总runner：顺序执行 33 个既有套件 + v19.0 工程化门禁 1 个 = 34 个套件，汇总通过/失败
+// 全链路测试总runner：顺序执行 34 个既有套件 + v21.0 三套件 = 37 个套件，汇总通过/失败
+//   · v21.0 模块一-1 Dashboard 验收（step31）
+//   · v21.0 模块二-3 混沌测试 / 优雅降级（step32）
+//   · v21.0 模块一-3/二-1 Worker 计算中心 + DOM 渲染拦截（step33）
 // 任一失败 → 进程退出码 1（CI 直接判红）
 // 用法：node tests/run-all.mjs
 // 环境变量：CHROMIUM_PATH 指定 Chromium 可执行文件路径
@@ -46,6 +49,9 @@ const SUITES = [
   { name: "v15.0 终极增维与 PWA 离线强化", file: "step28-v15-toolbox.mjs" },
   { name: "v17.0 按需加载 / EventBus / 资源预取", file: "step29-v17-toolbox.mjs" },
   { name: "v19.0 工程化 / Critical CSS / 压缩等价", file: "step30-v19-engineering.mjs" },
+  { name: "v21.0 全站数据大屏 Dashboard", file: "step31-v21-dashboard.mjs" },
+  { name: "v21.0 混沌测试 / 优雅降级", file: "step32-v21-chaos.mjs" },
+  { name: "v21.0 Worker 计算中心 / DOM 渲染拦截", file: "step33-v21-worker-dom.mjs" },
 ];
 
 function runSuite(file) {

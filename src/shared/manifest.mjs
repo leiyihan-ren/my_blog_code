@@ -43,6 +43,8 @@ export default Object.freeze({
     "tests/step5-common-verify.mjs",
     "tests/step15-dialogs.mjs",
     "tests/step30-v19-engineering.mjs",
+    // v21.0 模块二-3：跨功能域混沌测试（Dashboard + 工具箱优雅降级）
+    "tests/step32-v21-chaos.mjs",
   ]),
   dependsOn: Object.freeze([]),
 });

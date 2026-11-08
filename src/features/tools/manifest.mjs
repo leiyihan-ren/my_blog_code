@@ -38,6 +38,8 @@ export default Object.freeze({
     "tests/step27-v14-toolbox.mjs",
     "tests/step28-v15-toolbox.mjs",
     "tests/step29-v17-toolbox.mjs",
+    // v21.0 模块一-3 / 模块二-1：异步计算中心 + DOM 渲染拦截验收
+    "tests/step33-v21-worker-dom.mjs",
   ]),
   /** 允许依赖的层（禁止反向） */
   dependsOn: Object.freeze(["core", "shared", "services"]),
