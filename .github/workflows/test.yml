@@ -28,6 +28,11 @@ jobs:
       - name: 安装 Playwright Chromium 及系统依赖
         run: npx playwright install --with-deps chromium
 
+      # step29 A7c 校验 dist/public/build 中包含 ESM 分片、EventBus 与验证文件，
+      # 与本地「先 build 再跑全量」的顺序一致；build-pages.mjs 只用 Node 内置模块。
+      - name: 构建静态产物（step29 A7c 前置）
+        run: npm run build
+
       - name: 运行全链路测试（33 个套件，含 v17.0 按需加载）
         run: npm test
         env:
