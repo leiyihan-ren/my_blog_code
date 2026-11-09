@@ -42,7 +42,13 @@
     "assets:check": "node scripts/subset-assets.mjs --check",
     "test:dashboard": "node tests/step31-v21-dashboard.mjs",
     "test:chaos": "node tests/step32-v21-chaos.mjs",
-    "test:v21": "node tests/step31-v21-dashboard.mjs && node tests/step32-v21-chaos.mjs && node tests/step33-v21-worker-dom.mjs"
+    "test:v21": "node tests/step31-v21-dashboard.mjs && node tests/step32-v21-chaos.mjs && node tests/step33-v21-worker-dom.mjs",
+  "picture:inject": "node scripts/inject-picture.mjs",
+  "picture:safe": "node scripts/inject-picture.mjs --safe",
+  "picture:check": "node scripts/inject-picture.mjs --check",
+  "picture:revert": "node scripts/inject-picture.mjs --revert",
+  "font:inline": "node scripts/subset-inline-font.mjs",
+  "font:inline:check": "node scripts/subset-inline-font.mjs --check"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

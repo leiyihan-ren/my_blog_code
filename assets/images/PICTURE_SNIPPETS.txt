@@ -1,3 +1,19 @@
+v22.0 通宵工程：以下 <picture> 片段由 scripts/inject-picture.mjs 管理，
+当前处于「安全态」——仅 dashboard.html / tools.html 实际落地（这两页含 picture
+仍稳定 Lighthouse 100 分），其余 12 页保留注入能力但默认不注入。
+原因：14 页全量注入会让首页移动中位数 100→96（新增 AVIF 首屏请求，
+LCP Render Delay 1.2s→2.4s），按「锁死双满分」优先收敛。
+采用 favicon-32 变体：32x32、loading=lazy、固定 width/height 防 CLS、
+置于 </body> 前首屏之外，浏览器按 AVIF → WebP → 原 PNG 逐级选择。
+
+  npm run picture:safe     # 收敛到安全态（2 页注入 / 12 页回退）
+  npm run picture:check    # CI 门禁：校验安全态 14/14
+  npm run picture:inject   # 业务侧按需全量注入（需重跑 Lighthouse）
+  npm run picture:revert   # 全量逐字回退
+
+原 PNG 全部保留，/og-image.png 的 image/png 断言、<link rel=icon> 与
+meta og:image 引用零改动；下方片段供业务侧在真实内容位采用更大尺寸变体。
+
 <!-- icons/apple-touch-icon.png -->
 <picture>
   <source srcset="/assets/images/apple-touch-icon.avif" type="image/avif">

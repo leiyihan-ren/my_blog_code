@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-11-09T13:32:37.960Z",
+  "engine": "fontTools pyftsubset (woff2) + base64 data-URI",
+  "source": "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+  "criticalChars": 191,
+  "woff2Bytes": 59144,
+  "base64Bytes": 78860,
+  "cssBytes": 79379,
+  "outputs": {
+    "woff2": "assets/fonts/site-cn-critical.woff2",
+    "css": "assets/fonts/subset-inline.css"
+  },
+  "vsFullSubset": {
+    "fullChars": 1386,
+    "fullWoff2Bytes": 435716,
+    "criticalRatioPct": 13.57
+  },
+  "disclosure": "该 CSS 为可选资产，默认未注入任何页面。全站使用系统字体栈、首屏 0 字体请求，即「字体加载损耗」已为零；任何注入都是新增字体对象的负优化，故以不注入为上策。是否启用需以 Lighthouse A/B 实测为依据。"
+}
