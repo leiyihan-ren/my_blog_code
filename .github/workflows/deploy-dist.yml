@@ -1,0 +1,71 @@
+# v22.0《部署形态收敛方案》方案 B 的 CI 部署脚本
+# 仅手动触发、默认 dry_run，不参与 push/PR 自动流水线，故不影响既有「CI 三绿」。
+# 生产切换前请在预览环境以 dry_run=false 灰度验证，详见 部署形态收敛方案.md。
+name: 部署收敛方案 B · dist 产物（手动）
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "仅构建与校验，不执行部署"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+
+jobs:
+  build-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 生成并压缩 dist 产物
+        run: npm run build:opt
+
+      - name: 校验产物边界（工程治理资产不得进入 dist）
+        run: |
+          set -e
+          test -f dist/pages/index.html
+          test -f dist/_worker.js
+          test -f dist/sw.js
+          test -f dist/pages/tools.html
+          test ! -f dist/package.json
+          test ! -f dist/ARCHITECTURE.md
+          test ! -f dist/README.md
+          test ! -f dist/.v19-size-report.json
+          test ! -f dist/.v21-assets-report.json
+          test ! -f dist/.v22-inline-font-report.json
+          test ! -d dist/tests
+          test ! -d dist/scripts
+          echo "OK: 产物存在且工程治理资产未泄漏"
+
+      - name: 产物体积摘要
+        run: |
+          du -sh dist
+          find dist -type f | wc -l
+
+      - name: 部署到 Cloudflare Pages（需 secrets）
+        if: ${{ inputs.dry_run == 'false' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::缺少 Cloudflare secrets，跳过部署（仅完成构建与校验）"
+            exit 0
+          fi
+          npx --yes wrangler pages deploy dist --project-name my-blog --branch main

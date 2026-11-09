@@ -27,6 +27,27 @@
 (function (root) {
   "use strict";
 
+  /**
+   * @typedef {Object} MountHandle 挂载句柄
+   * @property {function():void} cancel 取消在途分片（同步挂载时为空操作）
+   * @property {boolean} done 是否已全部挂载完成
+   * @property {"empty"|"sync"|"chunked"} mode 实际采用的挂载模式
+   * @property {number} total 本次数据项总数
+   */
+  /**
+   * @typedef {Object} SchedulerStats 调度器诊断计数（冻结快照）
+   * @property {number} syncMounts 同步 DocumentFragment 挂载次数
+   * @property {number} chunkedMounts rAF 分片挂载次数
+   * @property {number} frames 已执行的分片帧数
+   * @property {number} nodes 累计创建节点数
+   * @property {number} cancelled 被抢占/手动取消的任务数
+   * @property {number} scheduled schedule() 发起次数
+   * @property {number} merged 合并掉的重复触发次数
+   * @property {number} pending 当前在途任务数
+   * @property {number} syncLimit 同步挂载阈值
+   * @property {number} frameBudgetMs 每帧时间预算
+   */
+
   /** 节点数阈值：以下同步挂载（零 rAF、DOM 确定性），以上分片 */
   var SYNC_LIMIT = 160;
   /** 每帧主线程时间预算（ms），留出余量给浏览器绘制以稳定 60fps */
@@ -44,7 +65,11 @@
     catch (e) { return Date.now(); }
   }
 
-  /** 取消某 key 的在途任务（分片 + 节流各一份） */
+  /**
+   * 取消某 key 的在途任务（分片 + 节流各一份）。
+   * @param {string} key 任务标识
+   * @returns {boolean} 是否存在并成功取消了在途任务
+   */
   function cancel(key) {
     var j = jobs[key];
     if (!j) return false;
@@ -58,6 +83,10 @@
     return true;
   }
 
+  /**
+   * 取消全部在途任务（Tab 切换 / 页面卸载时调用）。
+   * @returns {void}
+   */
   function cancelAll() {
     Object.keys(jobs).forEach(cancel);
   }
@@ -68,7 +97,7 @@
    * @param {Array} items 数据项
    * @param {function(*, number):Node} makeNode 把数据项转成 DOM 节点（只在本帧调用，懒创建）
    * @param {{key?:string, syncLimit?:number, onDone?:function}} [opts]
-   * @returns {{cancel:function, done:boolean, mode:string, total:number}} 句柄
+   * @returns {MountHandle} 挂载句柄（可 cancel / 查询 done 与 mode）
    */
   function mount(host, items, makeNode, opts) {
     var o = opts || {};
@@ -158,6 +187,10 @@
     });
   }
 
+  /**
+   * 只读诊断计数（冻结快照，供 step33 断言与运维排障）。
+   * @returns {SchedulerStats} 当前调度器统计快照
+   */
   function stats() {
     var pending = Object.keys(jobs).length;
     return Object.freeze({

@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-11-08T15:28:33.774Z",
+  "generatedAt": "2026-11-09T14:19:15.236Z",
   "engine": "esbuild transform minify (format=iife, keepNames=true)",
   "files": 141,
-  "beforeTotal": 2014893,
+  "beforeTotal": 2019072,
   "afterTotal": 1112538,
-  "shrinkPct": 44.8,
+  "shrinkPct": 44.9,
   "failed": 0,
   "top": [
     {
@@ -69,6 +69,12 @@
     },
     {
       "dir": "dist",
+      "file": "utils/render-scheduler.js",
+      "before": 9110,
+      "after": 2322
+    },
+    {
+      "dir": "dist",
       "file": "services/toolboxCompute.js",
       "before": 9034,
       "after": 2592
@@ -102,12 +108,6 @@
       "file": "components/player-engine.js",
       "before": 11428,
       "after": 5888
-    },
-    {
-      "dir": "dist",
-      "file": "utils/render-scheduler.js",
-      "before": 7717,
-      "after": 2322
     },
     {
       "dir": "dist",

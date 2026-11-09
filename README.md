@@ -471,3 +471,43 @@ games.html ──► game-core.js（框架）
 - 可访问性：全局 `:focus-visible` 焦点环、全局 `prefers-reduced-motion` 遵循、留言/评论输入 aria-label、toast 与相册提示 `role="status"` + `aria-live`
 
 **回滚方案**：全部改动按四步分批提交（审查 → KV/缓存重构 → Bug 修复 → UI 美化），每批一个 commit。需回滚到修订前版本：`git reset --hard 63ba61b`（基线 commit）；只回滚 UI 美化：`git reset --hard 7433d78`。
+
+---
+
+## v22.0 通宵工程更新（2026-11-09）
+
+> 完整数据见 [《网页线·通宵工程战报.md》](./网页线·通宵工程战报.md)；架构全图见 [ARCHITECTURE.md](./ARCHITECTURE.md)；部署收敛见 [《部署形态收敛方案.md》](./部署形态收敛方案.md)；待人工决策项见 [《待办决策.md》](./待办决策.md)。
+
+### 本次变更
+
+- **Git 安全合流**：本地 17 个提交与远程 10 个「同内容不同 hash」的重写提交（分叉点 `1078eea` v13.0.1）以 `git merge -X ours` 合流，29 个冲突文件自动以本地为准消解，**合并前后树 diff = 0**、可 fast-forward；**禁止 force push**。沙箱无写凭据，push 与 CI 触发未执行（见待办决策）。
+- **图片渐进增强（安全态）**：`<picture>`（AVIF → WebP → 原 PNG 作 `<img src>` fallback）在 `dashboard.html` / `tools.html` 实际落地；其余 12 页保留一键注入能力但默认不注入。原因：Lighthouse 实测 14 页全量注入会让首页移动中位数 **100 → 96**（新增 `favicon-32.avif` 首屏请求、LCP Render Delay 1.2s → 2.4s），而含 picture 的上述两页仍稳定 100 分，故按「锁死 100 分」优先收敛。`scripts/inject-picture.mjs` 支持 `--safe` / `--check` / `--revert`，原 `/og-image.png` 的 `image/png` 契约、`<link rel=icon>` 与 meta `og:image` 引用零改动。
+- **字体子集化**：新增 191 字关键字符极小子集（59 KB WOFF2）与 data-URI 内联 CSS 资产（`scripts/subset-inline-font.mjs`）。**默认不注入页面**——全站系统字体栈首屏 0 字体请求即「零字体加载损耗」，内联 79 KB CSS 反而拖累首屏；决策依据为 Lighthouse A/B 实测（见战报）。
+- **Service Worker 缓存治理**：`activate` 升级为缓存边界治理（删除白名单外的 `my-blog-*` 陌生容器 + 运行时缓存逐条污染体检：非 200 / opaque / MIME 串味），新增 `PURGE_POLLUTED` 手动入口；`CACHE_VERSION` 与既有 Cache-First / SWR 策略不变。
+- **JSDoc / 工程化**：补齐 `utils/render-scheduler.js` 的 `@typedef`（MountHandle / SchedulerStats）与公开 API 类型注释；`build-pages.mjs` 排除根目录全部 Markdown，工程治理资产不再泄漏进静态产物。
+- **部署收敛**：新增 `.github/workflows/deploy-dist.yml`（`workflow_dispatch` + `dry_run` 默认 true，不影响 CI 三绿）与方案 B 配置建议；**线上配置未改动**。
+
+### 架构速览
+
+```mermaid
+flowchart LR
+  P["14 页 MPA<br/>物理文件直出"] --> S["sw.js<br/>离线外壳 / 污染剔除"]
+  S --> W["_worker.js<br/>路由重写 + API 聚合"]
+  W --> K[("KV · SITE_DATA")]
+  W --> G["GitHub 内容仓库"]
+  P --> C["classic Worker<br/>ToolboxCompute"]
+  C --> R["RenderScheduler<br/>DocumentFragment 分片"]
+  P --> T["SiteTelemetry<br/>LocalStorage / IndexedDB"]
+  T --> D["Dashboard<br/>Canvas / CSS 图表"]
+```
+
+完整分层图、路由双表、计算链与数据流见 [ARCHITECTURE.md](./ARCHITECTURE.md)。
+
+### 质量基线
+
+| 门禁 | 结果 |
+|---|---|
+| `npm run test`（`run-all.mjs`） | **37/37 套件** |
+| `npm run lint` / `lint:css` / `audit:arch` | 0 error / 0 error / **7/7** |
+| Lighthouse 严格串行 | 移动 **100** / 桌面 **100**（四场景） |
+| `npm run picture:check` / `font:inline:check` | 14/14 幂等 / 资产齐备 |

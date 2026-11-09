@@ -55,6 +55,12 @@ const EXCLUDE_FILE_RE = [
   /^eslint-suppressions\.json$/, /^\.v19-size-report\.json$/,
   // v21.0 模块一-2：子集化体积报告属工程治理资产，不进静态产物
   /^\.v21-assets-report\.json$/,
+  // v22.0 部署形态收敛：根目录所有 Markdown（历史交付报告 / ARCHITECTURE /
+  // 部署方案 / 通宵战报 / 待办决策）均非站点内容，历史上只有 README.md 被排除，
+  // 其余报告会随仓库根部署泄漏到公网。统一排除，兼顾方案 A 与产物方案 B。
+  /\.md$/,
+  // v22.0 关键字符内联字体的体积报告，同属工程治理资产
+  /^\.v22-inline-font-report\.json$/,
 ];
 
 async function listEntries(dir) {

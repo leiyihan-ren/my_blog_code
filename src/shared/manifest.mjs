@@ -38,6 +38,10 @@ export default Object.freeze({
     // 被 features/tools 的 toolbox.js 经 window.RenderScheduler 消费，
     // 方向 features→shared 合法，不引入反向分层或环。
     "utils/render-scheduler.js",
+    // v22.0 模块二：图片 <picture> 幂等注入器 / 关键字符内联子集生成器
+    // （均为构建期工具，产出 assets/ 与 pages/，叶子层零依赖）
+    "scripts/inject-picture.mjs",
+    "scripts/subset-inline-font.mjs",
   ]),
   tests: Object.freeze([
     "tests/step5-common-verify.mjs",

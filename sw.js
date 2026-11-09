@@ -173,16 +173,27 @@ self.addEventListener("install", (event) => {
   );
 });
 
-/* ---------- activate：清理旧版本缓存 + 接管客户端 ---------- */
+/* ---------- activate：清理旧版本缓存 + 污染剔除 + 接管客户端 ----------
+ * v22.0 模块三：把「旧版本 static 缓存清理」升级为「缓存边界治理」——
+ *   ① 白名单外的 my-blog-* 陌生容器一律删除（历史遗留 / 手工注入的脏缓存）；
+ *   ② 对运行时缓存逐条做污染体检并剔除（见 purgePolluted）。
+ * 全程 try/catch 隔离：清理失败绝不阻断 SW 激活与 clients.claim()。
+ */
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
+      const allow = new Set([STATIC_CACHE, RUNTIME_CACHE]);
       const keys = await caches.keys();
       await Promise.all(
         keys
-          .filter((k) => k.startsWith("my-blog-static-") && k !== STATIC_CACHE)
+          .filter((k) => k.startsWith("my-blog-") && !allow.has(k))
           .map((k) => caches.delete(k))
       );
+      try {
+        if (keys.includes(RUNTIME_CACHE)) await purgePolluted(RUNTIME_CACHE);
+      } catch (e) {
+        /* 污染剔除是增强项，失败不影响离线外壳可用 */
+      }
       await self.clients.claim();
     })()
   );
@@ -198,6 +209,57 @@ async function trimCache(cache) {
 /* ---------- 可缓存性判定 ---------- */
 function isCacheableResponse(resp) {
   return resp && resp.status === 200 && resp.type === "basic";
+}
+
+/* ---------- v22.0 模块三：缓存污染智能剔除 ----------
+ * 污染定义（命中任一即剔除）：
+ *   ① 条目缺失 / 无法读取（cache.match 抛错或返回空）；
+ *   ② 响应 status ≠ 200（404、5xx、重定向被误缓存）；
+ *   ③ opaque / error 类型响应（无 CORS 的跨域脏缓存，无法校验内容）；
+ *   ④ content-type 与 URL 扩展名期望不符（HTML 串进图片缓存等「串味」）。
+ * 只在 activate 与手动 PURGE_POLLUTED 时执行，不进入 fetch 热路径；
+ * CACHE_VERSION 与既有 Cache-First / SWR 策略保持不变。
+ */
+const EXPECTED_MIME_BY_EXT = Object.freeze({
+  html: "text/html", htm: "text/html",
+  js: "javascript", mjs: "javascript",
+  css: "text/css", json: "json",
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  gif: "image/gif", webp: "image/webp", avif: "image/avif",
+  svg: "image/svg+xml", ico: "image/",
+  mp3: "audio/", m4a: "audio/", wav: "audio/",
+  woff2: "font/", woff: "font/", ttf: "font/",
+});
+
+function isPollutedEntry(req, resp) {
+  if (!resp || resp.status !== 200) return true;
+  if (resp.type === "opaque" || resp.type === "error") return true;
+  const ct = (resp.headers.get("content-type") || "").toLowerCase();
+  let pathname = "";
+  try { pathname = new URL(req.url).pathname; } catch (e) { return false; }
+  const m = /\.([a-z0-9]+)$/i.exec(pathname);
+  const expect = m ? EXPECTED_MIME_BY_EXT[m[1].toLowerCase()] : "";
+  // 仅在能确定期望类型时做严格比对，避免误删无扩展名的 API / 动态路由缓存
+  if (expect && ct && ct.indexOf(expect) < 0) return true;
+  return false;
+}
+
+/**
+ * 逐条体检并剔除运行时缓存中的污染条目。
+ * @param {string} cacheName 目标缓存容器名
+ * @returns {Promise<{scanned: number, removed: number}>} 扫描与剔除计数
+ */
+async function purgePolluted(cacheName) {
+  const cache = await caches.open(cacheName);
+  const keys = await cache.keys();
+  let removed = 0;
+  for (const req of keys) {
+    let resp = null;
+    try { resp = await cache.match(req); } catch (e) { resp = null; }
+    if (!isPollutedEntry(req, resp)) continue;
+    try { await cache.delete(req); removed++; } catch (e) { /* 单条失败继续 */ }
+  }
+  return { scanned: keys.length, removed: removed };
 }
 
 /* ---------- v15.0：工具箱不可变资源严格 Cache-First ----------
@@ -472,7 +534,23 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-/* ---------- 手动触发立即更新（保留命令式入口） ---------- */
+/* ---------- 手动触发立即更新 / 缓存污染体检（保留命令式入口） ---------- */
 self.addEventListener("message", (event) => {
-  if (event.data === "SKIP_WAITING") self.skipWaiting();
+  if (event.data === "SKIP_WAITING") {
+    self.skipWaiting();
+    return;
+  }
+  // v22.0 模块三：运维侧可主动发起一次污染剔除并回传诊断计数
+  if (event.data === "PURGE_POLLUTED" && typeof event.waitUntil === "function") {
+    event.waitUntil(
+      purgePolluted(RUNTIME_CACHE)
+        .catch(() => ({ scanned: 0, removed: 0 }))
+        .then((stat) => {
+          const src = event.source;
+          if (src && typeof src.postMessage === "function") {
+            src.postMessage({ type: "PURGE_POLLUTED_RESULT", ...stat });
+          }
+        })
+    );
+  }
 });
