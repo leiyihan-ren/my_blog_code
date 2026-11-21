@@ -604,10 +604,20 @@ function staticCacheControl(pathname) {
   if (p === "/sw.js" || p === "/manifest.json") {
     return "public, max-age=0, must-revalidate";
   }
-  // HTML：浏览器每次校验（保证发版即时可见），但**边缘缓存 5 分钟 + SWR**。
-  // 实测线上 TTFB 500~800ms 全部耗在每次回源校验上，s-maxage 让边缘直接命中。
+  // v23.0.1 缓存规范化：后台管理页面（管理台 + 数据大屏）一律 no-store——
+  // 管理端改数据/看状态必须所见即所得，任何中间缓存都会造成「后台改完前台
+  // 已生效、后台还显示旧值」的排查灾难。
+  if (
+    p === "/admin.html" || p === "/pages/admin.html" ||
+    p === "/dashboard.html" || p === "/pages/dashboard.html"
+  ) {
+    return "no-store";
+  }
+  // HTML：max-age=0 + must-revalidate（v23.0.1 按任务书收敛）——浏览器/代理
+  // 每次回源协商，ETag 304 保留带宽优势；去掉 s-maxage=300 边缘短存，
+  // 保证发版与内容更新即时可见。
   if (p === "/" || p.endsWith("/") || p.endsWith(".html")) {
-    return "public, max-age=0, s-maxage=300, stale-while-revalidate=86400";
+    return "public, max-age=0, must-revalidate";
   }
   // CSS/JS：内容随版本变化但一小时内稳定；边缘 1 天 + SWR 7 天
   if (/\.(css|js|mjs)$/i.test(p)) {
@@ -1438,6 +1448,41 @@ async function ghProxyCachePurge() {
 }
 
 /**
+ * v23.0.1 图片缓存热修：内容写操作后的缓存失效三件套（尽力而为，全部失败也不影响主流程）。
+ *  1) KV gh_ 前缀 —— 列表/内容缓存（TTL 300s + stale 兜底），不清则新 blob sha
+ *     最长 5 分钟后才进 URL，指纹化形同虚设；
+ *  2) gh-proxy 命名缓存 —— raw 代理的旧 ?v= 条目全量清除（写操作低频，代价可控）；
+ *  3) CF 自动边缘条目 —— 边缘按「无查询串 URL」缓存的旧响应（实测忽略查询串），
+ *     按仓库路径逐条精确 delete，防止旧图被边缘钉死。
+ * @param {object|null} store KV Store 实例（测试环境可为 null）
+ * @param {string|null} origin 站点 origin（用于拼 CF 自动边缘层的删除 URL）
+ * @param {string|null} repo  GitHub 仓库（owner/name）
+ * @param {string|null} branch 分支名
+ * @param {string[]|string|null} paths 本次写入涉及的仓库路径（相对仓库根）
+ */
+async function invalidateContentCaches(store, origin, repo, branch, paths) {
+  const list = Array.isArray(paths) ? paths.filter(Boolean) : paths ? [paths] : [];
+  const tasks = [];
+  try {
+    if (store && typeof store.deletePrefix === "function") {
+      tasks.push(store.deletePrefix(KEYS.prefix.github));
+    }
+  } catch (e) { /* KV 不可用不影响其余失效 */ }
+  tasks.push(ghProxyCachePurge());
+  if (origin && repo && branch && typeof caches !== "undefined" && caches.default) {
+    for (const p of list) {
+      try {
+        const u = `${origin}/api/github/raw/${repo}/${branch}/${encodePathSegments(String(p).replace(/^\/+/, ""))}`;
+        tasks.push(caches.default.delete(new Request(u, { method: "GET" })));
+      } catch (e) { /* 单条失败忽略 */ }
+    }
+  }
+  try {
+    await Promise.allSettled(tasks);
+  } catch (e) { /* 汇总失败忽略 */ }
+}
+
+/**
  * 给响应打上观测头（生产环境 Cloudflare 边缘会自动附加 cf-cache-status）。
  * ⚠️ cache.match() 返回的响应 headers 为 immutable guard（Fetch 规范，CF 强制执行），
  * 直接 headers.set() 会抛 TypeError 导致 500——必须先复制到新 Headers 再构造新响应。
@@ -1601,7 +1646,8 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
           "Content-Type": res.headers.get("Content-Type") || "application/octet-stream",
           // s-maxage：Cloudflare 边缘共享缓存新鲜期（api 代理 1h；raw 图片路径 ttl 本身即 1 天，取更大值）
           // stale-while-revalidate=86400：边缘过期后仍可serve 旧值并后台刷新，与 Cache API SWR 语义一致
-          "Cache-Control": `public, max-age=${opts.ttl}, s-maxage=${Math.max(3600, opts.ttl)}, stale-while-revalidate=86400`,
+          "Cache-Control": opts.cacheControl ||
+            `public, max-age=${opts.ttl}, s-maxage=${Math.max(3600, opts.ttl)}, stale-while-revalidate=86400`,
           "X-Cache-Time": String(Date.now()),
         });
         const etag = res.headers.get("ETag");
@@ -1854,13 +1900,30 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     // ?dl=1 / ?download=1 → 出口叠加 Content-Disposition: attachment，
     // 强制唤醒系统下载器（详见 contentDispositionAttachment 注释）。
     const wantDownload = url.searchParams.get("dl") || url.searchParams.get("download");
+    // v23.0.1 图片缓存热修：?v=<blob sha> 为内容指纹（图片替换 → sha 变 → URL 变 → 各层缓存自然击穿）。
+    // ⚠️ 实测（2026-11-21）：CF 边缘自动缓存按「无查询串 URL」命中（?v=A/?v=B/无参共用同一条目），
+    //   因此版本化响应用 private 头让边缘 BYPASS——否则边缘会把所有版本坍缩成一条，
+    //   新 URL 被钉上旧图 + immutable 就是灾难。分层语义：
+    //   带 ?v= → 浏览器 private, max-age=31536000, immutable（URL 含指纹，一年安全）；
+    //            Worker 命名缓存按查询串分版本存取；CF 边缘不缓存。
+    //   无 ?v=（降级源无 sha 的兜底）→ public, max-age=300：内容可能变化，谁都只敢缓存 5 分钟。
+    const versionParam = sanitizeAssetVersion(url.searchParams.get("v"));
+    // 命名缓存 key 纳入查询串；dl/download 只影响出口头，剥离后预览/下载仍共享同一条目
+    const keyUrl = new URL(upstream);
+    keyUrl.search = url.search;
+    keyUrl.searchParams.delete("dl");
+    keyUrl.searchParams.delete("download");
+    const rawCacheKey = new Request(keyUrl.toString(), { method: "GET" });
     // v11.0 战役一：显式 Range 闸门。必须同时带专用标记头与 Range 头才进入，
     // 其余 raw 请求（图片、manifest、普通下载）逐字节走原路径，零回归。
     if (request.headers.get("x-drive-range") === "1" && request.headers.get("range")) {
       return handleRawRange(request, env, ctx, upstream, rel, wantDownload);
     }
-    return ghProxyFetch(new Request(upstream, { method: "GET" }), upstream, {
-      ttl: CONFIG.github.imageCacheTtlSeconds,
+    return ghProxyFetch(rawCacheKey, upstream, {
+      ttl: versionParam ? CONFIG.github.imageCacheTtlSeconds : CONFIG.github.cacheTtlSeconds,
+      cacheControl: versionParam
+        ? "private, max-age=31536000, immutable"
+        : `public, max-age=${CONFIG.github.cacheTtlSeconds}, s-maxage=${CONFIG.github.cacheTtlSeconds}, stale-while-revalidate=${CONFIG.github.cacheTtlSeconds}`,
       headers: { "User-Agent": CONFIG.github.userAgent },
       download: wantDownload ? driveFileNameFromPath(rel) : null,
     }, ctx);
@@ -2455,6 +2518,27 @@ async function handleDrive(request, env, ctx, url) {
   const repo = CONFIG.drive.repo;
   const branch = CONFIG.drive.branch;
 
+  // v23.0.1 图片缓存热修：写操作成功出口。成功（2xx）即联动失效内容缓存
+  // （KV gh_ 前缀 + gh-proxy 命名缓存 + 本次路径的 CF 自动边缘条目
+  //   + 公共只读 API 的边缘条目——POST 之外的方法不会走 fetch 层的自动清理），
+  // 保证「传完/替换完 → 刷新列表与预览即时是新的」。全部尽力而为，绝不阻塞响应。
+  const finishDriveWrite = (response, paths) => {
+    try {
+      if (response && response.status >= 200 && response.status < 300) {
+        let store = null;
+        try { store = new Store(env, ctx); } catch (e) { /* KV 未绑定：跳过 KV 失效 */ }
+        const origin = new URL(request.url).origin;
+        const task = Promise.allSettled([
+          invalidateContentCaches(store, origin, repo, branch, paths),
+          purgeApiCache(request),
+        ]);
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(task);
+        else task.catch(() => {});
+      }
+    } catch (e) { /* 失效失败不影响写结果 */ }
+    return response;
+  };
+
   // v8.0：任何写操作（upload/update/delete/finish）立即使目录列表的 isolate
   // 缓存失效——否则上传完成后的 onAllDone 刷新会在 30s 窗口内拿到旧快照，
   // 表现为「传成功了但列表里没有」。
@@ -2614,10 +2698,10 @@ async function handleDrive(request, env, ctx, url) {
     const dir = body.dir === undefined || body.dir === null || body.dir === ""
       ? "" : sanitizeDriveSubdir(body.dir);
     if (dir === null) return driveErr("非法目录：不允许 . .. 与隐藏目录", 400);
-    return driveAtomicCommit(
+    return finishDriveWrite(await driveAtomicCommit(
       env, uploadId, body.name.trim(), Number(body.size) || 0,
       Number(body.total), dir, body.parts
-    );
+    ), [driveManifestPath(uploadId, dir || "")]);
   }
 
   // ---- v6.0 分片上传：断点查询（已落库分片序号，断点续传的依据）----
@@ -2675,7 +2759,9 @@ async function handleDrive(request, env, ctx, url) {
       ? ""
       : sanitizeDriveSubdir(body.dir);
     if (dir === null) return driveErr("非法目录：不允许 . .. 与隐藏目录", 400);
-    return driveChunkFinish(env, uploadId, body.name.trim(), Number(body.size) || 0, body.total, dir);
+    return finishDriveWrite(await driveChunkFinish(
+      env, uploadId, body.name.trim(), Number(body.size) || 0, body.total, dir
+    ), [driveManifestPath(uploadId, dir || "")]);
   }
 
   // ---- 上传（新建 / 覆盖）----
@@ -2697,7 +2783,7 @@ async function handleDrive(request, env, ctx, url) {
         413
       );
     }
-    return driveSaveFile(env, path, body.content, body.message, false);
+    return finishDriveWrite(await driveSaveFile(env, path, body.content, body.message, false), [path]);
   }
 
   // ---- 更新（必须先存在，后端自动 GET sha）----
@@ -2719,7 +2805,7 @@ async function handleDrive(request, env, ctx, url) {
         413
       );
     }
-    return driveSaveFile(env, path, body.content, body.message, true);
+    return finishDriveWrite(await driveSaveFile(env, path, body.content, body.message, true), [path]);
   }
 
   // ---- v9.2 大文件安全重命名 ----------------------------------------
@@ -2773,10 +2859,10 @@ async function handleDrive(request, env, ctx, url) {
     }
     manifest.name = newName;
     manifest.renamedAt = new Date().toISOString();
-    return driveSaveFile(
+    return finishDriveWrite(await driveSaveFile(
       env, renamePath, jsonToBase64(JSON.stringify(manifest)),
       `drive: rename ${manifest.uploadId || "manifest"} → ${newName}`, true
-    );
+    ), [renamePath]);
   }
 
   // ---- 删除（后端先 GET sha，再 DELETE）----
@@ -2823,7 +2909,7 @@ async function handleDrive(request, env, ctx, url) {
       const res = await ghDeleteContents(driveContentsUrl(repo, branch, path), env, message, branch, meta.sha);
       if (!res.ok) return githubWriteError(res);
       driveListMemo.data = null;
-      return driveOk({ ok: true, path, removedParts: removed });
+      return finishDriveWrite(driveOk({ ok: true, path, removedParts: removed }), [path]);
     }
 
     const metaRes = await ghApiRequest(driveContentsUrl(repo, branch, path), null, env, null);
@@ -2841,7 +2927,7 @@ async function handleDrive(request, env, ctx, url) {
     );
     if (!res.ok) return githubWriteError(res);
     driveListMemo.data = null; // 写成功：立即使列表缓存失效，保证刷新拿到最新内容
-    return driveOk({ ok: true, path });
+    return finishDriveWrite(driveOk({ ok: true, path }), [path]);
   }
 
   return driveErr("不支持的云盘操作（list / upload / update / delete / upload:status|part|finish）", 404);
@@ -2856,6 +2942,22 @@ function encodePathSegments(p) {
 }
 
 /**
+ * v23.0.1 图片缓存热修：资源版本指纹净化。
+ * 只放行 [A-Za-z0-9_-]{1,64}（GitHub blob sha 为 40 位 hex；时间戳兜底为纯数字），
+ * 防止把任意查询串注入到镜像 URL / 缓存 key。
+ */
+function sanitizeAssetVersion(raw) {
+  const v = String(raw || "").trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(v) ? v : "";
+}
+
+/** v23.0.1：把指纹拼成查询串；version 为空（降级源无 sha）时返回空串，URL 保持原样走 300s 兜底缓存 */
+function appendVersionParam(version) {
+  const v = sanitizeAssetVersion(version);
+  return v ? `?v=${v}` : "";
+}
+
+/**
  * 为相册图片生成多个镜像地址（前端加载失败时逐个切换）。
  * useCdn 开启时 jsDelivr 优先，关闭时 GitHub 官方优先，statically 兜底。
  */
@@ -2865,12 +2967,17 @@ function encodePathSegments(p) {
  * 不依赖浏览器直连 GitHub；CDN 镜像兜底保证代理故障时仍可加载。
  * useCdn 开启时 jsDelivr 次之，关闭时 GitHub 官方次之，statically 兜底。
  */
-function buildImageMirrors(repo, branch, path, name) {
+/**
+ * v23.0.1：version 为该图 blob sha（内容指纹）。替换图片 → sha 变 → URL 变，
+ * 各层缓存按 URL 天然隔离；为空（jsDelivr 降级列表无 sha）时不加参数，走 300s 兜底。
+ */
+function buildImageMirrors(repo, branch, path, name, version) {
   const encoded = `${encodePathSegments(path)}/${encodePathSegments(name)}`;
-  const proxy = `/api/github/raw/${repo}/${branch}/${encoded}`;
-  const cdn = `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${encoded}`;
-  const raw = `https://raw.githubusercontent.com/${repo}/${branch}/${encoded}`;
-  const statically = `https://cdn.statically.io/gh/${repo}/${branch}/${encoded}`;
+  const v = appendVersionParam(version);
+  const proxy = `/api/github/raw/${repo}/${branch}/${encoded}${v}`;
+  const cdn = `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${encoded}${v}`;
+  const raw = `https://raw.githubusercontent.com/${repo}/${branch}/${encoded}${v}`;
+  const statically = `https://cdn.statically.io/gh/${repo}/${branch}/${encoded}${v}`;
   return [proxy, cdn, raw, statically];
 }
 
@@ -2883,11 +2990,13 @@ function buildImageMirrors(repo, branch, path, name) {
  * 只有原图的 1.7%。列表页只加载缩略图，点开灯箱才拉原图。
  * 缩略图缺失（历史照片未生成）时前端自动回退原图，功能零破坏。 */
 const THUMB_DIR = "thumbs";
-function buildThumbMirrors(repo, branch, path, name) {
+/** v23.0.1：缩略图优先用自己的 sha（重生成缩略图 → 独立换 URL），缺失时回退原图 sha */
+function buildThumbMirrors(repo, branch, path, name, version) {
   const encoded = `${encodePathSegments(path)}/${encodePathSegments(THUMB_DIR)}/${encodePathSegments(name)}`;
+  const v = appendVersionParam(version);
   return [
-    `/api/github/raw/${repo}/${branch}/${encoded}`,
-    `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${encoded}`,
+    `/api/github/raw/${repo}/${branch}/${encoded}${v}`,
+    `https://cdn.jsdelivr.net/gh/${repo}@${branch}/${encoded}${v}`,
   ];
 }
 
@@ -3278,21 +3387,24 @@ function githubProxyUrl(repo, branch, path) {
 /** 歌曲/封面链接三通道解析：
  *  1) url 为 http(s) 绝对地址 → 原样保留（用户显式配置的外链）
  *  2) 提供 file 相对路径 → 拼成同源代理 URL（推荐：可缓存可离线）
+ *     v23.0.1：version（该文件 blob sha）非空时拼 ?v= 指纹，替换文件后 URL 自动变化
  *  3) 都没有 → 返回空串（该条目被过滤） */
-function resolveGithubAssetUrl(url, file, repo, branch, basePath) {
+function resolveGithubAssetUrl(url, file, repo, branch, basePath, version) {
   if (url && isValidUrl(url)) return String(url).trim();
-  if (file) return githubProxyUrl(repo, branch, `${basePath}/${String(file).replace(/^\/+/, "")}`);
+  if (file) return githubProxyUrl(repo, branch, `${basePath}/${String(file).replace(/^\/+/, "")}`) + appendVersionParam(version);
   return "";
 }
 
   /** 递归枚举仓库目录内文件（限深 2 层，防异常目录结构打爆配额）。
- *  返回 [{ name, path, size }]，path 为相对 dir 的路径（可含子目录）。 */
+ *  返回 [{ name, path, size, sha }]，path 为相对 dir 的路径（可含子目录）。
+ *  v23.0.1：透传 GitHub Contents API 的 blob sha（内容指纹）；
+ *  jsDelivr data API 降级源无 sha → sha 为空串，调用方走无版本兜底。 */
 async function listRepoFilesRecursive(store, repo, dir, branch, useCdn, depth = 0) {
   const files = await githubFetch(store, repo, dir, branch, useCdn);
   const out = [];
   for (const f of files || []) {
     if (f.type === "file") {
-      out.push({ name: f.name, path: f.name, size: f.size || 0 });
+      out.push({ name: f.name, path: f.name, size: f.size || 0, sha: f.sha || "" });
     } else if (f.type === "dir" && depth < 2) {
       const sub = await listRepoFilesRecursive(store, repo, `${dir}/${f.name}`, branch, useCdn, depth + 1);
       for (const s of sub) out.push({ ...s, path: `${f.name}/${s.path}` });
@@ -3323,6 +3435,8 @@ async function loadAlbumFromGithub(store, site) {
     // 缩略图重复出现在列表里，相册张数直接翻倍。
     .filter((f) => !f.path.split("/").includes(THUMB_DIR));
   const byPath = new Map(images.map((f) => [f.path, f]));
+  // v23.0.1：全目录（含 thumbs/）sha 索引 —— 图片替换后 blob sha 变化 → URL ?v= 变化
+  const shaByPath = new Map(files.map((f) => [f.path, f.sha || ""]));
 
   // 仅在目录中确实存在配置文件时才拉取内容（无配置时零额外请求）
   let config = null;
@@ -3358,8 +3472,9 @@ async function loadAlbumFromGithub(store, site) {
         title: String((p && p.title) || "").slice(0, 200),
         category: cat,
         date: String((p && p.date) || "").slice(0, 20),
-        mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, rel),
-        thumbs: buildThumbMirrors(site.githubRepo, branch, albumPath, rel),
+        mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, rel, shaByPath.get(rel) || ""),
+        thumbs: buildThumbMirrors(site.githubRepo, branch, albumPath, rel,
+          shaByPath.get(`${THUMB_DIR}/${rel}`) || shaByPath.get(rel) || ""),
       });
       byPath.delete(rel);
       bump(cat);
@@ -3375,8 +3490,9 @@ async function loadAlbumFromGithub(store, site) {
       title: "",
       category: cat,
       date: "",
-      mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.path),
-      thumbs: buildThumbMirrors(site.githubRepo, branch, albumPath, f.path),
+      mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.path, f.sha || ""),
+      thumbs: buildThumbMirrors(site.githubRepo, branch, albumPath, f.path,
+        shaByPath.get(`${THUMB_DIR}/${f.path}`) || f.sha || ""),
     });
     bump(cat);
   }
@@ -3399,14 +3515,26 @@ async function loadMusicFromGithub(store, site) {
   try {
     const raw = await githubFetchRaw(store, repo, musicListFile, branch, useCdn);
     const list = safeJsonParse(raw, []);
-    return (Array.isArray(list) ? list : [])
+    const entries = Array.isArray(list) ? list : [];
+    if (!entries.length) return [];
+    // v23.0.1：歌曲/封面文件 blob sha 索引（目录列表走 gh_ KV 缓存，5 分钟内零额外上游请求）。
+    // 拿不到（目录缺失/降级源）→ 不加 ?v=，走 300s 兜底缓存，绝不让指纹化破坏可用性。
+    let shaByName = new Map();
+    try {
+      const dirFiles = await githubFetch(store, repo, musicPath, branch, useCdn);
+      shaByName = new Map(
+        (dirFiles || []).filter((f) => f.type === "file").map((f) => [f.name, f.sha || ""])
+      );
+    } catch (e) { /* sha 拿不到就退化为无版本 URL */ }
+    const nameSha = (file) => shaByName.get(String(file || "").replace(/^\/+/, "")) || "";
+    return entries
       .map((m, i) => ({
         id: (m.id ? String(m.id).replace(/[^a-zA-Z0-9_.-]/g, "_") : "gm" + i).slice(0, CONFIG.limit.id),
         title: m.title || "未知歌曲",
         artist: m.artist || "",
         // 支持两种配置写法：url 绝对外链，或 file 仓库内相对路径（自动走同源代理）
-        url: resolveGithubAssetUrl(m.url, m.file, repo, branch, musicPath),
-        cover: resolveGithubAssetUrl(m.cover, m.coverFile, repo, branch, musicPath),
+        url: resolveGithubAssetUrl(m.url, m.file, repo, branch, musicPath, nameSha(m.file)),
+        cover: resolveGithubAssetUrl(m.cover, m.coverFile, repo, branch, musicPath, nameSha(m.coverFile)),
         source: "github",
       }))
       .filter((m) => m.url && (isValidUrl(m.url) || m.url.startsWith("/")));
@@ -3420,7 +3548,7 @@ async function loadMusicFromGithub(store, site) {
         id: "gm" + i,
         title: f.name.replace(/\.[^.]+$/, ""),
         artist: "",
-        url: githubProxyUrl(repo, branch, `${musicPath}/${f.name}`),
+        url: githubProxyUrl(repo, branch, `${musicPath}/${f.name}`) + appendVersionParam(f.sha),
         cover: "",
         source: "github",
       }));
@@ -3654,7 +3782,39 @@ const handlers = {
   async refreshGithub(ctx) {
     await ctx.store.deletePrefix(KEYS.prefix.github);
     const purged = await ghProxyCachePurge(); // 同步清理 /api/github/* 边缘缓存
-    return { success: true, message: `GitHub 缓存已刷新${purged ? `（含 ${purged} 条代理缓存）` : ""}` };
+    // v23.0.1：相册/音乐的 raw 文件在 CF 自动边缘层按「无查询串 URL」缓存（实测忽略
+    // 查询串），旧条目会把旧图钉死在新 URL 上。这里重列目录、逐文件精确 delete。
+    let purgedEdge = 0;
+    try {
+      if (typeof caches !== "undefined" && caches.default) {
+        const site = await Repo.getSite(ctx.store);
+        const branch = site.githubBranch || "main";
+        const useCdn = site.useCdn !== false;
+        const origin = new URL(ctx.request.url).origin;
+        const paths = [];
+        const albumPath = site.githubAlbumPath || "photos";
+        const albumFiles = await listRepoFilesRecursive(ctx.store, site.githubRepo, albumPath, branch, useCdn)
+          .catch(() => []);
+        for (const f of albumFiles) paths.push(`${albumPath}/${f.path}`);
+        const musicPath = site.githubMusicPath || "music";
+        const musicFiles = await githubFetch(ctx.store, site.githubRepo, musicPath, branch, useCdn)
+          .catch(() => []);
+        for (const f of musicFiles || []) {
+          if (f && f.type === "file") paths.push(`${musicPath}/${f.name}`);
+        }
+        const results = await Promise.allSettled(paths.map((p) =>
+          caches.default.delete(new Request(
+            `${origin}/api/github/raw/${site.githubRepo}/${branch}/${encodePathSegments(String(p).replace(/^\/+/, ""))}`,
+            { method: "GET" }
+          ))
+        ));
+        purgedEdge = results.filter((r) => r.status === "fulfilled" && r.value === true).length;
+      }
+    } catch (e) { /* 边缘逐文件清理失败不影响刷新结果 */ }
+    return {
+      success: true,
+      message: `GitHub 缓存已刷新${purged ? `（含 ${purged} 条代理缓存）` : ""}${purgedEdge ? `、${purgedEdge} 条边缘图片缓存` : ""}`,
+    };
   },
 
   /**

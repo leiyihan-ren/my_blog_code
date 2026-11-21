@@ -608,6 +608,20 @@ async function main() {
     );
     check("V8g 409 自愈后 UI 删除成功（列表行消失）", true);
     const p0 = `drive/.parts/${uid32}/part-00000`;
+    // UI 删除是「乐观移除」：点击确认后行立即消失，但 GitHub 侧的逐片 DELETE
+    // （含 409 自愈重删）仍在途。此前断言紧跟 V8g，高负载/慢机器下必然抢跑
+    // （表现为 del409=[] deletes=0 的假红）。这里改为有界等待 GitHub 侧全部
+    // 删除落库再断言计数，消除竞态，不降低断言强度（仍要求精确 1+1 与 n+1）。
+    const settled = async () => {
+      for (let i = 0; i < 100; i++) {
+        const d32 = ghLog.deletes.filter((p) => p.includes(uid32)).length;
+        if (ghLog.del409.some((p) => p === p0) && d32 >= n8 + 1) return true;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      return false;
+    };
+    check("V8h 前置：GitHub 侧删除全部落库（20s 有界等待）", await settled(),
+      `del409=${ghLog.del409.length} d32=${ghLog.deletes.filter((p) => p.includes(uid32)).length}`);
     check(
       "V8h 自愈路径：首片 409 一次 + 刷新重删成功一次",
       ghLog.del409.filter((p) => p === p0).length === 1 && ghLog.deletes.filter((p) => p === p0).length === 1,

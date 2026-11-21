@@ -52,6 +52,7 @@ const SUITES = [
   { name: "v21.0 全站数据大屏 Dashboard", file: "step31-v21-dashboard.mjs" },
   { name: "v21.0 混沌测试 / 优雅降级", file: "step32-v21-chaos.mjs" },
   { name: "v21.0 Worker 计算中心 / DOM 渲染拦截", file: "step33-v21-worker-dom.mjs" },
+  { name: "v23.0.1 图片 URL 指纹化", file: "step34-image-version.mjs" },
 ];
 
 function runSuite(file) {

@@ -140,12 +140,17 @@ console.log("\n═══ E2 STALE 路径（过期缓存续期） ═══");
     `status=${r.status} x-cache=${r.headers.get("x-cache")}`);
 }
 
-console.log("\n═══ E3 /api/github/* Cache-Control（DevOps 3.1） ═══");
+console.log("\n═══ E3 /api/github/* Cache-Control（v23.0.1：raw 无版本兜底 300s） ═══");
 {
   const raw = await worker.fetch(new Request(gh("raw/owner/repo/main/photos/cc-raw.jpg")), envFor(), ctx);
   const ccRaw = raw.headers.get("cache-control") || "";
-  check("raw 路径：s-maxage=86400 + stale-while-revalidate=86400",
-    ccRaw.includes("s-maxage=86400") && ccRaw.includes("stale-while-revalidate=86400"), ccRaw);
+  check("raw 无版本路径：max-age=300 兜底（替换可见性由短缓存保证）",
+    ccRaw.includes("max-age=300") && ccRaw.includes("s-maxage=300"), ccRaw);
+
+  const rawV = await worker.fetch(new Request(gh("raw/owner/repo/main/photos/cc-raw.jpg?v=0123456789abcdef0123456789abcdef01234567")), envFor(), ctx);
+  const ccRawV = rawV.headers.get("cache-control") || "";
+  check("raw 版本化路径：private + immutable 一年（指纹即新鲜度，边缘 BYPASS 防版本坍缩）",
+    ccRawV.includes("private") && ccRawV.includes("max-age=31536000") && ccRawV.includes("immutable"), ccRawV);
 
   const api = await worker.fetch(new Request(gh("api/repos/owner/repo/contents/photos?ref=main")), envFor(), ctx);
   const ccApi = api.headers.get("cache-control") || "";
