@@ -1499,6 +1499,24 @@ function withXCache(response, state) {
 }
 
 /**
+ * v23.0.1：出口改写客户端缓存头。
+ * 背景：CF Cache API 的 cache.put() 会静默拒存 Cache-Control: private 的响应
+ * （线上实测版本化条目永远 MISS、每次回源）。因此命名缓存里存「public 可缓存」
+ * 副本，出口按 serveCacheControl 改写给客户端的头——存储层与下发层解耦，
+ * 命名缓存按 ?v= 分版本真实命中，客户端仍拿到 private/immutable 一年承诺。
+ */
+function withClientCacheControl(response, clientCacheControl) {
+  if (!clientCacheControl) return response;
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", clientCacheControl);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+/**
  * 读旧缓存并续期（SWR/304 路径共用）。
  * 缓存响应体只能消费一次：先读成 buffer，再分别构造「续期存入」与「返回」两份。
  */
@@ -1598,7 +1616,8 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
     const cachedAt = parseInt(cached.headers.get("X-Cache-Time") || "0", 10) || 0;
     const age = Date.now() - cachedAt;
     if (age < opts.ttl * 1000) {
-      const hit = withXCache(cached, "HIT"); // 边缘缓存命中：不打上游、不耗配额
+      // 边缘缓存命中：不打上游、不耗配额；版本化条目出口改写客户端头（见 withClientCacheControl）
+      const hit = withClientCacheControl(withXCache(cached, "HIT"), opts.serveCacheControl);
       return opts.download ? withDownloadHeaders(hit, opts.download) : hit;
     }
     // 过期：SWR——先续期旧缓存并立即返回，再后台异步重验。
@@ -1612,7 +1631,7 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
         })
       );
     }
-    return withXCache(refreshed, "STALE");
+    return withClientCacheControl(withXCache(refreshed, "STALE"), opts.serveCacheControl);
   }
 
   // 无缓存：同步拉取（带 If-None-Match 时由 ghApiRequest 处理 304）。
@@ -1664,7 +1683,7 @@ async function ghProxyFetch(cacheKey, upstream, opts, ctx) {
     ghProxyInflight.set(cacheKey.url, task);
   }
   // 每个调用方拿独立 clone（Response 体只能读一次）；错误响同样共享clone
-  const fresh = withXCache((await task).clone(), "MISS");
+  const fresh = withClientCacheControl(withXCache((await task).clone(), "MISS"), opts.serveCacheControl);
   return opts.download ? withDownloadHeaders(fresh, opts.download) : fresh;
 }
 
@@ -1901,12 +1920,15 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     // 强制唤醒系统下载器（详见 contentDispositionAttachment 注释）。
     const wantDownload = url.searchParams.get("dl") || url.searchParams.get("download");
     // v23.0.1 图片缓存热修：?v=<blob sha> 为内容指纹（图片替换 → sha 变 → URL 变 → 各层缓存自然击穿）。
-    // ⚠️ 实测（2026-11-21）：CF 边缘自动缓存按「无查询串 URL」命中（?v=A/?v=B/无参共用同一条目），
-    //   因此版本化响应用 private 头让边缘 BYPASS——否则边缘会把所有版本坍缩成一条，
-    //   新 URL 被钉上旧图 + immutable 就是灾难。分层语义：
-    //   带 ?v= → 浏览器 private, max-age=31536000, immutable（URL 含指纹，一年安全）；
-    //            Worker 命名缓存按查询串分版本存取；CF 边缘不缓存。
-    //   无 ?v=（降级源无 sha 的兜底）→ public, max-age=300：内容可能变化，谁都只敢缓存 5 分钟。
+    // ⚠️ 实测（2026-11-21）CF 两层缓存都不按查询串区分：
+    //   1) CF 边缘自动缓存 key 忽略查询串（?v=A/?v=B/无参共用同一条边缘条目）；
+    //   2) Cache API 的 cache.put() 静默拒存 private 响应。
+    // 因此版本化 URL 的分层语义为：
+    //   浏览器：private, max-age=31536000, immutable（URL 含指纹，一年安全；浏览器缓存 key 永远含查询串）
+    //   CF 边缘自动缓存：private 头 → BYPASS，不缓存（防把所有版本坍缩成一条、新 URL 被钉上旧图）
+    //   Worker 命名缓存：cacheKey 纳入查询串分版本存取；存储副本用 public 头（否则 put 拒存），
+    //                    出口再改写为客户端的 private/immutable（withClientCacheControl）
+    // 无 ?v=（降级源无 sha 的兜底）→ public, max-age=300：内容可能变化，谁都只敢缓存 5 分钟。
     const versionParam = sanitizeAssetVersion(url.searchParams.get("v"));
     // 命名缓存 key 纳入查询串；dl/download 只影响出口头，剥离后预览/下载仍共享同一条目
     const keyUrl = new URL(upstream);
@@ -1921,7 +1943,12 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     }
     return ghProxyFetch(rawCacheKey, upstream, {
       ttl: versionParam ? CONFIG.github.imageCacheTtlSeconds : CONFIG.github.cacheTtlSeconds,
+      // 存储层头（必须 public 可缓存，Cache API 拒存 private）
       cacheControl: versionParam
+        ? `public, max-age=${CONFIG.github.imageCacheTtlSeconds}, s-maxage=${CONFIG.github.imageCacheTtlSeconds}, stale-while-revalidate=${CONFIG.github.imageCacheTtlSeconds}`
+        : `public, max-age=${CONFIG.github.cacheTtlSeconds}, s-maxage=${CONFIG.github.cacheTtlSeconds}, stale-while-revalidate=${CONFIG.github.cacheTtlSeconds}`,
+      // 下发层头（版本化 → private immutable 一年；无版本 → 与存储层一致的 300s 兜底）
+      serveCacheControl: versionParam
         ? "private, max-age=31536000, immutable"
         : `public, max-age=${CONFIG.github.cacheTtlSeconds}, s-maxage=${CONFIG.github.cacheTtlSeconds}, stale-while-revalidate=${CONFIG.github.cacheTtlSeconds}`,
       headers: { "User-Agent": CONFIG.github.userAgent },
