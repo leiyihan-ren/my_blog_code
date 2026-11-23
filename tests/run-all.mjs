@@ -53,6 +53,7 @@ const SUITES = [
   { name: "v21.0 混沌测试 / 优雅降级", file: "step32-v21-chaos.mjs" },
   { name: "v21.0 Worker 计算中心 / DOM 渲染拦截", file: "step33-v21-worker-dom.mjs" },
   { name: "v23.0.1 图片 URL 指纹化", file: "step34-image-version.mjs" },
+  { name: "v23.1 图片哈希 KV 元数据", file: "step35-v231-sha-metadata.mjs" },
 ];
 
 function runSuite(file) {

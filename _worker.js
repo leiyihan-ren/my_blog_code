@@ -791,6 +791,12 @@ const KEYS = {
     `comment_hour_${safeKvKey(ip, CONFIG.limit.ip)}_${safeKvKey(postId, CONFIG.limit.id)}`,
   ghCache: (type, repo, branch, path, useCdn) =>
     `gh_${safeKvKey(type, 20)}_${safeKvKey(repo, 200)}_${safeKvKey(branch, 100)}_${safeKvKey(path, 200)}_${useCdn ? "cdn" : "raw"}`,
+  // v23.1 事项1：图片内容哈希 KV 元数据（上传/替换成功时写入 path→blob sha）。
+  // value 形如 { v: 1, shas: { "<repo内路径>": { sha, ts } } }（按顶层目录组织，防 value 无界膨胀）。
+  // 前缀刻意不用 gh_：invalidateContentCaches 的 deletePrefix("gh_") 不会误删
+  // 刚写入的元数据（列表缓存失效与元数据写入是两条独立链路）。
+  ghShaMap: (repo, branch, dir) =>
+    `ghsha_${safeKvKey(repo, 200)}_${safeKvKey(branch, 100)}_${safeKvKey(dir, 200)}`,
   // 双来源合并时的「本地删除墓碑」：{ posts: [...], music: [...], timeline: [...] }
   // 后台删除了 GitHub 来源的条目时，把 id 记入这里，合并视图据此隐藏
   deletedIds: "deleted_ids",
@@ -931,6 +937,119 @@ function withWriteLock(key, fn) {
     () => {}
   ));
   return run;
+}
+
+// ============================================================
+// 7.7 图片内容哈希 KV 元数据（v23.1 事项1）
+// ------------------------------------------------------------
+// 背景：v23.0.1 给图片 URL 加 ?v=<blob sha> 指纹，sha 取自 GitHub 目录列表，
+// 而列表走 gh_ KV 缓存（TTL 300s）——图片刚替换完的窗口内列表可能还是旧 sha；
+// 配合下发层的 private+immutable 一年缓存，指纹错一次 = 旧图钉死一年。
+// 本节在「上传/替换成功那一刻」把内容哈希即时写入 KV 元数据，渲染侧按
+// 时间戳取更新的来源，指纹错误窗口从分钟级收敛到 0。
+// ============================================================
+
+/** 图片扩展名（与相册 photoImgExts 同族，统一大小写不敏感判定） */
+const IMAGE_EXTS = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif"];
+
+function isImagePath(path) {
+  const p = String(path || "").toLowerCase();
+  return IMAGE_EXTS.some((ext) => p.endsWith(ext));
+}
+
+/**
+ * 本地计算 git blob sha（与 GitHub Contents API 返回的 blob sha 同一算法）：
+ * sha1("blob <字节数>\0" + 内容)。GitHub 响应缺 sha 时的兜底来源。
+ * @param {string} base64 内容（base64，允许含空白）
+ * @returns {Promise<string|null>} 40 位十六进制 sha；解析失败返回 null
+ */
+async function gitBlobShaFromBase64(base64) {
+  try {
+    const clean = String(base64 || "").replace(/\s+/g, "");
+    const bytes = Uint8Array.from(atob(clean), (c) => c.charCodeAt(0));
+    const header = new TextEncoder().encode(`blob ${bytes.byteLength}\0`);
+    const buf = new Uint8Array(header.byteLength + bytes.byteLength);
+    buf.set(header, 0);
+    buf.set(bytes, header.byteLength);
+    const digest = await crypto.subtle.digest("SHA-1", buf);
+    return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 元数据信任窗口：写入后该窗口内才允许「更新者胜」（超窗后一律信列表，防元数据过期反杀） */
+const SHA_META_TRUST_MS = 15 * 60 * 1000;
+/** 单目录元数据条目上限：超出按 ts 淘汰最旧，防 KV value 无界增长 */
+const SHA_META_MAX_ENTRIES = 500;
+
+/**
+ * 图片上传/替换成功后，把内容哈希写入 KV 元数据（尽力而为，失败不影响写结果）。
+ * 读改写走 withWriteLock 串行化，防并发写互相覆盖丢条目。
+ * @param {object|null} store KV Store（须已构造成功）
+ * @param {string} repo 仓库  @param {string} branch 分支  @param {string} filePath 仓库内路径
+ * @param {string} sha blob sha（GitHub 响应优先，本地计算兜底）
+ */
+function recordAssetSha(store, repo, branch, filePath, sha) {
+  try {
+    const path = String(filePath || "").replace(/^\/+/, "");
+    if (!store || !repo || !branch || !path || !isImagePath(path)) return;
+    if (!/^[a-f0-9]{40}$/i.test(String(sha || ""))) return;
+    const dir = path.split("/")[0];
+    const task = withWriteLock(`ghsha:${repo}:${branch}:${dir}`, async () => {
+      let meta = null;
+      try {
+        meta = safeJsonParse(await store.getRaw(KEYS.ghShaMap(repo, branch, dir)), null);
+      } catch (e) { /* 读失败按空表处理 */ }
+      if (!meta || typeof meta !== "object" || !meta.shas || typeof meta.shas !== "object") {
+        meta = { v: 1, shas: {} };
+      }
+      meta.shas[path] = { sha: String(sha).toLowerCase(), ts: Date.now() };
+      const entries = Object.entries(meta.shas);
+      if (entries.length > SHA_META_MAX_ENTRIES) {
+        entries.sort((a, b) => ((a[1] && a[1].ts) || 0) - ((b[1] && b[1].ts) || 0));
+        meta.shas = Object.fromEntries(entries.slice(entries.length - SHA_META_MAX_ENTRIES));
+      }
+      await store.putJson(KEYS.ghShaMap(repo, branch, dir), meta);
+    });
+    // 元数据写入是旁路任务：有 ctx 走 waitUntil，没有则自挂链（内部吞错）
+    if (store.ctx && typeof store.ctx.waitUntil === "function") store.ctx.waitUntil(task);
+    else task.catch(() => {});
+  } catch (e) { /* 元数据写入失败不影响上传/替换结果 */ }
+}
+
+/**
+ * 读取 KV sha 元数据，按「时间戳新者胜」修正目录列表给出的指纹：
+ *  1) 元数据 ts 晚于列表抓取时间且仍在信任窗口内 → 列表可能来自 gh_ 旧缓存 → 元数据 sha 优先；
+ *     （信任窗口兜底：超窗后一律信列表——若用户绕过 Worker 直接在 GitHub 上改了图，
+ *      过期列表 TTL 后自愈，元数据绝不把新 sha 反杀成旧 sha）
+ *  2) 列表本就没有该路径的 sha（降级源）→ 元数据 sha 兜底补上；
+ *  3) 其余情况一律信列表（列表刚拉取时它才是权威）。
+ * @param {Map<string,string>} shaByPath 渲染侧 path→sha 索引（key 为 prefix 之下的相对路径，原地覆盖）
+ * @param {object|null} store KV Store
+ * @param {string} repo 仓库  @param {string} branch 分支  @param {string} prefix 目录前缀（如 photos/music）
+ * @param {number|null} listFetchedAt 列表抓取时间（gh_ 缓存 envelope.time；null=本请求刚拉的新鲜列表）
+ */
+async function applyShaMetadata(shaByPath, store, repo, branch, prefix, listFetchedAt) {
+  try {
+    if (!store || !repo || !branch || !(shaByPath instanceof Map)) return;
+    const prefixNorm = String(prefix || "").replace(/^\/+|\/+$/g, "");
+    if (!prefixNorm) return;
+    const dir = prefixNorm.split("/")[0];
+    const meta = safeJsonParse(await store.getRaw(KEYS.ghShaMap(repo, branch, dir)), null);
+    if (!meta || !meta.shas) return;
+    const now = Date.now();
+    const fetchedAt = Number(listFetchedAt) || now;
+    const pre = `${prefixNorm}/`;
+    for (const [repoPath, entry] of Object.entries(meta.shas)) {
+      if (!repoPath.startsWith(pre) || !entry || !/^[a-f0-9]{40}$/i.test(String(entry.sha || ""))) continue;
+      const rel = repoPath.slice(pre.length);
+      const metaSha = String(entry.sha).toLowerCase();
+      const metaWins = !shaByPath.get(rel) ||
+        (Number(entry.ts) > fetchedAt && now - Number(entry.ts) <= SHA_META_TRUST_MS);
+      if (metaWins) shaByPath.set(rel, metaSha);
+    }
+  } catch (e) { /* 元数据读取失败等价于无元数据，零回归 */ }
 }
 
 // ============================================================
@@ -1876,6 +1995,24 @@ async function ghProxyServeDegraded(cacheKey, apiPath, opts) {
  * /api/github/* 统一入口。
  * api 子路径走 ghApiRequest（Token/401 自愈/配额跟踪）；raw 子路径匿名直拉（CDN 无配额问题）。
  */
+/**
+ * 解析 Contents API 写路径：repos/<owner>/<repo>/contents/<path> → { repo, branch, path }。
+ * branch 取自请求体（Contents API 写请求必带）；解析失败返回 null。
+ * @param {string} upRest 代理 rest 去掉 "api/" 前缀后的相对路径
+ * @param {object|null} body 请求体 JSON
+ */
+function parseContentsWriteTarget(upRest, body) {
+  const m = /^repos\/([^/]+)\/([^/]+)\/contents\/(.+)$/.exec(String(upRest || ""));
+  if (!m || !m[3]) return null;
+  const branch = body && body.branch ? String(body.branch) : null;
+  if (!branch) return null;
+  try {
+    return { repo: `${m[1]}/${m[2]}`, branch, path: m[3].split("/").map((s) => decodeURIComponent(s)).join("/") };
+  } catch (e) {
+    return null;
+  }
+}
+
 async function handleGithubProxy(request, env, ctx, url, store) {
   const rest = url.pathname.replace(/^\/api\/github\//, "");
   if (!rest) return err("代理路径为空", 400);
@@ -1893,6 +2030,33 @@ async function handleGithubProxy(request, env, ctx, url, store) {
     const res = await ghApiWrite(upstream, env, request.method, body || {});
     if (!res.ok) return githubWriteError(res);
     const text = await res.text();
+
+    // v23.1 事项1：图片上传/替换（Contents API PUT）成功 → 内容哈希写入 KV 元数据
+    // + 补齐 v23.0.1 同款写路径联动失效（KV gh_ 前缀 + 命名缓存 + API 边缘条目）。
+    // 此前本分支写成功后不清列表缓存：gh_ 列表最长 5 分钟旧 sha，配合下发层
+    // private+immutable 会把旧图钉死一年。仅 PUT（替换/新建）记录，DELETE 不回写。
+    const upRest = rest.slice(4);
+    const wTarget = parseContentsWriteTarget(upRest, body);
+    if (request.method === "PUT" && wTarget && isImagePath(wTarget.path)) {
+      try {
+        let wData = null;
+        try { wData = safeJsonParse(text, null); } catch (e) { /* 响应非 JSON：走本地计算 */ }
+        let blobSha = wData && wData.content && wData.content.sha;
+        if (!/^[a-f0-9]{40}$/i.test(String(blobSha || ""))) {
+          blobSha = await gitBlobShaFromBase64(body && body.content);
+        }
+        const origin = new URL(request.url).origin;
+        const wStore = store || new Store(env, ctx);
+        recordAssetSha(wStore, wTarget.repo, wTarget.branch, wTarget.path, blobSha);
+        const task = Promise.allSettled([
+          invalidateContentCaches(wStore, origin, wTarget.repo, wTarget.branch, [wTarget.path]),
+          purgeApiCache(request),
+        ]);
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(task);
+        else task.catch(() => {});
+      } catch (e) { /* 元数据/失效是旁路动作，失败不影响写结果 */ }
+    }
+
     return new Response(text, {
       status: res.status,
       headers: buildHeaders({
@@ -2084,8 +2248,9 @@ function driveContentsUrl(repo, branch, path) {
 /**
  * 保存文件（upload / update 共用）。
  * @param {boolean} requireSha  true=更新（必须先拿到 sha，否则 404）；false=新建/覆盖（自动判别）
+ * @param {object|null} ctx     Pages 执行上下文（v23.1：用于哈希元数据旁路写入）
  */
-async function driveSaveFile(env, path, content, message, requireSha) {
+async function driveSaveFile(env, path, content, message, requireSha, ctx) {
   const repo = CONFIG.drive.repo;
   const branch = CONFIG.drive.branch;
 
@@ -2112,6 +2277,22 @@ async function driveSaveFile(env, path, content, message, requireSha) {
   if (!res.ok) return githubWriteError(res);
   const data = await res.json();
   driveListMemo.data = null; // 写成功：立即使列表缓存失效，保证刷新拿到最新内容
+
+  // v23.1 事项1：图片上传/替换成功 → 内容哈希即时写入 KV 元数据。
+  // GitHub 响应自带新 blob sha（与本地按 "blob <len>\0+内容" 算出的一致）；
+  // 响应缺 sha 时本地计算兜底。渲染侧据此在列表缓存过期窗口内也能拼出正确 ?v= 指纹。
+  // （>8MB 分片路径存的是 manifest+parts，无单一 blob，图片不会走该路径，故不涉及。）
+  if (isImagePath(path)) {
+    let blobSha = data && data.content && data.content.sha;
+    if (!/^[a-f0-9]{40}$/i.test(String(blobSha || ""))) {
+      blobSha = await gitBlobShaFromBase64(body.content);
+    }
+    try {
+      const store = new Store(env, ctx);
+      recordAssetSha(store, repo, branch, path, blobSha);
+    } catch (e) { /* KV 未绑定等：跳过元数据写入 */ }
+  }
+
   return driveOk({
     ok: true,
     path,
@@ -2810,7 +2991,7 @@ async function handleDrive(request, env, ctx, url) {
         413
       );
     }
-    return finishDriveWrite(await driveSaveFile(env, path, body.content, body.message, false), [path]);
+    return finishDriveWrite(await driveSaveFile(env, path, body.content, body.message, false, ctx), [path]);
   }
 
   // ---- 更新（必须先存在，后端自动 GET sha）----
@@ -2832,7 +3013,7 @@ async function handleDrive(request, env, ctx, url) {
         413
       );
     }
-    return finishDriveWrite(await driveSaveFile(env, path, body.content, body.message, true), [path]);
+    return finishDriveWrite(await driveSaveFile(env, path, body.content, body.message, true, ctx), [path]);
   }
 
   // ---- v9.2 大文件安全重命名 ----------------------------------------
@@ -3465,6 +3646,18 @@ async function loadAlbumFromGithub(store, site) {
   // v23.0.1：全目录（含 thumbs/）sha 索引 —— 图片替换后 blob sha 变化 → URL ?v= 变化
   const shaByPath = new Map(files.map((f) => [f.path, f.sha || ""]));
 
+  // v23.1 事项1：读取上传/替换时写入的 KV sha 元数据，按「时间戳新者胜」修正指纹。
+  // 图片刚替换完而 gh_ 列表缓存仍新鲜时，列表里的还是旧 sha——配合下发层
+  // private+immutable 一年，指纹错一次 = 旧图钉死一年；元数据在写入那一刻就有了新 sha。
+  let listFetchedAt = null;
+  try {
+    const env0 = safeJsonParse(
+      await store.getRaw(KEYS.ghCache("cache", site.githubRepo, branch, albumPath, useCdn)), null
+    );
+    if (env0 && Number(env0.time) > 0) listFetchedAt = Number(env0.time);
+  } catch (e) { /* 拿不到列表抓取时间 → 按新鲜列表处理 */ }
+  await applyShaMetadata(shaByPath, store, site.githubRepo, branch, albumPath, listFetchedAt);
+
   // 仅在目录中确实存在配置文件时才拉取内容（无配置时零额外请求）
   let config = null;
   if (files.some((f) => f.path === configName)) {
@@ -3517,9 +3710,10 @@ async function loadAlbumFromGithub(store, site) {
       title: "",
       category: cat,
       date: "",
-      mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.path, f.sha || ""),
+      mirrors: buildImageMirrors(site.githubRepo, branch, albumPath, f.path,
+        shaByPath.get(f.path) || f.sha || ""),
       thumbs: buildThumbMirrors(site.githubRepo, branch, albumPath, f.path,
-        shaByPath.get(`${THUMB_DIR}/${f.path}`) || f.sha || ""),
+        shaByPath.get(`${THUMB_DIR}/${f.path}`) || shaByPath.get(f.path) || f.sha || ""),
     });
     bump(cat);
   }
@@ -3552,6 +3746,15 @@ async function loadMusicFromGithub(store, site) {
       shaByName = new Map(
         (dirFiles || []).filter((f) => f.type === "file").map((f) => [f.name, f.sha || ""])
       );
+      // v23.1 事项1：封面/歌曲文件上传/替换后，KV sha 元数据即时生效（同相册逻辑）
+      let musicFetchedAt = null;
+      try {
+        const mEnv = safeJsonParse(
+          await store.getRaw(KEYS.ghCache("cache", repo, branch, musicPath, useCdn)), null
+        );
+        if (mEnv && Number(mEnv.time) > 0) musicFetchedAt = Number(mEnv.time);
+      } catch (e) { /* 拿不到列表抓取时间 → 按新鲜列表处理 */ }
+      await applyShaMetadata(shaByName, store, repo, branch, musicPath, musicFetchedAt);
     } catch (e) { /* sha 拿不到就退化为无版本 URL */ }
     const nameSha = (file) => shaByName.get(String(file || "").replace(/^\/+/, "")) || "";
     return entries
