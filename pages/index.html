@@ -876,7 +876,7 @@
       const countUpEl = (el, target) => {
         if (!el) return;
         const n = Number(target);
-        if (!Number.isFinite(n)) { el.textContent = String(target); return; }
+        if (!Number.isFinite(n)) return; /* 接口缺 key（undefined/NaN）时不覆写 DOM，保留当前值 */
         if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           el.textContent = String(n);
           return;
