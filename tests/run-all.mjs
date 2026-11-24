@@ -54,6 +54,7 @@ const SUITES = [
   { name: "v21.0 Worker 计算中心 / DOM 渲染拦截", file: "step33-v21-worker-dom.mjs" },
   { name: "v23.0.1 图片 URL 指纹化", file: "step34-image-version.mjs" },
   { name: "v23.1 图片哈希 KV 元数据", file: "step35-v231-sha-metadata.mjs" },
+  { name: "v23.1 后台操作日志 KV + 查询接口", file: "step36-v231-oplog.mjs" },
 ];
 
 function runSuite(file) {

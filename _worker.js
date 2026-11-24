@@ -1053,6 +1053,75 @@ async function applyShaMetadata(shaByPath, store, repo, branch, prefix, listFetc
 }
 
 // ============================================================
+// 7.8 后台操作日志（v23.1 事项2）
+// ------------------------------------------------------------
+// 背景：后台的每次增删改（发文/删文/改站点/云盘上传删除/图片替换等）
+// 此前只作用于各自的数据，没有统一的操作留痕，出问题无从追溯。
+// 本节把「后台写操作成功」事件统一写入 KV，并提供最近 50 条的查询接口。
+//
+// 设计约束：
+//   - 单键数组（oplog_recent）存最近 OPLOG_MAX 条，新在前、旧的淘汰——
+//     正好匹配「最近 50 条」的查询语义，不需要维护额外的索引键；
+//   - 读改写走 withWriteLock("oplog") 串行化，防并发写互相覆盖丢条目；
+//   - 记录是旁路动作：任何失败（KV 未绑定/写失败）都静默吞掉，
+//     绝不影响业务写操作的响应；
+//   - 条目只含 { t 时间, op 操作, obj 对象 }，长度截断，防单条膨胀。
+// ============================================================
+
+const OPLOG_KEY = "oplog_recent";
+const OPLOG_MAX = 50;
+
+/** 操作名/对象名的长度上限（防超长标题/路径把 KV value 撑爆） */
+const OPLOG_OP_MAX = 120;
+const OPLOG_OBJ_MAX = 200;
+
+/** 从路由参数与请求体里提取「对象」标识：ID 优先，其次标题/名称 */
+function oplogDescribeObject(params, body) {
+  const raw =
+    (params && (params.id || params.commentId || params.gameId || params.uploadId)) ||
+    (body && (body.title || body.name || body.id || body.path)) ||
+    "";
+  return String(raw).slice(0, OPLOG_OBJ_MAX);
+}
+
+/**
+ * 记录一条后台操作日志（尽力而为，失败静默）。
+ * 读改写串行化 + 条目截断 + 50 条上限淘汰。
+ * @param {object|null} store KV Store（null 等价于跳过，如 KV 未绑定）
+ * @param {string} op 操作（如 "/api/posts"、"POST /api/github/api/.../contents/x.jpg"）
+ * @param {string} obj 对象标识（文章标题/文件路径/留言 ID 等）
+ */
+async function recordOplog(store, op, obj) {
+  try {
+    if (!store) return;
+    await withWriteLock("oplog", async () => {
+      const list = await store.getJson(OPLOG_KEY, []);
+      const arr = Array.isArray(list) ? list : [];
+      arr.unshift({
+        t: new Date().toISOString(),
+        op: String(op || "").slice(0, OPLOG_OP_MAX),
+        obj: String(obj || "").slice(0, OPLOG_OBJ_MAX),
+      });
+      await store.putJson(OPLOG_KEY, arr.slice(0, OPLOG_MAX));
+    });
+  } catch (e) { /* 操作日志是旁路动作，失败不影响写结果 */ }
+}
+
+/**
+ * 读取最近 n 条操作日志（新在前）。
+ * @returns {Promise<Array>} 日志数组（KV 无数据/损坏时返回空数组）
+ */
+async function listRecentOplogs(store, n) {
+  try {
+    const list = await store.getJson(OPLOG_KEY, []);
+    if (!Array.isArray(list)) return [];
+    return list.slice(0, n);
+  } catch (e) {
+    return [];
+  }
+}
+
+// ============================================================
 // 8. GitHub —— 远程数据源
 // ------------------------------------------------------------
 // 针对国内访问 GitHub 不稳定的优化设计：
@@ -3958,6 +4027,14 @@ const handlers = {
     return await Repo.getSite(ctx.store);
   },
 
+  // v23.1 事项2：最近 50 条后台操作日志（需管理员鉴权，不在边缘缓存 TTL 表内）
+  async listOplogs(ctx) {
+    const raw = parseInt(ctx.url.searchParams.get("n") || "50", 10);
+    const n = Number.isFinite(raw) ? Math.max(1, Math.min(raw, 50)) : 50;
+    const logs = await listRecentOplogs(ctx.store, n);
+    return ok({ logs, count: logs.length, max: OPLOG_MAX });
+  },
+
   async updateSite(ctx) {
     const body = ctx.body;
     const allowed = [
@@ -5053,6 +5130,7 @@ const ROUTES = [
   ["GET", "/api/game/scores", handlers.listGameScores, false, false],
   ["GET", "/api/album/photos", handlers.listAlbumPhotos, false, false],
   ["GET", "/api/github-status", handlers.getGithubStatus, true, false],
+  ["GET", "/api/oplogs", handlers.listOplogs, true, false],
   ["GET", "/api/backup/export", handlers.exportBackup, true, false],
 
   // POST —— 公开
@@ -5431,12 +5509,48 @@ async function dispatchApi(request, env, ctx, url) {
     } catch (e) {
       /* KV 未绑时代理仍可用（仅丢失 Token 失效记录） */
     }
-    return handleGithubProxy(request, env, ctx, url, proxyStore);
+    // v23.1 事项2：日志需要读请求体提取对象（branch 等）——必须在分发前克隆，
+    // 分发消费原 body 之后再 clone() 会抛 unusable
+    const isProxyWrite = request.method !== "GET";
+    const logClone = isProxyWrite ? request.clone() : null;
+    const res = await handleGithubProxy(request, env, ctx, url, proxyStore);
+    // 代理写方法成功（2xx）→ 记录操作日志（旁路动作，失败静默）
+    if (isProxyWrite && res.status >= 200 && res.status < 300) {
+      try {
+        let gObj = "";
+        const rest = url.pathname.replace(/^\/api\/github\//, "");
+        if (rest.startsWith("api/")) {
+          const gb = logClone ? await logClone.json().catch(() => null) : null;
+          const t = parseContentsWriteTarget(rest.slice(4), gb);
+          gObj = t ? `${t.repo}/${t.branch}/${t.path}` : "";
+        }
+        await recordOplog(proxyStore, `${request.method} ${url.pathname}`, gObj);
+      } catch (e) { /* 操作日志是旁路动作，失败不影响写结果 */ }
+    }
+    return res;
   }
 
   // 云盘代理（文件管理器）：PIN 保护 + GitHub Contents 读写，同样不依赖 KV
   if (url.pathname.startsWith("/api/drive/")) {
-    return handleDrive(request, env, ctx, url);
+    // v23.1 事项2：同上，日志读体在分发前克隆；分片 part 不记日志，也不必克隆
+    const isDriveWrite = request.method !== "GET" && !url.pathname.endsWith("/part");
+    const driveClone = isDriveWrite ? request.clone() : null;
+    const res = await handleDrive(request, env, ctx, url);
+    // 云盘写操作成功 → 记录操作日志（旁路动作，失败静默）。
+    // 只记用户语义的整文件动作（upload/update/rename/delete/finish 等），避免刷屏。
+    if (isDriveWrite && res.status === 200) {
+      try {
+        let dStore = null;
+        try { dStore = new Store(env, ctx); } catch (e) { /* KV 未绑定：跳过 */ }
+        let dObj = url.searchParams.get("path") || "";
+        if (!dObj && driveClone) {
+          const db = await driveClone.json().catch(() => null);
+          dObj = (db && (db.path || db.name || db.uploadId)) || "";
+        }
+        await recordOplog(dStore, url.pathname, String(dObj || ""));
+      } catch (e) { /* 操作日志是旁路动作，失败不影响写结果 */ }
+    }
+    return res;
   }
 
   // v13.0 极客工具箱：后端增强接口（不依赖 KV / 不走 ROUTES 表），
@@ -5473,7 +5587,14 @@ async function dispatchApi(request, env, ctx, url) {
     context.body = body;
   }
 
-  return await route.handler(context);
+  const result = await route.handler(context);
+
+  // v23.1 事项2：后台写操作成功 → 记录操作日志（旁路动作，失败静默）。
+  // needAuth 且 POST 才记（GET 的鉴权只读接口如 github-status/备份导出不记）。
+  if (route.needAuth && request.method === "POST") {
+    await recordOplog(store, url.pathname, oplogDescribeObject(params, context.body));
+  }
+  return result;
 }
 
 /**
